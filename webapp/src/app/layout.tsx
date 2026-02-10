@@ -7,6 +7,8 @@ import { SidebarProvider } from "@/context/SidebarContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 
+import { TenantProvider } from "@/context/TenantContext";
+
 const outfit = Outfit({
   subsets: ["latin"],
 });
@@ -21,7 +23,9 @@ export default function RootLayout({
       <body suppressHydrationWarning={true} className={`${outfit.className} dark:bg-gray-900`}>
         <ThemeProvider>
           <AuthProvider>
-            <SidebarProvider>{children}</SidebarProvider>
+            <TenantProvider>
+              <SidebarProvider>{children}</SidebarProvider>
+            </TenantProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>
