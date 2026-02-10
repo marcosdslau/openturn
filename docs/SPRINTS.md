@@ -99,9 +99,9 @@ enum ENUM_ACAO_PASSAGEM {
 **Entregáveis:**
 - [x] `docker-compose.yml` funcional
 - [x] Schema Prisma com tabelas base
-- [ ] Policies RLS no PostgreSQL
-- [ ] Módulo de autenticação (JWT)
-- [ ] Script de seed
+- [x] Policies RLS no PostgreSQL (`setup-rls.sql`)
+- [x] Módulo de autenticação (JWT + bcrypt)
+- [x] Script de seed (`prisma/seed.ts`)
 
 ---
 
@@ -120,10 +120,10 @@ enum ENUM_ACAO_PASSAGEM {
 | 2.7 | Como Gestor, quero uma API de consulta de passagens | MUST | GET com filtros por data, pessoa, catraca |
 
 **Entregáveis:**
-- [ ] Módulos NestJS: Cliente, Instituição, Pessoa, Matrícula, Equipamento
-- [ ] Módulo NestJS: RegistroPassagem (consulta + inserção)
-- [ ] Validação de DTOs com `class-validator`
-- [ ] Paginação padronizada
+- [x] Módulos NestJS: Cliente, Instituição, Pessoa, Matrícula, Equipamento
+- [x] Módulo NestJS: RegistroPassagem (consulta com filtros + inserção)
+- [x] Validação de DTOs com `class-validator`
+- [x] Paginação padronizada (`PaginationDto` + `PaginatedResult`)
 
 ---
 
@@ -140,10 +140,10 @@ enum ENUM_ACAO_PASSAGEM {
 | 3.5 | Como Gestor, quero sincronizar pessoas com a catraca | MUST | Comando de sincronização envia usuários ao equipamento |
 
 **Entregáveis:**
-- [ ] Módulo NestJS: ControlId Integration
-- [ ] Endpoints Push, Result, Monitor, Online
-- [ ] Serviço de enfileiramento de comandos
-- [ ] Gravação automática de passagens na `REGRegistroPassagem`
+- [x] Módulo NestJS: ControlId Integration (`ControlidModule`)
+- [x] Endpoints Push, Result, Monitor, Online
+- [x] Serviço de enfileiramento de comandos (DB: `CMDComandoFila`)
+- [x] Gravação automática de passagens na `REGRegistroPassagem`
 
 ---
 
@@ -160,11 +160,11 @@ enum ENUM_ACAO_PASSAGEM {
 | 4.5 | Como Gestor, quero telas de CRUD para Pessoas e Equipamentos | SHOULD | Formulários de cadastro e listagem |
 
 **Entregáveis:**
-- [ ] Layout base TailAdmin com navegação por tenant
-- [ ] Página de Dashboard com cards e gráficos
-- [ ] Página de Passagens (lista + filtros)
-- [ ] Páginas CRUD (Pessoas, Equipamentos)
-- [ ] Login e controle de acesso por grupo
+- [x] Layout base TailAdmin com navegação por tenant
+- [x] Página de Dashboard com cards e gráficos
+- [x] Página de Passagens (lista + filtros)
+- [x] Páginas CRUD (Pessoas, Equipamentos)
+- [x] Login e controle de acesso por grupo
 
 ---
 
@@ -292,10 +292,10 @@ graph LR
 
 | Sprint | Status | Progresso |
 |--------|--------|-----------|
-| Sprint 1 | 🟡 Em andamento | Docker ✅ Schema ✅ RLS ⬜ Auth ⬜ Seed ⬜ |
-| Sprint 2 | ⬜ Não iniciado | — |
-| Sprint 3 | ⬜ Não iniciado | — |
-| Sprint 4 | ⬜ Não iniciado | — |
+| Sprint 1 | ✅ Concluído | Docker ✅ Schema ✅ RLS ✅ Auth ✅ Seed ✅ |
+| Sprint 2 | ✅ Concluído | Módulos ✅ Passagens ✅ DTOs ✅ Paginação ✅ |
+| Sprint 3 | ✅ Concluído | ControlId ✅ Push ✅ Monitor ✅ Online ✅ Sync ✅ |
+| Sprint 4 | ✅ Concluído | Dashboard ✅ Passagens ✅ CRUDs ✅ Auth ✅ Tenant ✅ |
 | Sprint 5 | ⬜ Não iniciado | — |
 | Sprint 6 | ⬜ Não iniciado | — |
 | Sprint 7 | ⬜ Não iniciado | — |

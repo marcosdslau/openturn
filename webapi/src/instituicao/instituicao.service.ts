@@ -1,21 +1,52 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { Prisma } from '@prisma/client';
+import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
+import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
 
 @Injectable()
 export class InstituicaoService {
     constructor(private prisma: PrismaService) { }
 
-    create(data: Prisma.INSInstituicaoUncheckedCreateInput) {
-        return this.prisma.iNSInstituicao.create({ data });
+    async create(dto: CreateInstituicaoDto) {
+        return this.prisma.iNSInstituicao.create({ data: dto });
     }
 
-    findAll() {
-        // Para listar instituições, geralmente usamos o prisma normal ou RLS dependendo do cargo
-        return this.prisma.iNSInstituicao.findMany();
+    async findAll(query: PaginationDto): Promise<PaginatedResult<any>> {
+        const { page, limit } = query;
+        const skip = (page - 1) * limit;
+
+        const [data, total] = await Promise.all([
+            this.prisma.iNSInstituicao.findMany({
+                skip,
+                take: limit,
+                include: { cliente: { select: { CLICodigo: true, CLINome: true } } },
+                orderBy: { INSCodigo: 'desc' },
+            }),
+            this.prisma.iNSInstituicao.count(),
+        ]);
+
+        return {
+            data,
+            meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
+        };
     }
 
-    findOne(id: number) {
-        return this.prisma.iNSInstituicao.findUnique({ where: { INSCodigo: id } });
+    async findOne(id: number) {
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: id },
+            include: { cliente: true },
+        });
+        if (!inst) throw new NotFoundException(`Instituição ${id} não encontrada`);
+        return inst;
+    }
+
+    async update(id: number, dto: UpdateInstituicaoDto) {
+        await this.findOne(id);
+        return this.prisma.iNSInstituicao.update({ where: { INSCodigo: id }, data: dto });
+    }
+
+    async remove(id: number) {
+        await this.findOne(id);
+        return this.prisma.iNSInstituicao.delete({ where: { INSCodigo: id } });
     }
 }

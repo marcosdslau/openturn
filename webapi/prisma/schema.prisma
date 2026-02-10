@@ -15,6 +15,11 @@ enum GrupoAcesso {
   OPERACAO
 }
 
+enum AcaoPassagem {
+  ENTRADA
+  SAIDA
+}
+
 model CLICliente {
   CLICodigo    Int              @id @default(autoincrement())
   CLINome      String
@@ -26,26 +31,28 @@ model CLICliente {
 }
 
 model INSInstituicao {
-  INSCodigo        Int               @id @default(autoincrement())
+  INSCodigo        Int                   @id @default(autoincrement())
   CLICodigo        Int
-  cliente          CLICliente        @relation(fields: [CLICodigo], references: [CLICodigo])
+  cliente          CLICliente            @relation(fields: [CLICodigo], references: [CLICodigo])
   INSNome          String
   INSCodigoExterno String?
-  INSAtivo         Boolean           @default(true)
-  createdAt        DateTime          @default(now())
+  INSAtivo         Boolean               @default(true)
+  createdAt        DateTime              @default(now())
   pessoas          PESPessoa[]
   matriculas       MATMatricula[]
   equipamentos     EQPEquipamento[]
   erpConfig        ERPConfiguracao[]
   usuarios         USRUsuario[]
+  passagens        REGRegistroPassagem[]
+  cmdcomandoFilas  CMDComandoFila[]
 }
 
 model PESPessoa {
-  PESCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int                   @id @default(autoincrement())
   PESIdExterno         String?
   PESNome              String
   PESNomeSocial        String?
-  PESDocumento         String?        @unique
+  PESDocumento         String?               @unique
   PESEmail             String?
   PESTelefone          String?
   PESCelular           String?
@@ -53,13 +60,14 @@ model PESPessoa {
   PESFotoExtensao      String?
   PESGrupo             String?
   PESCartaoTag         String?
-  PESAtivo             Boolean        @default(true)
+  PESAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int
-  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
   deletedAt            DateTime?
   matriculas           MATMatricula[]
+  passagens            REGRegistroPassagem[]
 }
 
 model MATMatricula {
@@ -70,20 +78,24 @@ model MATMatricula {
   MATCurso             String?
   MATSerie             String?
   MATTurma             String?
+  MATAtivo             Boolean        @default(true)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
 }
 
 model EQPEquipamento {
-  EQPCodigo            Int            @id @default(autoincrement())
+  EQPCodigo            Int                   @id @default(autoincrement())
   EQPDescricao         String?
   EQPMarca             String?
   EQPModelo            String?
   EQPEnderecoIp        String?
+  EQPAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int
-  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  createdAt            DateTime       @default(now())
+  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime              @default(now())
+  passagens            REGRegistroPassagem[]
+  cmdcomandoFilas      CMDComandoFila[]
 }
 
 model ERPConfiguracao {
@@ -98,14 +110,51 @@ model ERPConfiguracao {
 }
 
 model USRUsuario {
-  USRCodigo    Int             @id @default(autoincrement())
-  USRNome      String
-  USREmail     String          @unique
-  USRSenha     String
-  USRGrupo     GrupoAcesso
-  CLICodigo    Int?
-  cliente      CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
-  INSCodigo    Int?
-  instituicao  INSInstituicao? @relation(fields: [INSCodigo], references: [INSCodigo])
-  createdAt    DateTime        @default(now())
+  USRCodigo   Int             @id @default(autoincrement())
+  USRNome     String
+  USREmail    String          @unique
+  USRSenha    String
+  USRGrupo    GrupoAcesso
+  CLICodigo   Int?
+  cliente     CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSCodigo   Int?
+  instituicao INSInstituicao? @relation(fields: [INSCodigo], references: [INSCodigo])
+  createdAt   DateTime        @default(now())
+}
+
+model REGRegistroPassagem {
+  REGCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  REGAcao              AcaoPassagem
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  REGTimestamp         BigInt
+  REGDataHora          DateTime
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+enum StatusComando {
+  PENDENTE
+  ENVIADO
+  EXECUTADO
+  ERRO
+}
+
+model CMDComandoFila {
+  CMDCodigo            Int            @id @default(autoincrement())
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  CMDVerb              String         @default("POST")
+  CMDEndpoint          String
+  CMDBody              Json?
+  CMDContentType       String         @default("application/json")
+  CMDStatus            StatusComando  @default(PENDENTE)
+  CMDResultado         Json?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 }
