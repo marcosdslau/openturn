@@ -1,0 +1,68 @@
+// Use DBML to define your database structure
+// Docs: https://dbml.dbdiagram.io/docs
+
+Table PESPessoa {
+  PESCodigo integer [primary key]
+  nome varchar
+  documento varchar
+  email varchar
+  created_at timestamp
+}
+
+Table PSFPessoa {
+  PSFCodigo integer [primary key]
+  rg varchar
+  dataNascimento text [note: 'Content of the post']
+  PESCodigo integer [not null]
+  status varchar
+  created_at timestamp
+}
+
+
+Table PROProfessor {
+  PROCodigo integer [primary key]
+  curso varchar
+  dataNascimento text [note: 'Content of the post']
+  PESCodigo integer [not null]
+  status varchar
+  created_at timestamp
+}
+
+Ref: PSFPessoa.PSFCodigo - PROProfessor.PESCodigo
+
+Table FUNFuncionario {
+  FUNCodigo integer [primary key]
+  cargo varchar
+  dataNascimento text [note: 'Content of the post']
+  PESCodigo integer [not null]
+  status varchar
+  created_at timestamp
+}
+
+Ref: PSFPessoa.PSFCodigo - FUNFuncionario.PESCodigo
+
+
+Table PSJPessoa {
+  PSJCodigo integer [primary key]
+  inscricaoEstadual varchar
+  inscricaoMunicipal varchar
+  PESCodigo integer [not null]
+  status varchar
+  created_at timestamp
+}
+
+Ref: PESPessoa.PESCodigo < PSFPessoa.PESCodigo
+
+Ref: PESPessoa.PESCodigo < PSJPessoa.PESCodigo
+
+
+Table CONContrato {
+  CONCodigo integer [primary key]
+  CONDataInicio date
+  CONDataFim date
+  PESCodigo integer [not null]
+  status varchar
+  created_at timestamp
+}
+
+Ref: CONContrato.PESCodigo > PESPessoa.PESCodigo

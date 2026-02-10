@@ -1,0 +1,123 @@
+{
+  "version": "1.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "detailLevel": "All",
+  "tablePositions": [
+    {
+      "name": "PESPessoa",
+      "schemaName": "public",
+      "x": 405.5009359301267,
+      "y": 71.65363984635633
+    },
+    {
+      "name": "PSFPessoa",
+      "schemaName": "public",
+      "x": 801.3797434536386,
+      "y": -208.44492665762724
+    },
+    {
+      "name": "PROProfessor",
+      "schemaName": "public",
+      "x": 1301.9049792586125,
+      "y": -481.15984219378186
+    },
+    {
+      "name": "FUNFuncionario",
+      "schemaName": "public",
+      "x": 1301.9049792586125,
+      "y": -124.00329565919782
+    },
+    {
+      "name": "PSJPessoa",
+      "schemaName": "public",
+      "x": 809.5647713273439,
+      "y": 99.78046769290415
+    },
+    {
+      "name": "CONContrato",
+      "schemaName": "public",
+      "x": -30.44325573653437,
+      "y": 254.15250301522656
+    }
+  ],
+  "tableGroupCollapseStates": [],
+  "stickyNoteLayouts": [],
+  "referencePaths": [
+    {
+      "firstFieldNames": [
+        "PSFCodigo"
+      ],
+      "firstTableName": "PSFPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "PROProfessor",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PSFCodigo"
+      ],
+      "firstTableName": "PSFPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "FUNFuncionario",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PESCodigo"
+      ],
+      "firstTableName": "PESPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "PSFPessoa",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PESCodigo"
+      ],
+      "firstTableName": "PESPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "PSJPessoa",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PESCodigo"
+      ],
+      "firstTableName": "CONContrato",
+      "firstSchemaName": "public",
+      "firstRelation": "*",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "PESPessoa",
+      "secondSchemaName": "public",
+      "secondRelation": "1",
+      "checkPoints": []
+    }
+  ]
+}
