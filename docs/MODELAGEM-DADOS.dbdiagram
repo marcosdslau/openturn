@@ -1,0 +1,174 @@
+{
+  "version": "1.0.0",
+  "darkMode": true,
+  "gridEnabling": false,
+  "detailLevel": "All",
+  "tablePositions": [
+    {
+      "name": "CLICliente",
+      "schemaName": "public",
+      "x": 0,
+      "y": 50
+    },
+    {
+      "name": "INSInstituicao",
+      "schemaName": "public",
+      "x": 275.111328125,
+      "y": 50
+    },
+    {
+      "name": "PESPessoa",
+      "schemaName": "public",
+      "x": 550.6796875,
+      "y": 50
+    },
+    {
+      "name": "MATMatricula",
+      "schemaName": "public",
+      "x": 878.38427734375,
+      "y": 50
+    },
+    {
+      "name": "EQPEquipamento",
+      "schemaName": "public",
+      "x": 0,
+      "y": 292
+    },
+    {
+      "name": "ERPConfiguracao",
+      "schemaName": "public",
+      "x": 275.111328125,
+      "y": 324
+    },
+    {
+      "name": "USRUsuario",
+      "schemaName": "public",
+      "x": 550.6796875,
+      "y": 676
+    }
+  ],
+  "tableGroupCollapseStates": [],
+  "stickyNoteLayouts": [],
+  "referencePaths": [
+    {
+      "firstFieldNames": [
+        "CLICodigo"
+      ],
+      "firstTableName": "CLICliente",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "CLICodigo"
+      ],
+      "secondTableName": "INSInstituicao",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "PESPessoa",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PESCodigo"
+      ],
+      "firstTableName": "PESPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "MATMatricula",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "MATMatricula",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "EQPEquipamento",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "ERPConfiguracao",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "CLICodigo"
+      ],
+      "firstTableName": "CLICliente",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "CLICodigo"
+      ],
+      "secondTableName": "USRUsuario",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSCodigo"
+      ],
+      "secondTableName": "USRUsuario",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    }
+  ]
+}

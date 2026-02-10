@@ -1,0 +1,173 @@
+// Modelagem de Dados OpenTurn (DBML)
+// Ref: Estrutura Cliente -> Instituições com Tenant RLS
+
+Table CLICliente {
+  CLICodigo Int [pk, increment]
+  CLINome String [not null]
+  CLIDocumento String [unique] // CNPJ
+  CLIAtivo Boolean [default: true]
+  createdAt timestamp [default: `now()`]
+}
+
+Table INSInstituicao {
+  INSCodigo Int [pk, increment]
+  CLICodigo Int [ref: > CLICliente.CLICodigo]
+  INSNome String [not null]
+  INSCodigoExterno String // Identificador no ERP
+  INSAtivo Boolean [default: true]
+  createdAt timestamp [default: `now()`]
+}
+
+Table PESPessoa {
+  PESCodigo Int [pk, increment, note: 'Inicia em 100']
+  PESIdExterno String [note: 'ID do aluno/pessoa no ERP externo']
+  PESNome String [not null]
+  PESNomeSocial String
+  PESDocumento String [unique, note: 'CPF ou CNPJ']
+  PESEmail String
+  PESTelefone String
+  PESCelular String
+  PESFotoBase64 String [note: 'String base64 da foto']
+  PESFotoExtensao String [note: 'Extensão da foto (jpg, png)']
+  PESGrupo String [note: 'Grupo da pessoa (ex: Aluno, Prof, Funcionario)']
+  PESCartaoTag String [note: 'Código do cartão/tag RFID']
+  PESAtivo Boolean [default: true]
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp [default: `now()`]
+  deletedAt timestamp
+}
+
+Table MATMatricula {
+  MATCodigo Int [pk, increment]
+  PESCodigo Int [ref: > PESPessoa.PESCodigo]
+  MATNumero String [not null, note: 'Código de Matrícula']
+  MATCurso String
+  MATSerie String
+  MATTurma String
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
+  createdAt timestamp [default: `now()`]
+}
+
+Table EQPEquipamento {
+  EQPCodigo Int [pk, increment]
+  EQPDescricao String
+  EQPMarca String [note: 'Ex: ControlId']
+  EQPModelo String [note: 'Ex: iDNext, iDNext+iDFace, iDNext+iDFaceMax, iDBlock, iDBlock+iDFace, iDBlock+iDFaceMax']
+  EQPEnderecoIp String
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
+  createdAt timestamp [default: `now()`]
+}
+
+Table ERPConfiguracao {
+  ERPCodigo Int [pk, increment]
+  ERPSistema String [note: 'Gennera, Perseus, Lyceum, Mentor, Sponte, Sophia']
+  ERPUrlBase String
+  ERPToken String
+  ERPConfigJson Json [note: 'Configurações específicas de cada ERP']
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
+  createdAt timestamp [default: `now()`]
+}
+
+Table USRUsuario {
+  USRCodigo Int [pk, increment]
+  USRNome String [not null]
+  USREmail String [unique]
+  USRSenha String
+  USRGrupo ENUM_GRUPO_ACESSO
+  CLICodigo Int [ref: > CLICliente.CLICodigo, note: 'Null para Super Root/Super Admin']
+  INSCodigo Int [ref: > INSInstituicao.INSCodigo, note: 'Null para Admin em diante']
+}
+
+enum ENUM_GRUPO_ACESSO {
+  SUPER_ROOT
+  SUPER_ADMIN
+  ADMIN
+  GESTOR
+  OPERACAO
+}
+
+// === CORE: Registro de Passagens em Catracas ===
+
+Table REGRegistroPassagem {
+  REGCodigo            Int       [pk, increment]
+  PESCodigo            Int       [ref: > PESPessoa.PESCodigo, note: 'Pessoa que passou na catraca']
+  REGAcao              ENUM_ACAO_PASSAGEM [not null, note: 'ENTRADA ou SAIDA']
+  EQPCodigo            Int       [ref: > EQPEquipamento.EQPCodigo, note: 'Catraca onde ocorreu a passagem']
+  REGTimestamp         BigInt    [not null, note: 'Unix timestamp do momento da passagem (epoch)']
+  REGDataHora          DateTime  [not null, note: 'Data e hora legível da passagem']
+  INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo, note: 'Tenant - RLS']
+  createdAt            DateTime  [default: `now()`]
+}
+
+enum ENUM_ACAO_PASSAGEM {
+  ENTRADA
+  SAIDA
+}
+
+// === ENGINE: Rotinas Dinâmicas (Schedule + Webhook) ===
+
+Table ROTRotina {
+  ROTCodigo            Int       [pk, increment]
+  ROTNome              String    [not null, note: 'Nome descritivo da rotina']
+  ROTDescricao         String    [note: 'Descrição do que a rotina faz']
+  ROTTipo              ENUM_TIPO_ROTINA [not null, note: 'SCHEDULE ou WEBHOOK']
+
+  // --- Campos para SCHEDULE (CronJob) ---
+  ROTCronExpressao     String    [note: 'Expressão cron (ex: 0 */6 * * *). Obrigatório se tipo=SCHEDULE']
+
+  // --- Campos para WEBHOOK ---
+  ROTWebhookPath       String    [note: 'Path relativo do webhook (ex: /sync-alunos). Base fixa: /instituicao/:cod/webhook/...']
+  ROTWebhookMetodo     ENUM_HTTP_METODO [note: 'GET, POST, PUT, PATCH. Obrigatório se tipo=WEBHOOK']
+
+  // --- Código JavaScript (Monaco Editor) ---
+  ROTCodigoJS          String    [not null, note: 'Código JavaScript da rotina, editado via Monaco Editor no frontend']
+
+  // --- Controle ---
+  ROTAtivo             Boolean   [default: true]
+  ROTTimeout           Int       [default: 30000, note: 'Timeout de execução em ms (default 30s)']
+
+  // --- Tenant + Audit ---
+  INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo, note: 'Tenant - RLS']
+  createdAt            DateTime  [default: `now()`]
+  updatedAt            DateTime  [default: `now()`]
+  createdBy            Int       [ref: > USRUsuario.USRCodigo, note: 'Usuário que criou']
+}
+
+Table ROTExecucaoLog {
+  EXECodigo            Int       [pk, increment]
+  ROTCodigo            Int       [ref: > ROTRotina.ROTCodigo, note: 'Rotina executada']
+  EXEStatus            ENUM_STATUS_EXECUCAO [not null, note: 'SUCESSO, ERRO, TIMEOUT']
+  EXEInicio            DateTime  [not null, note: 'Início da execução']
+  EXEFim               DateTime  [note: 'Fim da execução']
+  EXEDuracaoMs         Int       [note: 'Duração em milissegundos']
+  EXEResultado         Json      [note: 'Saída/retorno da execução (JSON)']
+  EXEErro              String    [note: 'Mensagem de erro se falhou']
+  EXETrigger           String    [note: 'O que disparou: CRON, WEBHOOK, MANUAL']
+
+  // --- Contexto do Webhook (se aplicável) ---
+  EXERequestBody       Json      [note: 'Body da requisição webhook']
+  EXERequestParams     Json      [note: 'Query params da requisição webhook']
+  EXERequestPath       String    [note: 'Path completo da requisição webhook']
+
+  INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo, note: 'Tenant - RLS']
+  createdAt            DateTime  [default: `now()`]
+}
+
+enum ENUM_TIPO_ROTINA {
+  SCHEDULE
+  WEBHOOK
+}
+
+enum ENUM_HTTP_METODO {
+  GET
+  POST
+  PUT
+  PATCH
+}
+
+enum ENUM_STATUS_EXECUCAO {
+  SUCESSO
+  ERRO
+  TIMEOUT
+}

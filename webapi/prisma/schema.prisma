@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GrupoAcesso {
+  SUPER_ROOT
+  SUPER_ADMIN
+  ADMIN
+  GESTOR
+  OPERACAO
+}
+
+model CLICliente {
+  CLICodigo    Int              @id @default(autoincrement())
+  CLINome      String
+  CLIDocumento String?          @unique
+  CLIAtivo     Boolean          @default(true)
+  createdAt    DateTime         @default(now())
+  instituicoes INSInstituicao[]
+  usuarios     USRUsuario[]
+}
+
+model INSInstituicao {
+  INSCodigo        Int               @id @default(autoincrement())
+  CLICodigo        Int
+  cliente          CLICliente        @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSNome          String
+  INSCodigoExterno String?
+  INSAtivo         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  pessoas          PESPessoa[]
+  matriculas       MATMatricula[]
+  equipamentos     EQPEquipamento[]
+  erpConfig        ERPConfiguracao[]
+  usuarios         USRUsuario[]
+}
+
+model PESPessoa {
+  PESCodigo            Int            @id @default(autoincrement())
+  PESIdExterno         String?
+  PESNome              String
+  PESNomeSocial        String?
+  PESDocumento         String?        @unique
+  PESEmail             String?
+  PESTelefone          String?
+  PESCelular           String?
+  PESFotoBase64        String?
+  PESFotoExtensao      String?
+  PESGrupo             String?
+  PESCartaoTag         String?
+  PESAtivo             Boolean        @default(true)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?
+  matriculas           MATMatricula[]
+}
+
+model MATMatricula {
+  MATCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  MATNumero            String
+  MATCurso             String?
+  MATSerie             String?
+  MATTurma             String?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model EQPEquipamento {
+  EQPCodigo            Int            @id @default(autoincrement())
+  EQPDescricao         String?
+  EQPMarca             String?
+  EQPModelo            String?
+  EQPEnderecoIp        String?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model ERPConfiguracao {
+  ERPCodigo            Int            @id @default(autoincrement())
+  ERPSistema           String
+  ERPUrlBase           String?
+  ERPToken             String?
+  ERPConfigJson        Json?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model USRUsuario {
+  USRCodigo    Int             @id @default(autoincrement())
+  USRNome      String
+  USREmail     String          @unique
+  USRSenha     String
+  USRGrupo     GrupoAcesso
+  CLICodigo    Int?
+  cliente      CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSCodigo    Int?
+  instituicao  INSInstituicao? @relation(fields: [INSCodigo], references: [INSCodigo])
+  createdAt    DateTime        @default(now())
+}
