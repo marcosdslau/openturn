@@ -8,7 +8,9 @@ import { SwitchContextDto } from './dto/switch-context.dto';
 export interface AcessoScope {
     grupo: string;
     clienteId: number | null;
+    clienteNome?: string | null;
     instituicaoId: number | null;
+    instituicaoNome?: string | null;
 }
 
 export interface JwtPayload {
@@ -48,7 +50,9 @@ export class AuthService {
         const acessos: AcessoScope[] = usuario.acessos.map((a) => ({
             grupo: a.grupo,
             clienteId: a.CLICodigo,
+            clienteNome: a.cliente?.CLINome,
             instituicaoId: a.INSInstituicaoCodigo,
+            instituicaoNome: a.instituicao?.INSNome,
         }));
 
         // Default: first scope as active
@@ -77,7 +81,11 @@ export class AuthService {
     async switchContext(userId: number, dto: SwitchContextDto) {
         const usuario = await this.prisma.uSRUsuario.findUnique({
             where: { USRCodigo: userId },
-            include: { acessos: true },
+            include: {
+                acessos: {
+                    include: { cliente: true, instituicao: true },
+                },
+            },
         });
 
         if (!usuario) {
@@ -87,7 +95,9 @@ export class AuthService {
         const acessos: AcessoScope[] = usuario.acessos.map((a) => ({
             grupo: a.grupo,
             clienteId: a.CLICodigo,
+            clienteNome: a.cliente?.CLINome,
             instituicaoId: a.INSInstituicaoCodigo,
+            instituicaoNome: a.instituicao?.INSNome,
         }));
 
         // Check if user is global (SUPER_ROOT or SUPER_ADMIN)
@@ -102,10 +112,33 @@ export class AuthService {
             const globalAccess = acessos.find(
                 (a) => a.grupo === 'SUPER_ROOT' || a.grupo === 'SUPER_ADMIN',
             );
+
+            // If switching to a specific context, try to fetch names for descriptors
+            let clienteNome: string | null = null;
+            let instituicaoNome: string | null = null;
+
+            if (dto.instituicaoId) {
+                const inst = await this.prisma.iNSInstituicao.findUnique({
+                    where: { INSCodigo: dto.instituicaoId },
+                    include: { cliente: true },
+                });
+                if (inst) {
+                    instituicaoNome = inst.INSNome;
+                    clienteNome = inst.cliente.CLINome;
+                }
+            } else if (dto.clienteId) {
+                const cli = await this.prisma.cLICliente.findUnique({
+                    where: { CLICodigo: dto.clienteId },
+                });
+                if (cli) clienteNome = cli.CLINome;
+            }
+
             activeScope = {
                 grupo: globalAccess!.grupo,
                 clienteId: dto.clienteId ?? null,
+                clienteNome,
                 instituicaoId: dto.instituicaoId ?? null,
+                instituicaoNome,
             };
         } else {
             // Scoped users: validate the requested context exists in their acessos

@@ -61,6 +61,37 @@ export default function UsuariosPage() {
     const [acessoTarget, setAcessoTarget] = useState<Usuario | null>(null);
     const [acessoForm, setAcessoForm] = useState({ grupo: "OPERACAO", clienteId: "", instituicaoId: "" });
 
+    // Client/Institution lists for selects
+    const [allClientes, setAllClientes] = useState<{ id: number; nome: string }[]>([]);
+    const [allInstituicoes, setAllInstituicoes] = useState<{ id: number; nome: string; clienteId: number }[]>([]);
+
+    useEffect(() => {
+        if (isGlobal) {
+            // Fetch all for global users
+            Promise.all([
+                apiGet<{ data: any[] }>("/clientes?limit=100"),
+                apiGet<{ data: any[] }>("/instituicoes?limit=100")
+            ]).then(([clientesRes, instRes]) => {
+                setAllClientes(clientesRes.data.map(c => ({ id: c.CLICodigo, nome: c.CLINome })));
+                setAllInstituicoes(instRes.data.map(i => ({ id: i.INSCodigo, nome: i.INSNome, clienteId: i.CLICodigo })));
+            }).catch(() => { /* ignore */ });
+        } else if (user) {
+            // For scoped users, extract from their own acessos
+            const clis = new Map<number, string>();
+            const insts: { id: number; nome: string; clienteId: number }[] = [];
+
+            user.acessos.forEach(a => {
+                if (a.clienteId && a.clienteNome) clis.set(a.clienteId, a.clienteNome);
+                if (a.instituicaoId && a.instituicaoNome && a.clienteId) {
+                    insts.push({ id: a.instituicaoId, nome: a.instituicaoNome, clienteId: a.clienteId });
+                }
+            });
+
+            setAllClientes(Array.from(clis.entries()).map(([id, nome]) => ({ id, nome })));
+            setAllInstituicoes(insts);
+        }
+    }, [isGlobal, user]);
+
     const load = useCallback(async () => {
         setLoading(true);
         try {
@@ -112,7 +143,12 @@ export default function UsuariosPage() {
 
     const openAcessoModal = (u: Usuario) => {
         setAcessoTarget(u);
-        setAcessoForm({ grupo: "OPERACAO", clienteId: "", instituicaoId: String(codigoInstituicao) });
+        // Default to current selection if possible
+        setAcessoForm({
+            grupo: "OPERACAO",
+            clienteId: String(allClientes[0]?.id || ""),
+            instituicaoId: String(codigoInstituicao || allInstituicoes.find(i => i.clienteId === allClientes[0]?.id)?.id || "")
+        });
         setShowAcessoModal(true);
     };
 
@@ -152,6 +188,8 @@ export default function UsuariosPage() {
         ];
         return all.filter((g) => g.level < maxLevel).map((g) => g.key);
     })();
+
+    const filteredInstituicoes = allInstituicoes.filter(i => !acessoForm.clienteId || i.clienteId === Number(acessoForm.clienteId));
 
     return (
         <div className="space-y-6">
@@ -251,25 +289,48 @@ export default function UsuariosPage() {
                             Adicionar Acesso — {acessoTarget.USRNome}
                         </h3>
                         <div className="space-y-3">
-                            <label className="block text-sm text-gray-600 dark:text-gray-400">
-                                Papel
+                            <div>
+                                <label className="block text-sm text-gray-600 dark:text-gray-400">Papel</label>
                                 <select value={acessoForm.grupo} onChange={(e) => setAcessoForm({ ...acessoForm, grupo: e.target.value })}
                                     className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white">
                                     {availableGrupos.map((g) => (
                                         <option key={g} value={g}>{GRUPO_LABELS[g] || g}</option>
                                     ))}
                                 </select>
-                            </label>
-                            <input placeholder="Cód. Cliente (opcional)" value={acessoForm.clienteId}
-                                onChange={(e) => setAcessoForm({ ...acessoForm, clienteId: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Cód. Instituição (opcional)" value={acessoForm.instituicaoId}
-                                onChange={(e) => setAcessoForm({ ...acessoForm, instituicaoId: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-gray-600 dark:text-gray-400">Cliente</label>
+                                <select value={acessoForm.clienteId}
+                                    onChange={(e) => {
+                                        const cid = e.target.value;
+                                        const firstInst = allInstituicoes.find(i => i.clienteId === Number(cid));
+                                        setAcessoForm({ ...acessoForm, clienteId: cid, instituicaoId: firstInst ? String(firstInst.id) : "" });
+                                    }}
+                                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white">
+                                    <option value="">Selecione um Cliente</option>
+                                    {allClientes.map(c => (
+                                        <option key={c.id} value={c.id}>{c.nome}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm text-gray-600 dark:text-gray-400">Instituição</label>
+                                <select value={acessoForm.instituicaoId}
+                                    onChange={(e) => setAcessoForm({ ...acessoForm, instituicaoId: e.target.value })}
+                                    disabled={!acessoForm.clienteId}
+                                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white disabled:opacity-50">
+                                    <option value="">Selecione uma Instituição</option>
+                                    {filteredInstituicoes.map(i => (
+                                        <option key={i.id} value={i.id}>{i.nome}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
                         <div className="flex gap-3 justify-end">
                             <Button size="sm" onClick={() => setShowAcessoModal(false)}>Cancelar</Button>
-                            <Button size="sm" onClick={handleAddAcesso} disabled={saving}>
+                            <Button size="sm" onClick={handleAddAcesso} disabled={saving || !acessoForm.clienteId}>
                                 {saving ? "Salvando..." : "Adicionar"}
                             </Button>
                         </div>

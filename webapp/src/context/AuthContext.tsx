@@ -7,7 +7,9 @@ import { apiPost, apiGet, setToken, clearToken } from "@/lib/api";
 interface AcessoScope {
     grupo: string;
     clienteId: number | null;
+    clienteNome?: string | null;
     instituicaoId: number | null;
+    instituicaoNome?: string | null;
 }
 
 interface User {
