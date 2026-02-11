@@ -110,11 +110,31 @@ model ERPConfiguracao {
 }
 
 model USRUsuario {
-  USRCodigo Int         @id @default(autoincrement())
+  USRCodigo Int    @id @default(autoincrement())
   USRNome   String
-  USREmail  String      @unique
+  USREmail  String @unique
   USRSenha  String
+
+  // Profile fields
+  USRTelefone String?
+  USRBio      String?
+  USRFotoUrl  String?
+
+  // Social links
+  USRFacebook  String?
+  USRTwitter   String?
+  USRLinkedin  String?
+  USRInstagram String?
+
+  // Address information
+  USRPais   String?
+  USRCidade String?
+  USREstado String?
+  USRCep    String?
+  USRTaxId  String?
+
   createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   acessos   USRAcesso[]
 }
 

@@ -4,57 +4,128 @@ import { Modal } from "../ui/modal";
 import Button from "../ui/button/Button";
 import Input from "../form/input/InputField";
 import Label from "../form/Label";
+import { useState, useEffect } from "react";
+import { apiGet, apiPatch } from "@/lib/api";
+
+interface UserProfile {
+  USRPais?: string;
+  USRCidade?: string;
+  USREstado?: string;
+  USRCep?: string;
+  USRTaxId?: string;
+}
 
 export default function UserAddressCard() {
   const { isOpen, openModal, closeModal } = useModal();
-  const handleSave = () => {
-    // Handle save logic here
-    console.log("Saving changes...");
-    closeModal();
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  // Form state
+  const [pais, setPais] = useState("");
+  const [cidade, setCidade] = useState("");
+  const [estado, setEstado] = useState("");
+  const [cep, setCep] = useState("");
+  const [taxId, setTaxId] = useState("");
+
+  useEffect(() => {
+    loadProfile();
+  }, []);
+
+  const loadProfile = async () => {
+    try {
+      setLoading(true);
+      const data = await apiGet<UserProfile>("/usuarios/profile");
+      setProfile(data);
+
+      // Initialize form fields
+      setPais(data.USRPais || "");
+      setCidade(data.USRCidade || "");
+      setEstado(data.USREstado || "");
+      setCep(data.USRCep || "");
+      setTaxId(data.USRTaxId || "");
+    } catch (error) {
+      console.error("Erro ao carregar perfil:", error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleSave = async () => {
+    try {
+      setSaving(true);
+      const updated = await apiPatch<UserProfile>("/usuarios/profile", {
+        pais,
+        cidade,
+        estado,
+        cep,
+        taxId,
+      });
+      setProfile(updated);
+      closeModal();
+    } catch (error) {
+      console.error("Erro ao salvar perfil:", error);
+      alert("Erro ao salvar perfil");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="p-5 border border-gray-200 rounded-2xl dark:border-gray-800 lg:p-6">
+        <div className="flex items-center justify-center h-32">
+          <p className="text-sm text-gray-500 dark:text-gray-400">Carregando...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="p-5 border border-gray-200 rounded-2xl dark:border-gray-800 lg:p-6">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <h4 className="text-lg font-semibold text-gray-800 dark:text-white/90 lg:mb-6">
-              Address
+              Endereço
             </h4>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 lg:gap-7 2xl:gap-x-32">
               <div>
                 <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
-                  Country
+                  País
                 </p>
                 <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                  United States
+                  {profile?.USRPais || "-"}
                 </p>
               </div>
 
               <div>
                 <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
-                  City/State
+                  Cidade/Estado
                 </p>
                 <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                  Phoenix, Arizona, United States.
+                  {profile?.USRCidade && profile?.USREstado
+                    ? `${profile.USRCidade}, ${profile.USREstado}`
+                    : profile?.USRCidade || profile?.USREstado || "-"}
                 </p>
               </div>
 
               <div>
                 <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
-                  Postal Code
+                  CEP
                 </p>
                 <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                  ERT 2489
+                  {profile?.USRCep || "-"}
                 </p>
               </div>
 
               <div>
                 <p className="mb-2 text-xs leading-normal text-gray-500 dark:text-gray-400">
-                  TAX ID
+                  CPF/CNPJ
                 </p>
                 <p className="text-sm font-medium text-gray-800 dark:text-white/90">
-                  AS4568384
+                  {profile?.USRTaxId || "-"}
                 </p>
               </div>
             </div>
@@ -79,7 +150,7 @@ export default function UserAddressCard() {
                 fill=""
               />
             </svg>
-            Edit
+            Editar
           </button>
         </div>
       </div>
@@ -87,42 +158,72 @@ export default function UserAddressCard() {
         <div className="relative w-full p-4 overflow-y-auto bg-white no-scrollbar rounded-3xl dark:bg-gray-900 lg:p-11">
           <div className="px-2 pr-14">
             <h4 className="mb-2 text-2xl font-semibold text-gray-800 dark:text-white/90">
-              Edit Address
+              Editar Endereço
             </h4>
             <p className="mb-6 text-sm text-gray-500 dark:text-gray-400 lg:mb-7">
-              Update your details to keep your profile up-to-date.
+              Atualize suas informações de endereço.
             </p>
           </div>
-          <form className="flex flex-col">
+          <form className="flex flex-col" onSubmit={(e) => { e.preventDefault(); handleSave(); }}>
             <div className="px-2 overflow-y-auto custom-scrollbar">
               <div className="grid grid-cols-1 gap-x-6 gap-y-5 lg:grid-cols-2">
                 <div>
-                  <Label>Country</Label>
-                  <Input type="text" defaultValue="United States" />
+                  <Label>País</Label>
+                  <Input
+                    type="text"
+                    value={pais}
+                    onChange={(e) => setPais(e.target.value)}
+                    placeholder="Brasil"
+                  />
                 </div>
 
                 <div>
-                  <Label>City/State</Label>
-                  <Input type="text" defaultValue="Arizona, United States." />
+                  <Label>Cidade</Label>
+                  <Input
+                    type="text"
+                    value={cidade}
+                    onChange={(e) => setCidade(e.target.value)}
+                    placeholder="São Paulo"
+                  />
                 </div>
 
                 <div>
-                  <Label>Postal Code</Label>
-                  <Input type="text" defaultValue="ERT 2489" />
+                  <Label>Estado</Label>
+                  <Input
+                    type="text"
+                    value={estado}
+                    onChange={(e) => setEstado(e.target.value)}
+                    placeholder="SP"
+                  />
                 </div>
 
                 <div>
-                  <Label>TAX ID</Label>
-                  <Input type="text" defaultValue="AS4568384" />
+                  <Label>CEP</Label>
+                  <Input
+                    type="text"
+                    value={cep}
+                    onChange={(e) => setCep(e.target.value)}
+                    placeholder="01234-567"
+                  />
+                </div>
+
+                <div className="col-span-2">
+                  <Label>CPF/CNPJ</Label>
+                  <Input
+                    type="text"
+                    value={taxId}
+                    onChange={(e) => setTaxId(e.target.value)}
+                    placeholder="000.000.000-00"
+                  />
                 </div>
               </div>
             </div>
             <div className="flex items-center gap-3 px-2 mt-6 lg:justify-end">
-              <Button size="sm" variant="outline" onClick={closeModal}>
-                Close
+              <Button size="sm" variant="outline" onClick={closeModal} type="button">
+                Fechar
               </Button>
-              <Button size="sm" onClick={handleSave}>
-                Save Changes
+              <Button size="sm" type="submit" disabled={saving}>
+                {saving ? "Salvando..." : "Salvar Alterações"}
               </Button>
             </div>
           </form>
