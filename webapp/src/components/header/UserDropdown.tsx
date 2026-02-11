@@ -5,41 +5,17 @@ import { useState } from "react";
 import { Dropdown } from "../ui/dropdown/Dropdown";
 import { DropdownItem } from "../ui/dropdown/DropdownItem";
 import { useAuth } from "@/context/AuthContext";
-import { useTenant } from "@/context/TenantContext";
-
 export default function UserDropdown() {
   const [isOpen, setIsOpen] = useState(false);
   const { user, logout } = useAuth();
-  const { instituicoes, codigoInstituicao, switchInstituicao } = useTenant();
 
-  const [searchTerm, setSearchTerm] = useState("");
-  const [isSelectorOpen, setIsSelectorOpen] = useState(false);
-
-  const currentInst = instituicoes?.find((i) => i.INSCodigo === codigoInstituicao);
-
-  const filteredInstituicoes = instituicoes?.filter((inst) =>
-    inst.INSNome.toLowerCase().includes(searchTerm.toLowerCase())
-  ) || [];
-
-  const toggleSelector = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsSelectorOpen(!isSelectorOpen);
-    if (!isSelectorOpen) setSearchTerm("");
-  };
+  function closeDropdown() {
+    setIsOpen(false);
+  }
 
   function toggleDropdown() {
     setIsOpen(!isOpen);
   }
-
-  function closeDropdown() {
-    setIsOpen(false);
-    setIsSelectorOpen(false);
-  }
-
-  const handleSwitchInst = (codigo: number) => {
-    switchInstituicao(codigo);
-    closeDropdown();
-  };
 
   return (
     <div className="relative">
@@ -77,7 +53,7 @@ export default function UserDropdown() {
         onClose={closeDropdown}
         className="absolute right-0 mt-[17px] flex w-[260px] flex-col rounded-2xl border border-gray-200 bg-white p-3 shadow-theme-lg dark:border-gray-800 dark:bg-gray-dark"
       >
-        <div>
+        <div className="px-3 py-2 border-b border-gray-200 dark:border-gray-800">
           <span className="block font-medium text-gray-700 text-theme-sm dark:text-gray-400">
             {user?.nome}
           </span>
@@ -85,74 +61,6 @@ export default function UserDropdown() {
             {user?.email}
           </span>
         </div>
-
-        {/* Institution Selector */}
-        {instituicoes?.length > 0 && (
-          <div className="pt-3 pb-2 border-b border-gray-200 dark:border-gray-800 px-3">
-            <span className="block mb-2 text-xs font-semibold text-gray-500 uppercase dark:text-gray-400">
-              Instituição
-            </span>
-            <div className="relative">
-              <button
-                onClick={toggleSelector}
-                className="flex items-center justify-between w-full px-3 py-2 text-sm bg-white border border-gray-200 rounded-lg shadow-sm hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
-              >
-                <span className="truncate max-w-[180px]">
-                  {currentInst?.INSNome || "Selecione..."}
-                </span>
-                <svg
-                  className={`w-4 h-4 text-gray-500 transition-transform ${isSelectorOpen ? "rotate-180" : ""}`}
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-
-              {isSelectorOpen && (
-                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg dark:bg-gray-800 dark:border-gray-700">
-                  <div className="p-2 border-b border-gray-100 dark:border-gray-700">
-                    <input
-                      autoFocus
-                      type="text"
-                      placeholder="Buscar..."
-                      className="w-full px-2 py-1.5 text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded focus:outline-none focus:border-brand-500 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-300"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  </div>
-                  <ul className="max-h-48 overflow-y-auto custom-scrollbar py-1">
-                    {filteredInstituicoes.map((inst) => (
-                      <li key={inst.INSCodigo}>
-                        <button
-                          onClick={() => handleSwitchInst(inst.INSCodigo)}
-                          className={`flex items-center w-full px-4 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700/50 ${inst.INSCodigo === codigoInstituicao
-                            ? "text-brand-600 font-medium bg-brand-50 dark:text-brand-400 dark:bg-brand-900/10"
-                            : "text-gray-700 dark:text-gray-300"
-                            }`}
-                        >
-                          <span className="truncate">{inst.INSNome}</span>
-                          {inst.INSCodigo === codigoInstituicao && (
-                            <svg className="ml-auto w-4 h-4 text-brand-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </button>
-                      </li>
-                    ))}
-                    {filteredInstituicoes.length === 0 && (
-                      <li className="px-4 py-2 text-xs text-center text-gray-500 dark:text-gray-400">
-                        Nenhuma instituição encontrada
-                      </li>
-                    )}
-                  </ul>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
 
         <ul className="flex flex-col gap-1 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800">
           <li>

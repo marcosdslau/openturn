@@ -16,7 +16,7 @@ interface Cliente {
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
 export default function ClientesPage() {
-    const { isGlobal } = useAuth();
+    const { isSuperRoot } = useAuth();
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
@@ -31,7 +31,7 @@ export default function ClientesPage() {
     const [saving, setSaving] = useState(false);
 
     const load = useCallback(async () => {
-        if (!isGlobal) return;
+        if (!isSuperRoot) return;
         setLoading(true);
         try {
             const res = await apiGet<{ data: Cliente[]; meta: Meta }>(`/clientes?page=${page}&limit=${limit}`);
@@ -43,7 +43,7 @@ export default function ClientesPage() {
             setClientes(data);
             setMeta(res.meta);
         } catch { /* ignore */ } finally { setLoading(false); }
-    }, [isGlobal, page, limit, search]);
+    }, [isSuperRoot, page, limit, search]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -78,7 +78,7 @@ export default function ClientesPage() {
         load();
     };
 
-    if (!isGlobal) return <div className="p-6">Acesso negado.</div>;
+    if (!isSuperRoot) return <div className="p-6">Acesso negado.</div>;
 
     return (
         <div className="space-y-6">

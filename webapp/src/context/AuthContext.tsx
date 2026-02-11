@@ -26,6 +26,8 @@ interface AuthContextType {
     switchContext: (clienteId?: number, instituicaoId?: number) => Promise<void>;
     isAuthenticated: boolean;
     isGlobal: boolean;
+    isSuperRoot: boolean;
+    isAdmin: boolean;
 }
 
 const ACTIVE_SCOPE_KEY = "openturn_active_scope";
@@ -120,8 +122,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         (a) => a.grupo === "SUPER_ROOT" || a.grupo === "SUPER_ADMIN"
     ) ?? false;
 
+    const isSuperRoot = user?.acessos?.some((a) => a.grupo === "SUPER_ROOT") ?? false;
+    const isAdmin = user?.acessos?.some((a) => a.grupo === "SUPER_ADMIN") ?? false;
+
     return (
-        <AuthContext.Provider value={{ user, loading, login, logout, switchContext, isAuthenticated: !!user, isGlobal }}>
+        <AuthContext.Provider value={{
+            user,
+            loading,
+            login,
+            logout,
+            switchContext,
+            isAuthenticated: !!user,
+            isGlobal,
+            isSuperRoot,
+            isAdmin
+        }}>
             {children}
         </AuthContext.Provider>
     );

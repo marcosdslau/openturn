@@ -22,24 +22,44 @@ export class UsuarioService {
         private authService: AuthService,
     ) { }
 
-    async create(dto: CreateUsuarioDto) {
-        const existing = await this.prisma.uSRUsuario.findUnique({
+    async create(dto: CreateUsuarioDto, activeScope: any) {
+        let usuario = await this.prisma.uSRUsuario.findUnique({
             where: { USREmail: dto.email },
         });
 
-        if (existing) {
-            throw new ConflictException(`Email ${dto.email} já está em uso`);
+        if (!usuario) {
+            const senhaHash = await this.authService.hashSenha(dto.senha);
+            usuario = await this.prisma.uSRUsuario.create({
+                data: {
+                    USRNome: dto.nome,
+                    USREmail: dto.email,
+                    USRSenha: senhaHash,
+                },
+            });
         }
 
-        const senhaHash = await this.authService.hashSenha(dto.senha);
+        // Add auto-permission if activeScope is present
+        if (activeScope?.clienteId || activeScope?.instituicaoId) {
+            const accessData = {
+                USRCodigo: usuario.USRCodigo,
+                grupo: GrupoAcesso.OPERACAO,
+                CLICodigo: activeScope.clienteId || null,
+                INSInstituicaoCodigo: activeScope.instituicaoId || null,
+            };
 
-        return this.prisma.uSRUsuario.create({
-            data: {
-                USRNome: dto.nome,
-                USREmail: dto.email,
-                USRSenha: senhaHash,
-            },
-        });
+            // Use upsert-like logic to avoid duplicate access records
+            const existingAccess = await this.prisma.uSRAcesso.findFirst({
+                where: accessData,
+            });
+
+            if (!existingAccess) {
+                await this.prisma.uSRAcesso.create({
+                    data: accessData,
+                });
+            }
+        }
+
+        return usuario;
     }
 
     async findAll(query: PaginationDto, activeScope: any): Promise<PaginatedResult<any>> {

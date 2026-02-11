@@ -38,8 +38,8 @@ export class UsuarioController {
     @Post()
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    create(@Body() dto: CreateUsuarioDto) {
-        return this.service.create(dto);
+    create(@Body() dto: CreateUsuarioDto, @Request() req: any) {
+        return this.service.create(dto, req.user.activeScope);
     }
 
     @Get()

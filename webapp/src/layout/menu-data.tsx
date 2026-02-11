@@ -26,7 +26,7 @@ export type NavItem = {
     subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
-export const getMainNavItems = (basePath: string, isGlobal: boolean): NavItem[] => {
+export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin: boolean): NavItem[] => {
     const items: NavItem[] = [
         {
             icon: <GridIcon />,
@@ -60,13 +60,18 @@ export const getMainNavItems = (basePath: string, isGlobal: boolean): NavItem[] 
         },
     ];
 
-    if (isGlobal) {
+    if (isSuperRoot) {
         items.push(
             {
                 icon: <GroupIcon />,
                 name: "Clientes",
                 path: `/clientes`,
-            },
+            }
+        );
+    }
+
+    if (isSuperRoot || isAdmin) {
+        items.push(
             {
                 icon: <PieChartIcon />,
                 name: "Instituições",
