@@ -140,10 +140,10 @@ enum ENUM_ACAO_PASSAGEM {
 | 3.5 | Como Gestor, quero sincronizar pessoas com a catraca | MUST | Comando de sincronização envia usuários ao equipamento |
 
 **Entregáveis:**
-- [x] Módulo NestJS: ControlId Integration (`ControlidModule`)
-- [x] Endpoints Push, Result, Monitor, Online
-- [x] Serviço de enfileiramento de comandos (DB: `CMDComandoFila`)
-- [x] Gravação automática de passagens na `REGRegistroPassagem`
+- [] Módulo NestJS: ControlId Integration (`ControlidModule`)
+- [] Endpoints Push, Result, Monitor, Online
+- [] Serviço de enfileiramento de comandos (DB: `CMDComandoFila`)
+- [] Gravação automática de passagens na `REGRegistroPassagem`
 
 ---
 
@@ -160,11 +160,11 @@ enum ENUM_ACAO_PASSAGEM {
 | 4.5 | Como Gestor, quero telas de CRUD para Pessoas e Equipamentos | SHOULD | Formulários de cadastro e listagem |
 
 **Entregáveis:**
-- [x] Layout base TailAdmin com navegação por tenant
-- [x] Página de Dashboard com cards e gráficos
-- [x] Página de Passagens (lista + filtros)
-- [x] Páginas CRUD (Pessoas, Equipamentos)
-- [x] Login e controle de acesso por grupo
+- [] Layout base TailAdmin com navegação por tenant
+- [] Página de Dashboard com cards e gráficos
+- [] Página de Passagens (lista + filtros)
+- [] Páginas CRUD (Pessoas, Equipamentos)
+- [] Login e controle de acesso por grupo
 
 ---
 
