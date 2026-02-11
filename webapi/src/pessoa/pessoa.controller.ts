@@ -3,8 +3,12 @@ import { PessoaService } from './pessoa.service';
 import { CreatePessoaDto, UpdatePessoaDto } from './dto/pessoa.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { GrupoAcesso } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
 @Controller('pessoas')
 export class PessoaController {
     constructor(private service: PessoaService) { }

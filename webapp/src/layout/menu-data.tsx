@@ -26,33 +26,57 @@ export type NavItem = {
     subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
-export const getMainNavItems = (basePath: string): NavItem[] => [
-    {
-        icon: <GridIcon />,
-        name: "Dashboard",
-        path: `${basePath}/dashboard`,
-    },
-    {
-        icon: <ListIcon />,
-        name: "Passagens",
-        path: `${basePath}/passagens`,
-    },
-    {
-        icon: <UserCircleIcon />,
-        name: "Pessoas",
-        path: `${basePath}/pessoas`,
-    },
-    {
-        icon: <BoxCubeIcon />,
-        name: "Equipamentos",
-        path: `${basePath}/equipamentos`,
-    },
-    {
-        icon: <GroupIcon />,
-        name: "Usuários",
-        path: `${basePath}/usuarios`,
-    },
-];
+export const getMainNavItems = (basePath: string, isGlobal: boolean): NavItem[] => {
+    const items: NavItem[] = [
+        {
+            icon: <GridIcon />,
+            name: "Dashboard",
+            path: `${basePath}/dashboard`,
+        },
+        {
+            icon: <ListIcon />,
+            name: "Passagens",
+            path: `${basePath}/passagens`,
+        },
+        {
+            icon: <UserCircleIcon />,
+            name: "Pessoas",
+            path: `${basePath}/pessoas`,
+        },
+        {
+            icon: <TaskIcon />,
+            name: "Matrículas",
+            path: `${basePath}/matriculas`,
+        },
+        {
+            icon: <BoxCubeIcon />,
+            name: "Equipamentos",
+            path: `${basePath}/equipamentos`,
+        },
+        {
+            icon: <UserCircleIcon />,
+            name: "Usuários",
+            path: `${basePath}/usuarios`,
+        },
+    ];
+
+    if (isGlobal) {
+        items.push(
+            {
+                icon: <GroupIcon />,
+                name: "Clientes",
+                path: `/clientes`,
+            },
+            {
+                icon: <PieChartIcon />,
+                name: "Instituições",
+                path: `/instituicoes`,
+            }
+        );
+    }
+
+    return items;
+};
 
 export const demoNavItems: NavItem[] = [
     {

@@ -3,8 +3,12 @@ import { MatriculaService } from './matricula.service';
 import { CreateMatriculaDto, UpdateMatriculaDto } from './dto/matricula.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { RolesGuard } from '../auth/roles.guard';
+import { Roles } from '../auth/roles.decorator';
+import { GrupoAcesso } from '@prisma/client';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
 @Controller('matriculas')
 export class MatriculaController {
     constructor(private service: MatriculaService) { }

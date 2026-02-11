@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
+import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 
 interface Equipamento {
     EQPCodigo: number;
@@ -19,9 +20,10 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 export default function EquipamentosPage() {
     const { codigoInstituicao } = useTenant();
     const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
-    const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 20, totalPages: 0 });
+    const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(10);
 
     // Modal
     const [showModal, setShowModal] = useState(false);
@@ -32,11 +34,11 @@ export default function EquipamentosPage() {
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await apiGet<{ data: Equipamento[]; meta: Meta }>(`/equipamentos?page=${page}&limit=20`);
+            const res = await apiGet<{ data: Equipamento[]; meta: Meta }>(`/equipamentos?page=${page}&limit=${limit}`);
             setEquipamentos(res.data || []);
             setMeta(res.meta);
         } catch { /* ignore */ } finally { setLoading(false); }
-    }, [codigoInstituicao, page]);
+    }, [codigoInstituicao, page, limit]);
 
     useEffect(() => { load(); }, [load]);
 
@@ -120,15 +122,36 @@ export default function EquipamentosPage() {
             </div>
 
             {/* Pagination */}
-            {meta.totalPages > 1 && (
-                <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">Página {meta.page} de {meta.totalPages}</p>
-                    <div className="flex gap-2">
-                        <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>Anterior</Button>
-                        <Button size="sm" disabled={page >= meta.totalPages} onClick={() => setPage(page + 1)}>Próxima</Button>
-                    </div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-2">
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">Registros por página:</span>
+                    <select
+                        value={limit}
+                        onChange={(e) => {
+                            setLimit(Number(e.target.value));
+                            setPage(1);
+                        }}
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                    >
+                        <option value={5}>5</option>
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                    </select>
                 </div>
-            )}
+
+                {meta.totalPages > 1 && (
+                    <PaginationWithIcon
+                        totalPages={meta.totalPages}
+                        initialPage={page}
+                        onPageChange={(p) => setPage(p)}
+                    />
+                )}
+
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Total: {meta.total} registros
+                </p>
+            </div>
 
             {/* Modal */}
             {showModal && (

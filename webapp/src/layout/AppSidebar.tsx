@@ -3,6 +3,7 @@ import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
+import { useAuth } from "../context/AuthContext";
 import {
   ChevronDownIcon,
   HorizontaLDots,
@@ -18,10 +19,11 @@ import {
 
 function useNavItems(): NavItem[] {
   const params = useParams();
+  const { isGlobal } = useAuth();
   const code = params?.codigoInstituicao || "0";
   const base = `/instituicao/${code}`;
 
-  return useMemo(() => getMainNavItems(base as string), [base]);
+  return useMemo(() => getMainNavItems(base as string, isGlobal), [base, isGlobal]);
 }
 
 const AppSidebar: React.FC = () => {

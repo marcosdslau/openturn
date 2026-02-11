@@ -16,14 +16,17 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
     get rls() {
         if (!this._rlsClient) {
+            const tenantService = this.tenantService;
+            const baseClient = this;
+
             this._rlsClient = this.$extends({
                 query: {
                     $allModels: {
                         async $allOperations({ args, query }) {
-                            const tenantId = (this as any).tenantService.getTenantId();
+                            const tenantId = tenantService.getTenantId();
                             if (tenantId) {
-                                const results = await (this as any).$transaction([
-                                    (this as any).$executeRawUnsafe(
+                                const results = await (baseClient as any).$transaction([
+                                    (baseClient as any).$executeRawUnsafe(
                                         `SET app.current_tenant = '${tenantId}'`,
                                     ),
                                     query(args),
