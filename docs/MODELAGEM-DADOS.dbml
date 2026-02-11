@@ -74,17 +74,25 @@ Table USRUsuario {
   USRNome String [not null]
   USREmail String [unique]
   USRSenha String
-  USRGrupo ENUM_GRUPO_ACESSO
-  CLICodigo Int [ref: > CLICliente.CLICodigo, note: 'Null para Super Root/Super Admin']
-  INSCodigo Int [ref: > INSInstituicao.INSCodigo, note: 'Null para Admin em diante']
+  createdAt timestamp [default: `now()`]
+}
+
+Table USRAcesso {
+  UACCodigo Int [pk, increment]
+  USRCodigo Int [ref: > USRUsuario.USRCodigo]
+  USRGrupo ENUM_GRUPO_ACESSO [note: 'Papel do usuário neste escopo']
+  CLICodigo Int [ref: > CLICliente.CLICodigo, note: 'NULL = Acesso a todos os Clientes (apenas para SUPER roles)']
+  INSCodigo Int [ref: > INSInstituicao.INSCodigo, note: 'NULL = Acesso a todas as Instituições do Cliente (ou Global se CLICodigo for NULL)']
+  
+  note: 'Mapeia usuários para múltiplos papéis e tenants. SUPER_ROOT/ADMIN com CLICodigo=NULL possuem acesso global automático.'
 }
 
 enum ENUM_GRUPO_ACESSO {
-  SUPER_ROOT
-  SUPER_ADMIN
-  ADMIN
-  GESTOR
-  OPERACAO
+  SUPER_ROOT [note: 'Acesso Global Irrestrito. Cria: qualquer um']
+  SUPER_ADMIN [note: 'Acesso Global. Cria: Admin, Gestor, Operacao']
+  ADMIN [note: 'Escopo: Cliente. Acessa todas inst. do cliente. Cria: Admin, Gestor, Operacao']
+  GESTOR [note: 'Escopo: Instituição. Cria: Gestor, Operacao']
+  OPERACAO [note: 'Escopo: Instituição. Sem permissão de criação/gestão de usuários']
 }
 
 // === CORE: Registro de Passagens em Catracas ===
@@ -121,7 +129,7 @@ Table ROTRotina {
   ROTWebhookMetodo     ENUM_HTTP_METODO [note: 'GET, POST, PUT, PATCH. Obrigatório se tipo=WEBHOOK']
 
   // --- Código JavaScript (Monaco Editor) ---
-  ROTCodigoJS          String    [not null, note: 'Código JavaScript da rotina, editado via Monaco Editor no frontend']
+  ROTCodigoJS          String    [not null, note: 'Código JavaScript da rotina. Tem acesso ao context.erp (config da inst) e context.db']
 
   // --- Controle ---
   ROTAtivo             Boolean   [default: true]

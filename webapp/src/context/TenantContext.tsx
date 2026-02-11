@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { useAuth } from "./AuthContext";
 
 interface Instituicao {
     INSCodigo: number;
@@ -17,6 +18,7 @@ interface TenantContextType {
     instituicoes: Instituicao[];
     loading: boolean;
     switchInstituicao: (codigo: number) => void;
+    grupoNoContexto: string | null;
 }
 
 const TenantContext = createContext<TenantContextType>({} as TenantContextType);
@@ -24,6 +26,7 @@ const TenantContext = createContext<TenantContextType>({} as TenantContextType);
 export function TenantProvider({ children }: { children: React.ReactNode }) {
     const params = useParams();
     const router = useRouter();
+    const { user, switchContext, isGlobal } = useAuth();
     const codigoInstituicao = Number(params.codigoInstituicao);
 
     const [instituicao, setInstituicao] = useState<Instituicao | null>(null);
@@ -40,7 +43,19 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
                     apiGet<{ data: Instituicao[] }>("/instituicoes?limit=100"),
                 ]);
                 setInstituicao(inst);
-                setInstituicoes(list.data || []);
+
+                // If global user, show all institutions; otherwise filter by user's acessos
+                if (isGlobal) {
+                    setInstituicoes(list.data || []);
+                } else {
+                    const allowedIds = user?.acessos
+                        .filter((a) => a.instituicaoId !== null)
+                        .map((a) => a.instituicaoId) ?? [];
+                    const filtered = (list.data || []).filter(
+                        (i) => allowedIds.includes(i.INSCodigo)
+                    );
+                    setInstituicoes(filtered.length > 0 ? filtered : list.data || []);
+                }
             } catch {
                 // ignore
             } finally {
@@ -49,15 +64,26 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
         };
 
         load();
-    }, [codigoInstituicao]);
+    }, [codigoInstituicao, isGlobal, user?.acessos]);
 
-    const switchInstituicao = (codigo: number) => {
+    const switchInstituicao = async (codigo: number) => {
+        await switchContext(undefined, codigo);
         router.push(`/instituicao/${codigo}/dashboard`);
     };
 
+    // Determine the user's role in the current institution context
+    const grupoNoContexto = (() => {
+        if (!user) return null;
+        if (isGlobal) {
+            return user.acessos.find((a) => a.grupo === "SUPER_ROOT" || a.grupo === "SUPER_ADMIN")?.grupo ?? null;
+        }
+        const match = user.acessos.find((a) => a.instituicaoId === codigoInstituicao);
+        return match?.grupo ?? null;
+    })();
+
     return (
         <TenantContext.Provider
-            value={{ codigoInstituicao, instituicao, instituicoes, loading, switchInstituicao }}
+            value={{ codigoInstituicao, instituicao, instituicoes, loading, switchInstituicao, grupoNoContexto }}
         >
             {children}
         </TenantContext.Provider>

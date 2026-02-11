@@ -27,7 +27,7 @@ model CLICliente {
   CLIAtivo     Boolean          @default(true)
   createdAt    DateTime         @default(now())
   instituicoes INSInstituicao[]
-  usuarios     USRUsuario[]
+  acessos      USRAcesso[]
 }
 
 model INSInstituicao {
@@ -42,7 +42,7 @@ model INSInstituicao {
   matriculas       MATMatricula[]
   equipamentos     EQPEquipamento[]
   erpConfig        ERPConfiguracao[]
-  usuarios         USRUsuario[]
+  acessos          USRAcesso[]
   passagens        REGRegistroPassagem[]
   cmdcomandoFilas  CMDComandoFila[]
 }
@@ -110,16 +110,26 @@ model ERPConfiguracao {
 }
 
 model USRUsuario {
-  USRCodigo   Int             @id @default(autoincrement())
-  USRNome     String
-  USREmail    String          @unique
-  USRSenha    String
-  USRGrupo    GrupoAcesso
-  CLICodigo   Int?
-  cliente     CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
-  INSCodigo   Int?
-  instituicao INSInstituicao? @relation(fields: [INSCodigo], references: [INSCodigo])
-  createdAt   DateTime        @default(now())
+  USRCodigo Int         @id @default(autoincrement())
+  USRNome   String
+  USREmail  String      @unique
+  USRSenha  String
+  createdAt DateTime    @default(now())
+  acessos   USRAcesso[]
+}
+
+model USRAcesso {
+  UACCodigo            Int             @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario      @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  grupo                GrupoAcesso
+  CLICodigo            Int?
+  cliente              CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSInstituicaoCodigo Int?
+  instituicao          INSInstituicao? @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime        @default(now())
+
+  @@unique([USRCodigo, grupo, CLICodigo, INSInstituicaoCodigo])
 }
 
 model REGRegistroPassagem {

@@ -45,15 +45,15 @@ async function main() {
     });
     console.log(`✅ Instituições: ${inst1.INSNome}, ${inst2.INSNome}`);
 
-    // 3. Usuários (um por grupo de acesso)
+    // 3. Usuários (identidade pura)
     const senhaHash = await bcrypt.hash('123456', 10);
 
     const usuarios = [
-        { USRCodigo: 1, USRNome: 'Super Root', USREmail: 'root@openturn.com', USRGrupo: GrupoAcesso.SUPER_ROOT, CLICodigo: null, INSCodigo: null },
-        { USRCodigo: 2, USRNome: 'Super Admin', USREmail: 'superadmin@openturn.com', USRGrupo: GrupoAcesso.SUPER_ADMIN, CLICodigo: null, INSCodigo: null },
-        { USRCodigo: 3, USRNome: 'Admin Cliente', USREmail: 'admin@openturn.com', USRGrupo: GrupoAcesso.ADMIN, CLICodigo: cliente.CLICodigo, INSCodigo: null },
-        { USRCodigo: 4, USRNome: 'Gestor Alpha', USREmail: 'gestor@openturn.com', USRGrupo: GrupoAcesso.GESTOR, CLICodigo: cliente.CLICodigo, INSCodigo: inst1.INSCodigo },
-        { USRCodigo: 5, USRNome: 'Operador Alpha', USREmail: 'operador@openturn.com', USRGrupo: GrupoAcesso.OPERACAO, CLICodigo: cliente.CLICodigo, INSCodigo: inst1.INSCodigo },
+        { USRCodigo: 1, USRNome: 'Super Root', USREmail: 'root@openturn.com' },
+        { USRCodigo: 2, USRNome: 'Super Admin', USREmail: 'superadmin@openturn.com' },
+        { USRCodigo: 3, USRNome: 'Admin Cliente', USREmail: 'admin@openturn.com' },
+        { USRCodigo: 4, USRNome: 'Gestor Alpha', USREmail: 'gestor@openturn.com' },
+        { USRCodigo: 5, USRNome: 'Operador Alpha', USREmail: 'operador@openturn.com' },
     ];
 
     for (const u of usuarios) {
@@ -64,6 +64,26 @@ async function main() {
         });
     }
     console.log(`✅ Usuários: ${usuarios.length} criados (senha: 123456)`);
+
+    // 3.1 Acessos (papéis por tenant)
+    const acessos = [
+        { USRCodigo: 1, grupo: GrupoAcesso.SUPER_ROOT, CLICodigo: null, INSInstituicaoCodigo: null },
+        { USRCodigo: 2, grupo: GrupoAcesso.SUPER_ADMIN, CLICodigo: null, INSInstituicaoCodigo: null },
+        { USRCodigo: 3, grupo: GrupoAcesso.ADMIN, CLICodigo: cliente.CLICodigo, INSInstituicaoCodigo: null },
+        { USRCodigo: 4, grupo: GrupoAcesso.GESTOR, CLICodigo: cliente.CLICodigo, INSInstituicaoCodigo: inst1.INSCodigo },
+        { USRCodigo: 4, grupo: GrupoAcesso.OPERACAO, CLICodigo: cliente.CLICodigo, INSInstituicaoCodigo: inst2.INSCodigo },
+        { USRCodigo: 5, grupo: GrupoAcesso.OPERACAO, CLICodigo: cliente.CLICodigo, INSInstituicaoCodigo: inst1.INSCodigo },
+    ];
+
+    for (const a of acessos) {
+        const existing = await prisma.uSRAcesso.findFirst({
+            where: { USRCodigo: a.USRCodigo, grupo: a.grupo, CLICodigo: a.CLICodigo, INSInstituicaoCodigo: a.INSInstituicaoCodigo },
+        });
+        if (!existing) {
+            await prisma.uSRAcesso.create({ data: a });
+        }
+    }
+    console.log(`✅ Acessos: ${acessos.length} vínculos criados`);
 
     // 4. Pessoas
     const pessoas = [

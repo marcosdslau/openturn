@@ -27,6 +27,19 @@ export async function api<T = any>(
         headers['Authorization'] = `Bearer ${token}`;
     }
 
+    // Inject tenant context automatically
+    const scopeStr = typeof window !== 'undefined' ? localStorage.getItem('openturn_active_scope') : null;
+    if (scopeStr) {
+        try {
+            const scope = JSON.parse(scopeStr);
+            if (scope.instituicaoId) {
+                headers['x-tenant-id'] = String(scope.instituicaoId);
+            }
+        } catch {
+            // ignore parse errors
+        }
+    }
+
     const res = await fetch(`${API_BASE}${path}`, {
         ...options,
         headers,

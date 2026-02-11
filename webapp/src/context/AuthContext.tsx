@@ -4,13 +4,18 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { useRouter } from "next/navigation";
 import { apiPost, apiGet, setToken, clearToken } from "@/lib/api";
 
+interface AcessoScope {
+    grupo: string;
+    clienteId: number | null;
+    instituicaoId: number | null;
+}
+
 interface User {
     codigo: number;
     nome: string;
     email: string;
-    grupo: string;
-    clienteId: number | null;
-    instituicaoId: number | null;
+    acessos: AcessoScope[];
+    activeScope: AcessoScope | null;
 }
 
 interface AuthContextType {
@@ -18,8 +23,12 @@ interface AuthContextType {
     loading: boolean;
     login: (email: string, senha: string) => Promise<void>;
     logout: () => void;
+    switchContext: (clienteId?: number, instituicaoId?: number) => Promise<void>;
     isAuthenticated: boolean;
+    isGlobal: boolean;
 }
+
+const ACTIVE_SCOPE_KEY = "openturn_active_scope";
 
 const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 
@@ -36,16 +45,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return;
             }
             const data = await apiGet<any>("/auth/me");
+
+            const savedScope = localStorage.getItem(ACTIVE_SCOPE_KEY);
+            const activeScope = savedScope ? JSON.parse(savedScope) : data.activeScope;
+
             setUser({
-                codigo: data.sub || data.codigo,
+                codigo: data.userId || data.sub || data.codigo,
                 nome: data.nome,
                 email: data.email,
-                grupo: data.grupo,
-                clienteId: data.clienteId,
-                instituicaoId: data.instituicaoId,
+                acessos: data.acessos || [],
+                activeScope,
             });
         } catch {
             clearToken();
+            localStorage.removeItem(ACTIVE_SCOPE_KEY);
             setUser(null);
         } finally {
             setLoading(false);
@@ -59,10 +72,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const login = async (email: string, senha: string) => {
         const data = await apiPost<{ access_token: string; usuario: User }>("/auth/login", { email, senha });
         setToken(data.access_token);
+
+        const activeScope = data.usuario.activeScope;
+        if (activeScope) {
+            localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(activeScope));
+        }
+
         setUser(data.usuario);
 
-        // Redirect to first institution
-        let instId = data.usuario.instituicaoId;
+        // Redirect to first available institution
+        let instId = activeScope?.instituicaoId;
         if (!instId) {
             try {
                 const instList = await apiGet<{ data: any[] }>("/instituicoes?limit=1");
@@ -77,14 +96,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         router.push(instId ? `/instituicao/${instId}/dashboard` : "/");
     };
 
+    const switchContext = async (clienteId?: number, instituicaoId?: number) => {
+        const data = await apiPost<{ access_token: string; activeScope: AcessoScope }>(
+            "/auth/switch-context",
+            { clienteId, instituicaoId }
+        );
+        setToken(data.access_token);
+        localStorage.setItem(ACTIVE_SCOPE_KEY, JSON.stringify(data.activeScope));
+
+        if (user) {
+            setUser({ ...user, activeScope: data.activeScope });
+        }
+    };
+
     const logout = () => {
         clearToken();
+        localStorage.removeItem(ACTIVE_SCOPE_KEY);
         setUser(null);
         router.push("/signin");
     };
 
+    const isGlobal = user?.acessos?.some(
+        (a) => a.grupo === "SUPER_ROOT" || a.grupo === "SUPER_ADMIN"
+    ) ?? false;
+
     return (
-        <AuthContext.Provider value={{ user, loading, login, logout, isAuthenticated: !!user }}>
+        <AuthContext.Provider value={{ user, loading, login, logout, switchContext, isAuthenticated: !!user, isGlobal }}>
             {children}
         </AuthContext.Provider>
     );

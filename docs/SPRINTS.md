@@ -168,65 +168,80 @@ enum ENUM_ACAO_PASSAGEM {
 
 ---
 
-### Sprint 5 — Motor de Rotinas Dinâmicas (Execution Engine)
+### Sprint 5 — Gestão de Usuários & Permissões (Multi-Tenant)
 **Duração:** 2 semanas
-**Objetivo:** Motor de execução de rotinas JavaScript por instituição (Schedule + Webhook).
+**Objetivo:** Implementar controle de acesso hierárquico e multi-tenant, permitindo que um usuário tenha diferentes papéis em diferentes clientes/instituições.
 
 | # | User Story | Prioridade | AC |
 |---|-----------|------------|-----|
-| 5.1 | Como desenvolvedor, quero as tabelas `ROTRotina` e `ROTExecucaoLog` | MUST | Migration cria as tabelas com todos os campos e enums |
-| 5.2 | Como Gestor, quero um CRUD de rotinas com editor Monaco | MUST | Tela no frontend com Monaco Editor para escrever código JS, salvar e ativar/desativar rotinas |
-| 5.3 | Como Gestor, quero criar rotinas do tipo Schedule (CronJob) | MUST | Definir expressão cron, código JS é executado automaticamente no horário definido |
-| 5.4 | Como Gestor, quero criar rotinas do tipo Webhook | MUST | Definir path, método HTTP (GET/POST/PUT/PATCH), código JS recebe body, params e path da requisição |
-| 5.5 | Como sistema, quero executar código JS em sandbox isolada | MUST | VM isolada (vm2/isolated-vm) com timeout configurável, sem acesso ao filesystem |
-| 5.6 | Como sistema, quero logar todas as execuções | MUST | `ROTExecucaoLog` registra status, duração, resultado, erro e trigger |
-| 5.7 | Como Gestor, quero ver o histórico de execuções de cada rotina | SHOULD | Listagem com filtros por status, data, rotina |
-| 5.8 | Como sistema, quero injetar contexto seguro nas rotinas | MUST | `context.adapters`, `context.instituicao`, `context.request`, `context.db`, `fetch` |
+| 5.1 | Como Usuário, quero ter acesso compartilhado a múltiplos clientes/instituições | MUST | Um único login (e-mail) acessa diferentes contextos |
+| 5.2 | Como Usuário, após o login, quero selecionar o contexto ativo (Tenant Switcher) | MUST | Interface permite escolher Cliente/Instituição para operar |
+| 5.3 | Como desenvolvedor, quero que o JWT contenha os escopos permitidos | MUST | Payload do JWT lista `roles` por `clientId/institutionId` |
+| 5.4 | Como desenvolvedor, quero validar a hierarquia de criação no contexto selecionado | MUST | Regras de SuperRoot, Admin, Gestor aplicadas ao tenant ativo |
+| 5.5 | Como Admin/Gestor, quero convidar usuários para meu cliente/instituição | SHOULD | Fluxo de atribuição de papel a um e-mail existente ou novo |
+| 5.6 | Como desenvolvedor, quero adaptar o `TenantInterceptor` para contextos dinâmicos | MUST | Filtros RLS baseados no contexto selecionado via Header `x-tenant-id` |
 
 **Entregáveis:**
-- [ ] Módulo NestJS: Rotina (CRUD + Monaco Editor frontend)
-- [ ] Execution Engine com sandbox (vm2/isolated-vm)
-- [ ] CronScheduler dinâmico (`@nestjs/schedule`)
-- [ ] WebhookRouter dinâmico (path: `/instituicao/:cod/webhook/:path`)
-- [ ] Logging de execuções com `ROTExecucaoLog`
-- [ ] Tela de histórico de execuções
+- [ ] Backend: Refatoração da tabela `USRUsuario` e criação de `USRAcesso`
+- [ ] Backend: Lógica de login que retorna escopos disponíveis
+- [ ] Backend: Interceptor de Tenant atualizado para suportar troca de contexto e **bypass global** para papéis SUPER
+- [ ] Frontend: Componente "Tenant Switcher" no Header/Dashboard (oculto ou "Global" para SUPER)
+- [ ] Frontend: Menu de Gestão de Usuários com atribuição de escopo (Client/Inst + Role)
+- [ ] Proteção de rotas reativa ao papel do usuário no contexto ativo
 
 ---
 
-### Sprint 6 — Integração ERP & Sincronização
+### Sprint 6 — Integração ERP: Configuração por Instituição
 **Duração:** 2 semanas
-**Objetivo:** Integração com o primeiro ERP (Gennera) usando padrão Strategy + Rotinas do Engine.
+**Objetivo:** Permitir que cada instituição configure seu ERP Educacional (Gennera, Sponte, etc) para uso nas rotinas.
 
 | # | User Story | Prioridade | AC |
 |---|-----------|------------|-----|
-| 6.1 | Como desenvolvedor, quero a interface `IErpAdapter` | MUST | Interface TypeScript definida |
-| 6.2 | Como Gestor, quero configurar credenciais do ERP | MUST | CRUD de `ERPConfiguracao` |
-| 6.3 | Como sistema, quero sincronizar alunos do Gennera | MUST | Adapter Gennera importa/atualiza pessoas |
-| 6.4 | Como sistema, quero sincronizar turmas/matrículas do Gennera | SHOULD | Adapter importa cursos, séries, turmas |
-| 6.5 | Como Gestor, quero ver o status da última sincronização | SHOULD | Log de sync com sucesso/erro por registro |
-| 6.6 | Como Gestor, quero criar rotinas de sincronização via Engine | SHOULD | Rotina Schedule pré-configurada que usa o adapter do ERP |
+| 6.1 | Como Gestor, quero configurar o ERP da minha instituição | MUST | Tela de Detalhes da Inst. permite selecionar ERP e salvar credenciais |
+| 6.2 | Como Gestor, quero informar URL base, Token e Cód. Instituição | MUST | Campos específicos aparecem após selecionar o provedor (ex: Gennera) |
+| 6.3 | Como desenvolvedor, quero que as credenciais fiquem seguras no banco | MUST | Tabela `ERPConfiguracao` popula corretamente vinculada à `INSInstituicao` |
+| 6.4 | Como sistema, quero validar a conectividade com o ERP | SHOULD | Botão "Testar Conexão" que faz um ping na API do ERP selecionado |
 
 **Entregáveis:**
-- [ ] Interface `IErpAdapter` + Factory Pattern
-- [ ] `GenneraAdapter` implementado
-- [ ] Serviço de sincronização com logs
-- [ ] Tela de configuração ERP no frontend
-- [ ] Rotinas de exemplo usando o Execution Engine
+- [ ] UI: Seletor de ERP e formulário de credenciais na tela de Instituição
+- [ ] Backend: CRUD de `ERPConfiguracao` com isolamento por Tenant
+- [ ] Backend: Factory de Adapters para teste de conexão básica
 
 ---
 
-### Sprint 7 — Polish, Segurança & Produção
+### Sprint 7 — Motor de Rotinas & Automação (Co-relacionada)
+**Duração:** 2 semanas
+**Objetivo:** Criar e executar rotinas (JS) que consomem os dados do ERP configurado na Sprint 6.
+
+| # | User Story | Prioridade | AC |
+|---|-----------|------------|-----|
+| 7.1 | Como desenvolvedor, quero criar múltiplas rotinas por instituição | MUST | Tabela `ROTRotina` permite N registros por `INSInstituicaoCodigo` |
+| 7.2 | Como Gestor, quero escrever código JS via Monaco Editor | MUST | Editor com syntax highlighting e acesso ao objeto `context` |
+| 7.3 | Como sistema, quero injetar as credenciais do ERP no script | MUST | Script acessa `context.erp.urlBase`, `context.erp.token`, etc. |
+| 7.4 | Como sistema, quero permitir que o script grave no DB | MUST | `context.db.savePessoa`, `context.db.saveMatricula` disponíveis na sandbox |
+| 7.5 | Como sistema, quero disparar rotinas via Cron ou Webhook | MUST | Execução automática baseada na configuração da rotina |
+| 7.6 | Como Gestor, quero ver os logs de execução detalhados | MUST | `ROTExecucaoLog` mostra input/output e erros da rotina |
+
+**Entregáveis:**
+- [ ] Interface: Editor Monaco integrado à gestão de rotinas
+- [ ] Engine: Sandbox `isolated-vm` com injeção de contexto (`erp`, `db`, `httpClient`)
+- [ ] Engine: Scheduler dinâmico e Router de Webhooks
+- [ ] Dashboard: Histórico de execuções por rotina e instituição
+
+---
+
+### Sprint 8 — Polish, Segurança & Produção
 **Duração:** 2 semanas
 **Objetivo:** Hardening de segurança, testes, e preparação para deploy em produção.
 
 | # | User Story | Prioridade | AC |
 |---|-----------|------------|-----|
-| 7.1 | Como desenvolvedor, quero testes unitários nos módulos core | MUST | Cobertura ≥ 80% nos services |
-| 7.2 | Como desenvolvedor, quero testes E2E nos fluxos críticos | MUST | Login, CRUD, registro de passagem, execução de rotina |
-| 7.3 | Como Admin, quero auditoria de ações | SHOULD | Log de quem fez o quê e quando |
-| 7.4 | Como sistema, quero rate limiting nas APIs e webhooks | MUST | Proteção contra abuso (inclui limite de execuções por instituição) |
-| 7.5 | Como sistema, quero CI/CD configurado | SHOULD | Pipeline de build, test, deploy |
-| 7.6 | Como sistema, quero monitoramento de saúde | SHOULD | Health checks e métricas básicas |
+| 8.1 | Como desenvolvedor, quero testes unitários nos módulos core | MUST | Cobertura ≥ 80% nos services |
+| 8.2 | Como desenvolvedor, quero testes E2E nos fluxos críticos | MUST | Login, CRUD, registro de passagem, execução de rotina |
+| 8.3 | Como Admin, quero auditoria de ações | SHOULD | Log de quem fez o quê e quando |
+| 8.4 | Como sistema, quero rate limiting nas APIs e webhooks | MUST | Proteção contra abuso (inclui limite de execuções por instituição) |
+| 8.5 | Como sistema, quero CI/CD configurado | SHOULD | Pipeline de build, test, deploy |
+| 8.6 | Como sistema, quero monitoramento de saúde | SHOULD | Health checks e métricas básicas |
 
 **Entregáveis:**
 - [ ] Suíte de testes unitários e E2E
@@ -258,13 +273,16 @@ gantt
     Frontend & Dashboard        :s4, after s3, 14d
 
     section Sprint 5
-    Execution Engine            :s5, after s4, 14d
+    Gestão de Usuários          :s5, after s4, 14d
 
     section Sprint 6
     Integração ERP              :s6, after s5, 14d
 
     section Sprint 7
-    Segurança & Produção        :s7, after s6, 14d
+    Execution Engine            :s7, after s6, 14d
+
+    section Sprint 8
+    Segurança & Produção        :s8, after s7, 14d
 ```
 
 ---
@@ -277,14 +295,16 @@ graph LR
     S2 --> S3["Sprint 3<br/>Catracas"]
     S2 --> S4["Sprint 4<br/>Frontend"]
     S3 --> S4
-    S4 --> S5["Sprint 5<br/>Execution Engine"]
+    S4 --> S5["Sprint 5<br/>Gestão Usuários"]
     S5 --> S6["Sprint 6<br/>ERP"]
-    S3 --> S7["Sprint 7<br/>Produção"]
-    S6 --> S7
+    S6 --> S7["Sprint 7<br/>Execution Engine"]
+    S5 --> S8["Sprint 8<br/>Produção"]
+    S3 --> S8
+    S7 --> S8
 ```
 
 > [!NOTE]
-> Sprint 5 (Execution Engine) depende do Frontend (Sprint 4) para o Monaco Editor. Sprint 6 (ERP) aproveita o Engine para criar rotinas de sincronização. Sprint 7 é o fechamento geral.
+> As Sprints 6 e 7 são **co-relacionadas**: a Sprint 6 fornece a configuração de infraestrutura (ERP) que a Sprint 7 utiliza dinamicamente via código para orquestrar a sincronização de dados. A Sprint 8 é o fechamento geral.
 
 ---
 
@@ -299,3 +319,4 @@ graph LR
 | Sprint 5 | ⬜ Não iniciado | — |
 | Sprint 6 | ⬜ Não iniciado | — |
 | Sprint 7 | ⬜ Não iniciado | — |
+| Sprint 8 | ⬜ Não iniciado | — |

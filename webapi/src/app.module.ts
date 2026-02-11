@@ -12,6 +12,7 @@ import { MatriculaModule } from './matricula/matricula.module';
 import { EquipamentoModule } from './equipamento/equipamento.module';
 import { RegistroPassagemModule } from './registro-passagem/registro-passagem.module';
 import { ControlidModule } from './controlid/controlid.module';
+import { UsuarioModule } from './usuario/usuario.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { ControlidModule } from './controlid/controlid.module';
     EquipamentoModule,
     RegistroPassagemModule,
     ControlidModule,
+    UsuarioModule,
   ],
   controllers: [AppController],
   providers: [

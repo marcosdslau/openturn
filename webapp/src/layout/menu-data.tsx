@@ -1,3 +1,4 @@
+import type React from "react";
 import {
     AiIcon,
     BoxCubeIcon,
@@ -6,6 +7,7 @@ import {
     CartIcon,
     ChatIcon,
     GridIcon,
+    GroupIcon,
     ListIcon,
     MailIcon,
     PageIcon,
@@ -44,6 +46,11 @@ export const getMainNavItems = (basePath: string): NavItem[] => [
         icon: <BoxCubeIcon />,
         name: "Equipamentos",
         path: `${basePath}/equipamentos`,
+    },
+    {
+        icon: <GroupIcon />,
+        name: "Usuários",
+        path: `${basePath}/usuarios`,
     },
 ];
 
