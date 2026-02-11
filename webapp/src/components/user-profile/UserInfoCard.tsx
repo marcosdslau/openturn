@@ -31,6 +31,16 @@ export default function UserInfoCard() {
     loadProfile();
   }, []);
 
+  // Sync form state when modal opens
+  useEffect(() => {
+    if (isOpen && profile) {
+      setNome(profile.USRNome || "");
+      setEmail(profile.USREmail || "");
+      setTelefone(profile.USRTelefone || "");
+      setBio(profile.USRBio || "");
+    }
+  }, [isOpen, profile]);
+
   const loadProfile = async () => {
     try {
       setLoading(true);

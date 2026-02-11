@@ -44,6 +44,16 @@ export default function UserMetaCard() {
     loadProfile();
   }, []);
 
+  // Sync form state when modal opens
+  useEffect(() => {
+    if (isOpen && profile) {
+      setFacebook(profile.USRFacebook || "");
+      setTwitter(profile.USRTwitter || "");
+      setLinkedin(profile.USRLinkedin || "");
+      setInstagram(profile.USRInstagram || "");
+    }
+  }, [isOpen, profile]);
+
   const loadProfile = async () => {
     try {
       setLoading(true);

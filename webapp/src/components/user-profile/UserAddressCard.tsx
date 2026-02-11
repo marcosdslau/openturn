@@ -32,6 +32,17 @@ export default function UserAddressCard() {
     loadProfile();
   }, []);
 
+  // Sync form state when modal opens
+  useEffect(() => {
+    if (isOpen && profile) {
+      setPais(profile.USRPais || "");
+      setCidade(profile.USRCidade || "");
+      setEstado(profile.USREstado || "");
+      setCep(profile.USRCep || "");
+      setTaxId(profile.USRTaxId || "");
+    }
+  }, [isOpen, profile]);
+
   const loadProfile = async () => {
     try {
       setLoading(true);

@@ -213,19 +213,19 @@ export class UsuarioService {
         await this.getProfile(userId);
 
         const data: any = {};
-        if (dto.nome !== undefined) data.USRNome = dto.nome;
-        if (dto.telefone !== undefined) data.USRTelefone = dto.telefone;
-        if (dto.bio !== undefined) data.USRBio = dto.bio;
-        if (dto.fotoUrl !== undefined) data.USRFotoUrl = dto.fotoUrl;
-        if (dto.facebook !== undefined) data.USRFacebook = dto.facebook;
-        if (dto.twitter !== undefined) data.USRTwitter = dto.twitter;
-        if (dto.linkedin !== undefined) data.USRLinkedin = dto.linkedin;
-        if (dto.instagram !== undefined) data.USRInstagram = dto.instagram;
-        if (dto.pais !== undefined) data.USRPais = dto.pais;
-        if (dto.cidade !== undefined) data.USRCidade = dto.cidade;
-        if (dto.estado !== undefined) data.USREstado = dto.estado;
-        if (dto.cep !== undefined) data.USRCep = dto.cep;
-        if (dto.taxId !== undefined) data.USRTaxId = dto.taxId;
+        if (dto.nome !== undefined) data.USRNome = dto.nome || null;
+        if (dto.telefone !== undefined) data.USRTelefone = dto.telefone || null;
+        if (dto.bio !== undefined) data.USRBio = dto.bio || null;
+        if (dto.fotoUrl !== undefined) data.USRFotoUrl = dto.fotoUrl || null;
+        if (dto.facebook !== undefined) data.USRFacebook = dto.facebook || null;
+        if (dto.twitter !== undefined) data.USRTwitter = dto.twitter || null;
+        if (dto.linkedin !== undefined) data.USRLinkedin = dto.linkedin || null;
+        if (dto.instagram !== undefined) data.USRInstagram = dto.instagram || null;
+        if (dto.pais !== undefined) data.USRPais = dto.pais || null;
+        if (dto.cidade !== undefined) data.USRCidade = dto.cidade || null;
+        if (dto.estado !== undefined) data.USREstado = dto.estado || null;
+        if (dto.cep !== undefined) data.USRCep = dto.cep || null;
+        if (dto.taxId !== undefined) data.USRTaxId = dto.taxId || null;
 
         return this.prisma.uSRUsuario.update({
             where: { USRCodigo: userId },
