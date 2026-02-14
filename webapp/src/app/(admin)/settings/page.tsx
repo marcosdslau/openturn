@@ -504,16 +504,49 @@ function UsersTab({ isSuperRoot }: { isSuperRoot: boolean }) {
 function InstitutionsTab() {
     const [instituicoes, setInstituicoes] = useState<Instituicao[]>([]);
     const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState("");
+    const router = useRouter();
 
-    useEffect(() => {
-        apiGet<{ data: Instituicao[] }>("/instituicoes?limit=200")
+    const load = useCallback((q?: string) => {
+        setLoading(true);
+        const url = q ? `/instituicoes?limit=100&search=${encodeURIComponent(q)}` : "/instituicoes?limit=100";
+        apiGet<{ data: Instituicao[] }>(url)
             .then((res) => setInstituicoes(res.data || []))
             .catch(() => { })
             .finally(() => setLoading(false));
     }, []);
 
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    // Handle search debounce
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            load(search);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [search, load]);
+
     return (
         <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-4">
+                <div className="relative w-full sm:max-w-xs">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                        <svg className="fill-current" width="18" height="18" viewBox="0 0 18 18">
+                            <path d="M15.75 14.7188L11.5312 10.5C12.2062 9.59062 12.6 8.46562 12.6 7.25625C12.6 4.30312 10.2094 1.9125 7.25625 1.9125C4.30312 1.9125 1.9125 4.30312 1.9125 7.25625C1.9125 10.2094 4.30312 12.6 7.25625 12.6C8.46562 12.6 9.59062 12.2062 10.5 11.5312L14.7188 15.75L15.75 14.7188ZM3.375 7.25625C3.375 5.11875 5.11875 3.375 7.25625 3.375C9.39375 3.375 11.1375 5.11875 11.1375 7.25625C11.1375 9.39375 9.39375 11.1375 7.25625 11.1375C5.11875 11.1375 3.375 9.39375 3.375 7.25625Z" />
+                        </svg>
+                    </span>
+                    <input
+                        type="text"
+                        placeholder="Buscar por instituição ou cliente..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-brand-500 transition-colors"
+                    />
+                </div>
+            </div>
+
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
                 <table className="w-full">
                     <thead>
@@ -522,15 +555,20 @@ function InstitutionsTab() {
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Nome</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Cliente</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Status</th>
+                            <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Ações</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
+                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
                         ) : instituicoes.length === 0 ? (
-                            <tr><td colSpan={4} className="px-5 py-8 text-center text-gray-400">Nenhuma instituição encontrada.</td></tr>
+                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma instituição encontrada.</td></tr>
                         ) : instituicoes.map((i) => (
-                            <tr key={i.INSCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                            <tr
+                                key={i.INSCodigo}
+                                onClick={() => router.push(`/settings/institutions/${i.INSCodigo}`)}
+                                className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                            >
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">#{i.INSCodigo}</td>
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90 font-medium">{i.INSNome}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{i.cliente?.CLINome || `CLI #${i.CLICodigo}`}</td>
@@ -541,6 +579,11 @@ function InstitutionsTab() {
                                         }`}>
                                         {i.INSAtivo ? "Ativa" : "Inativa"}
                                     </span>
+                                </td>
+                                <td className="px-5 py-3 text-right">
+                                    <button className="text-brand-500 hover:text-brand-600 font-medium text-sm">
+                                        Configurar ERP
+                                    </button>
                                 </td>
                             </tr>
                         ))}

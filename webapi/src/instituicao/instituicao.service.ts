@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
@@ -12,17 +13,25 @@ export class InstituicaoService {
     }
 
     async findAll(query: PaginationDto): Promise<PaginatedResult<any>> {
-        const { page, limit } = query;
+        const { page, limit, search } = query;
         const skip = (page - 1) * limit;
+
+        const where: Prisma.INSInstituicaoWhereInput = search ? {
+            OR: [
+                { INSNome: { contains: search, mode: 'insensitive' } },
+                { cliente: { CLINome: { contains: search, mode: 'insensitive' } } }
+            ]
+        } : {};
 
         const [data, total] = await Promise.all([
             this.prisma.iNSInstituicao.findMany({
+                where,
                 skip,
                 take: limit,
                 include: { cliente: { select: { CLICodigo: true, CLINome: true } } },
                 orderBy: { INSCodigo: 'desc' },
             }),
-            this.prisma.iNSInstituicao.count(),
+            this.prisma.iNSInstituicao.count({ where }),
         ]);
 
         return {

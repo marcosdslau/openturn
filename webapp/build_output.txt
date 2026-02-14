@@ -1,0 +1,22 @@
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+   ▲ Next.js 16.0.10 (Turbopack)
+   - Environments: .env
+
+   Creating an optimized production build ...
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+[baseline-browser-mapping] The data in this module is over two months old.  To ensure accurate Baseline data, please update: `npm i baseline-browser-mapping@latest -D`
+ ✓ Compiled successfully in 6.2s
+   Running TypeScript ...
+Failed to compile.
+
+./src/app/(admin)/page.tsx:21:26
+Type error: Property 'instituicaoId' does not exist on type 'User'.
+
+[0m [90m 19 |[39m
+ [90m 20 |[39m     [36mconst[39m redirect [33m=[39m [36masync[39m () [33m=>[39m {
+[31m[1m>[22m[39m[90m 21 |[39m       [36mlet[39m instId [33m=[39m user[33m?[39m[33m.[39minstituicaoId[33m;[39m
+ [90m    |[39m                          [31m[1m^[22m[39m
+ [90m 22 |[39m       [36mif[39m ([33m![39minstId) {
+ [90m 23 |[39m         [36mtry[39m {
+ [90m 24 |[39m           [36mconst[39m list [33m=[39m [36mawait[39m apiGet[33m<[39m{ data[33m:[39m any[] }[33m>[39m([32m"/instituicoes?limit=1"[39m)[33m;[39m[0m
+Next.js build worker exited with code: 1 and signal: null
