@@ -119,6 +119,27 @@ async function main() {
     }
     console.log(`✅ Equipamentos: ${equipamentos.length} criados`);
 
+    // 6. Reset all sequences to start at 100 (prevents autoincrement conflicts)
+    const sequences = [
+        { table: 'CLICliente', column: 'CLICodigo' },
+        { table: 'INSInstituicao', column: 'INSCodigo' },
+        { table: 'PESPessoa', column: 'PESCodigo' },
+        { table: 'MATMatricula', column: 'MATCodigo' },
+        { table: 'EQPEquipamento', column: 'EQPCodigo' },
+        { table: 'ERPConfiguracao', column: 'ERPCodigo' },
+        { table: 'USRUsuario', column: 'USRCodigo' },
+        { table: 'USRAcesso', column: 'UACCodigo' },
+        { table: 'REGRegistroPassagem', column: 'REGCodigo' },
+        { table: 'CMDComandoFila', column: 'CMDCodigo' },
+    ];
+
+    for (const seq of sequences) {
+        await prisma.$executeRawUnsafe(
+            `SELECT setval(pg_get_serial_sequence('"${seq.table}"', '${seq.column}'), GREATEST(100, (SELECT COALESCE(MAX("${seq.column}"), 0) FROM "${seq.table}") + 1), false)`
+        );
+    }
+    console.log(`✅ Sequences: ${sequences.length} resetadas (mínimo: 100)`);
+
     console.log('\n🎉 Seed concluído com sucesso!');
     console.log('\n📋 Credenciais de teste:');
     console.log('   root@openturn.com / 123456 (SUPER_ROOT)');

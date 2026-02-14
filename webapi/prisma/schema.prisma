@@ -110,10 +110,11 @@ model ERPConfiguracao {
 }
 
 model USRUsuario {
-  USRCodigo Int    @id @default(autoincrement())
+  USRCodigo Int     @id @default(autoincrement())
   USRNome   String
-  USREmail  String @unique
+  USREmail  String  @unique
   USRSenha  String
+  USRAtivo  Boolean @default(true)
 
   // Profile fields
   USRTelefone String?

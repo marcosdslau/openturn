@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "USRUsuario" ADD COLUMN     "USRAtivo" BOOLEAN NOT NULL DEFAULT true;

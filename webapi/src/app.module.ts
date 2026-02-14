@@ -13,6 +13,7 @@ import { EquipamentoModule } from './equipamento/equipamento.module';
 import { RegistroPassagemModule } from './registro-passagem/registro-passagem.module';
 import { ControlidModule } from './controlid/controlid.module';
 import { UsuarioModule } from './usuario/usuario.module';
+import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { UsuarioModule } from './usuario/usuario.module';
     RegistroPassagemModule,
     ControlidModule,
     UsuarioModule,
+    AdminUsuarioModule,
   ],
   controllers: [AppController],
   providers: [
