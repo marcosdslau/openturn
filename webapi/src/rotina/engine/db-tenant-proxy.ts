@@ -85,9 +85,15 @@ export class DbTenantProxy {
         const dbContext: any = {};
 
         for (const modelName of allowedModels) {
-            // Converte nome do modelo para camelCase (ex: PESPessoa -> pessoa)
-            const key = modelName.charAt(0).toLowerCase() + modelName.slice(1);
+            // Converte nome do modelo para PascalCase (ex: pESPessoa -> PESPessoa)
+            // Isso garante que o script use o nome REAL do modelo definido no schema.prisma
+            // O modelName de entrada já é a propriedade do prisma (ex: pESPessoa)
+            const key = modelName.charAt(0).toUpperCase() + modelName.slice(1);
             dbContext[key] = this.createModelProxy(modelName);
+
+            // Opcional: Manter retrocompatibilidade com camelCase se necessário,
+            // mas o usuário pediu para usar o nome REAL.
+            // dbContext[modelName] = dbContext[key]; 
         }
 
         return dbContext;

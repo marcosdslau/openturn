@@ -7,7 +7,79 @@ interface RoutineHelperProps {
     onInsertSnippet: (snippet: string) => void;
 }
 
-const SNIPPETS = [
+// Helper to generate snippets from schema
+const generateSchemaSnippets = () => {
+    return ROUTINE_SCHEMA.flatMap(table => {
+        const alias = table.name; // Use Real Name (PascalCase, e.g. PESPessoa)
+        const friendly = table.alias; // Friendly alias (e.g. Pessoa)
+        const capitalName = friendly.charAt(0).toUpperCase() + friendly.slice(1);
+        const pkField = table.fields.find(f => f.pk)?.name || 'id';
+
+        return [
+            {
+                label: `${capitalName} - Buscar Vários`,
+                detail: `Lista registros de ${friendly} com filtro`,
+                code: `const lista${capitalName} = await context.db.${alias}.findMany({
+    where: {
+        // Ex: Nome: { contains: 'Maria' }
+    },
+    take: 10,
+    orderBy: {
+        ${pkField}: 'desc'
+    }
+});
+console.log(\`Encontrados \${lista${capitalName}.length} registros de ${friendly}\`);
+
+`
+            },
+            {
+                label: `${capitalName} - Buscar Um (por ID)`,
+                detail: `Busca um único registro de ${friendly}`,
+                code: `const ${alias} = await context.db.${alias}.findFirst({
+    where: {
+        ${pkField}: 1
+    }
+});
+if (${alias}) {
+    console.log('${friendly} encontrada:', ${alias});
+} else {
+    console.log('${friendly} não encontrada');
+}
+    `
+            },
+            {
+                label: `${capitalName} - Criar Novo`,
+                detail: `Insere um novo registro de ${friendly}`,
+                code: `const novo${capitalName} = await context.db.${alias}.create({
+    data: {
+        // Preencha os campos obrigatórios aqui
+        // Ex: Nome: 'Novo Registro'
+    }
+});
+console.log('${friendly} criada com ID:', novo${capitalName}.${pkField});
+
+`
+            },
+            {
+                label: `${capitalName} - Atualizar (por ID)`,
+                detail: `Atualiza um registro de ${friendly}`,
+                code: `const atualizado = await context.db.${alias}.update({
+    where: {
+        ${pkField}: 1
+    },
+    data: {
+        // Campos para atualizar
+    }
+});
+console.log('${friendly} atualizada!');
+
+`
+            }
+        ];
+    });
+};
+
+const STATIC_SNIPPETS = [
     {
         label: 'Log Info',
         detail: 'Registra uma mensagem de informação no console',
@@ -29,7 +101,7 @@ const SNIPPETS = [
     {
         label: 'Consultar Banco de Dados (Buscar Vários)',
         detail: 'Busca pessoas acessíveis',
-        code: `const pessoas = await context.db.pessoa.findMany({
+        code: `const pessoas = await context.db.PESPessoa.findMany({
     where: {
         PESNome: { contains: 'Maria' }
     },
@@ -40,12 +112,13 @@ console.log(\`Encontradas \${pessoas.length} pessoas\`);`,
     {
         label: 'Consultar Banco de Dados (Criar)',
         detail: 'Cria um novo registro',
-        code: `const novaPessoa = await context.db.pessoa.create({
+        code: `const novaPessoa = await context.db.PESPessoa.create({
     data: {
         PESNome: 'Nova Pessoa',
         // ... outros campos
     }
-});`,
+});
+`,
     },
     {
         label: 'Requisição HTTP (Axios)',
@@ -56,9 +129,118 @@ console.log(\`Encontradas \${pessoas.length} pessoas\`);`,
     },
 ];
 
+const PRISMA_SNIPPETS = [
+    {
+        label: 'Prisma - Where (Operadores)',
+        detail: 'Exemplos de filtros: equals, contains, in, gt, lt',
+        code: `const resultados = await context.db.PESPessoa.findMany({
+    where: {
+        // Igualdade exata
+        PESAtivo: true,
+        
+        // Contém texto (Case insensitive)
+        PESNome: { contains: 'Silva', mode: 'insensitive' },
+        
+        // Maior/Menor que
+        PESCodigo: { gt: 100 }, // Maior que
+        // PESCodigo: { gte: 100 }, // Maior ou igual
+        // PESCodigo: { lt: 50 },   // Menor que
+        
+        // Dentro de uma lista (IN)
+        PESGrupo: { in: ['ALUNO', 'PROFESSOR'] },
+        
+        // Negação (NOT)
+        PESEmail: { not: null }
+    }
+});
+`,
+    },
+    {
+        label: 'Prisma - Operadores Lógicos (AND/OR)',
+        detail: 'Combinação de condições com AND e OR',
+        code: `const resultados = await context.db.PESPessoa.findMany({
+    where: {
+        OR: [
+            { PESNome: { contains: 'João' } },
+            { PESEmail: { contains: 'joao@' } }
+        ],
+        AND: [
+            { PESAtivo: true },
+            { PESGrupo: 'ALUNO' }
+        ]
+    }
+});
+`,
+    },
+    {
+        label: 'Prisma - Ordenação (OrderBy)',
+        detail: 'Ordenação de resultados (asc/desc)',
+        code: `const resultados = await context.db.MATMatricula.findMany({
+    orderBy: [
+        { MATCurso: 'asc' },   // A-Z
+        { createdAt: 'desc' }  // Mais recente primeiro
+    ]
+});
+`,
+    },
+    {
+        label: 'Prisma - Paginação',
+        detail: 'Skip e Take para paginar resultados',
+        code: `const pagina2 = await context.db.REGRegistroPassagem.findMany({
+    skip: 10, // Pula os 10 primeiros
+    take: 10, // Pega os próximos 10
+    orderBy: { REGTimestamp: 'desc' }
+});
+`,
+    },
+    {
+        label: 'Prisma - Relacionamentos (Include/Join)',
+        detail: 'Traz dados de tabelas relacionadas',
+        code: `const matriculas = await context.db.MATMatricula.findMany({
+    where: { MATAtivo: true },
+    include: {
+        pessoa: true, // Traz os dados da Pessoa relacionada
+        // instituicao: true // Se disponível
+    }
+});
+// Acesso: matriculas[0].pessoa.PESNome`,
+    },
+    {
+        label: 'Prisma - Seleção de Campos (Select)',
+        detail: 'Retorna apenas campos específicos (Otimização)',
+        code: `const nomes = await context.db.PESPessoa.findMany({
+    select: {
+        PESNome: true,
+        PESEmail: true,
+        // Relacionamentos também podem ser selecionados
+        matriculas: {
+            select: { MATCurso: true }
+        }
+    }
+});
+`,
+    },
+    {
+        label: 'Prisma - Agrupamento (GroupBy)',
+        detail: 'Agrupa resultados (Ex: Contagem por Grupo)',
+        code: `// Nota: groupBy pode não estar disponível em todos os proxies
+// Verifique a documentação do ORM
+const estatisticas = await context.db.PESPessoa.groupBy({
+    by: ['PESGrupo'],
+    _count: {
+        PESCodigo: true
+    }
+});
+`,
+    },
+];
+
+const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...generateSchemaSnippets()];
+
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');
     const [visualizerOpen, setVisualizerOpen] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
 
     React.useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -114,9 +296,31 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                         </div>
 
                         <div>
-                            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Snippets Comuns</h4>
+                            <div className="flex justify-between items-center mb-3">
+                                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Snippets Comuns</h4>
+                            </div>
+
+                            {/* Search Input */}
+                            <div className="relative mb-3">
+                                <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                    <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                    </svg>
+                                </div>
+                                <input
+                                    type="text"
+                                    placeholder="Buscar snippet..."
+                                    className="block w-full pl-7 pr-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md leading-5 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-xs"
+                                    value={searchTerm}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
+                                />
+                            </div>
+
                             <div className="space-y-2">
-                                {SNIPPETS.map((snippet, idx) => (
+                                {SNIPPETS.filter(s =>
+                                    s.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                    s.detail.toLowerCase().includes(searchTerm.toLowerCase())
+                                ).map((snippet, idx) => (
                                     <button
                                         key={idx}
                                         onClick={() => onInsertSnippet(snippet.code)}
@@ -129,6 +333,12 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                         <p className="text-xs text-gray-500 dark:text-gray-500 line-clamp-1">{snippet.detail}</p>
                                     </button>
                                 ))}
+                                {SNIPPETS.filter(s =>
+                                    s.label.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                    s.detail.toLowerCase().includes(searchTerm.toLowerCase())
+                                ).length === 0 && (
+                                        <p className="text-xs text-gray-400 text-center py-4 italic">Nenhum snippet encontrado.</p>
+                                    )}
                             </div>
                         </div>
                     </>

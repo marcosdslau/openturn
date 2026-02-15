@@ -9,6 +9,8 @@ export interface Rotina {
     ROTWebhookPath?: string;
     ROTWebhookMetodo?: "GET" | "POST" | "PUT" | "PATCH";
     ROTWebhookSeguro: boolean;
+    ROTWebhookTokenSource?: "HEADER" | "QUERY";
+    ROTWebhookTokenKey?: string;
     ROTWebhookToken?: string;
     ROTCodigoJS: string;
     ROTAtivo: boolean;

@@ -201,6 +201,11 @@ enum TipoRotina {
   WEBHOOK
 }
 
+enum WebhookTokenSource {
+  HEADER
+  QUERY
+}
+
 enum HttpMetodo {
   GET
   POST
@@ -215,27 +220,29 @@ enum StatusExecucao {
 }
 
 model ROTRotina {
-  ROTCodigo            Int                  @id @default(autoincrement())
-  ROTNome              String
-  ROTDescricao         String?
-  ROTTipo              TipoRotina
-  ROTCronExpressao     String?
-  ROTWebhookPath       String?
-  ROTWebhookMetodo     HttpMetodo?
-  ROTWebhookSeguro     Boolean              @default(true)
-  ROTWebhookToken      String?
-  ROTCodigoJS          String
-  ROTAtivo             Boolean              @default(true)
-  ROTTimeoutSeconds    Int                  @default(30)
-  ROTUltimaExecucao    DateTime?
-  INSInstituicaoCodigo Int
-  instituicao          INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  createdAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  createdBy            Int
-  criador              USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
-  execucoes            ROTExecucaoLog[]
-  versoes              ROTHistoricoVersao[]
+  ROTCodigo             Int                  @id @default(autoincrement())
+  ROTNome               String
+  ROTDescricao          String?
+  ROTTipo               TipoRotina
+  ROTCronExpressao      String?
+  ROTWebhookPath        String?
+  ROTWebhookMetodo      HttpMetodo?
+  ROTWebhookSeguro      Boolean              @default(true)
+  ROTWebhookTokenSource WebhookTokenSource?  @default(HEADER)
+  ROTWebhookTokenKey    String?              @default("x-webhook-token")
+  ROTWebhookToken       String?
+  ROTCodigoJS           String
+  ROTAtivo              Boolean              @default(true)
+  ROTTimeoutSeconds     Int                  @default(30)
+  ROTUltimaExecucao     DateTime?
+  INSInstituicaoCodigo  Int
+  instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  createdBy             Int
+  criador               USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
+  execucoes             ROTExecucaoLog[]
+  versoes               ROTHistoricoVersao[]
 }
 
 model ROTExecucaoLog {

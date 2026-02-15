@@ -142,8 +142,8 @@ export class ExecutionService {
 
         // Schema definition for context info (mirrors schema.prisma minus INSInstituicaoCodigo)
         const schemaDefinition = {
-            pESPessoa: {
-                alias: 'pessoa',
+            PESPessoa: {
+                alias: 'Pessoa',
                 fields: [
                     { name: "PESCodigo", type: "Int", pk: true },
                     { name: "PESIdExterno", type: "String" },
@@ -163,11 +163,11 @@ export class ExecutionService {
                     { name: "deletedAt", type: "DateTime" },
                 ]
             },
-            mATMatricula: {
-                alias: 'matricula',
+            MATMatricula: {
+                alias: 'Matricula',
                 fields: [
                     { name: "MATCodigo", type: "Int", pk: true },
-                    { name: "PESCodigo", type: "Int", fk: "pESPessoa" },
+                    { name: "PESCodigo", type: "Int", fk: "PESPessoa" },
                     { name: "MATNumero", type: "String" },
                     { name: "MATCurso", type: "String" },
                     { name: "MATSerie", type: "String" },
@@ -176,20 +176,20 @@ export class ExecutionService {
                     { name: "createdAt", type: "DateTime" },
                 ]
             },
-            rEGRegistroPassagem: {
-                alias: 'registroPassagem',
+            REGRegistroPassagem: {
+                alias: 'RegistroPassagem',
                 fields: [
                     { name: "REGCodigo", type: "Int", pk: true },
-                    { name: "PESCodigo", type: "Int", fk: "pESPessoa" },
-                    { name: "EQPCodigo", type: "Int", fk: "eQPEquipamento" },
+                    { name: "PESCodigo", type: "Int", fk: "PESPessoa" },
+                    { name: "EQPCodigo", type: "Int", fk: "EQPEquipamento" },
                     { name: "REGAcao", type: "Enum" },
                     { name: "REGTimestamp", type: "BigInt" },
                     { name: "REGDataHora", type: "DateTime" },
                     { name: "createdAt", type: "DateTime" },
                 ]
             },
-            eQPEquipamento: {
-                alias: 'equipamento',
+            EQPEquipamento: {
+                alias: 'Equipamento',
                 fields: [
                     { name: "EQPCodigo", type: "Int", pk: true },
                     { name: "EQPDescricao", type: "String" },

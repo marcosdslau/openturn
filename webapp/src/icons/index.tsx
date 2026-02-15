@@ -56,3 +56,6 @@ export { default as CallIcon } from "./call-icon.svg";
 export { default as BoxMoving } from "./box-tapped.svg";
 export { default as BoxTapped } from "./box-icon.svg";
 export { default as TruckDelivery } from "./truck-delivery.svg";
+export { default as PlayIcon } from "./play.svg";
+export { default as PauseIcon } from "./pause.svg";
+export { default as RefreshIcon } from "./refresh.svg";

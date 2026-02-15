@@ -18,7 +18,13 @@ import {
     CloseIcon,
     ChevronLeftIcon,
     InfoIcon,
-    PencilIcon
+    PencilIcon,
+    PlayIcon,
+    PauseIcon,
+    RefreshIcon,
+    EyeIcon,
+    EyeCloseIcon,
+    CopyIcon
 } from "@/icons";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
@@ -32,6 +38,8 @@ export default function RoutineEditorPage() {
     const { codigoInstituicao } = useTenant();
     const { showToast } = useToast();
     const id = Number(params?.id);
+
+    const [showToken, setShowToken] = useState(false);
 
     const [rotina, setRotina] = useState<Rotina | null>(null);
     const [code, setCode] = useState<string>("");
@@ -70,6 +78,11 @@ export default function RoutineEditorPage() {
                 ROTTipo: data.ROTTipo,
                 ROTCronExpressao: data.ROTCronExpressao,
                 ROTWebhookPath: data.ROTWebhookPath,
+                ROTWebhookMetodo: data.ROTWebhookMetodo,
+                ROTWebhookSeguro: data.ROTWebhookSeguro,
+                ROTWebhookTokenSource: data.ROTWebhookTokenSource,
+                ROTWebhookTokenKey: data.ROTWebhookTokenKey,
+                ROTWebhookToken: data.ROTWebhookToken,
                 ROTAtivo: data.ROTAtivo
             });
             setCode(data.ROTCodigoJS || "// Escreva seu código aqui...");
@@ -120,6 +133,30 @@ export default function RoutineEditorPage() {
         } catch (error) {
             console.error("Erro ao salvar configurações", error);
             showToast("error", "Erro", "Erro ao salvar configurações");
+        }
+    };
+
+    const handleToggleStatus = async () => {
+        if (!rotina) return;
+        try {
+            const novoStatus = !rotina.ROTAtivo;
+            await RotinaService.update(rotina.ROTCodigo, {
+                ROTAtivo: novoStatus,
+                INSInstituicaoCodigo: codigoInstituicao
+            });
+
+            // Otimista update or reload
+            setRotina(prev => prev ? { ...prev, ROTAtivo: novoStatus } : null);
+            setSettingsForm(prev => ({ ...prev, ROTAtivo: novoStatus }));
+
+            showToast(
+                novoStatus ? "success" : "info",
+                novoStatus ? "Rotina Ativada" : "Rotina Pausada",
+                novoStatus ? "Agendamento e Webhooks agora estão ativos." : "Execuções automáticas foram interrompidas."
+            );
+        } catch (error) {
+            console.error("Erro ao alterar status", error);
+            showToast("error", "Erro", "Erro ao alterar status da rotina");
         }
     };
 
@@ -254,6 +291,29 @@ export default function RoutineEditorPage() {
                     </div>
 
                     <Button
+                        onClick={handleToggleStatus}
+                        size="sm"
+                        variant={rotina.ROTAtivo ? "outline" : "primary"}
+                        className={`gap-2 ${rotina.ROTAtivo
+                            ? "text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                            : "bg-green-600 hover:bg-green-700 text-white border-transparent"}`}
+                    >
+                        {rotina.ROTAtivo ? (
+                            <>
+                                <PauseIcon className="w-4 h-4" />
+                                <span className="hidden sm:inline">Pausar</span>
+                            </>
+                        ) : (
+                            <>
+                                <PlayIcon className="w-4 h-4" />
+                                <span className="hidden sm:inline">Ativar</span>
+                            </>
+                        )}
+                    </Button>
+
+                    <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
+
+                    <Button
                         onClick={handleExecute}
                         size="sm"
                         variant="outline"
@@ -369,13 +429,126 @@ export default function RoutineEditorPage() {
                             )}
 
                             {settingsForm.ROTTipo === 'WEBHOOK' && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Webhook Path</label>
-                                    <input
-                                        className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
-                                        value={settingsForm.ROTWebhookPath || ''}
-                                        onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookPath: e.target.value })}
-                                    />
+                                <div className="space-y-4">
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Caminho do Webhook</label>
+                                        <div className="flex">
+                                            <span className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg text-gray-500 text-sm flex items-center">
+                                                /api/webhooks
+                                            </span>
+                                            <input
+                                                className="flex-1 px-3 py-2 border border-l-0 border-gray-300 dark:border-gray-600 rounded-r-lg dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                value={settingsForm.ROTWebhookPath || ''}
+                                                onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookPath: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Display Full Webhook URL */}
+                                    <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                                        <code className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all">
+                                            {process.env.NEXT_PUBLIC_API_URL}/webhooks{settingsForm.ROTWebhookPath}
+                                        </code>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/webhooks${settingsForm.ROTWebhookPath}`;
+                                                navigator.clipboard.writeText(url);
+                                                showToast("success", "Copiado", "URL copiada para a área de transferência!");
+                                            }}
+                                            className="p-1.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex items-center gap-1 shadow-sm"
+                                            title="Copiar URL Completa"
+                                        >
+                                            <CopyIcon className="w-3.5 h-3.5" />
+                                            <span className="text-xs font-medium hidden sm:inline">Copiar</span>
+                                        </button>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Método HTTP</label>
+                                        <select
+                                            className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                            value={settingsForm.ROTWebhookMetodo || 'POST'}
+                                            onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookMetodo: e.target.value as any })}
+                                        >
+                                            <option value="GET">GET</option>
+                                            <option value="POST">POST</option>
+                                            <option value="PUT">PUT</option>
+                                            <option value="PATCH">PATCH</option>
+                                        </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="secure"
+                                            checked={settingsForm.ROTWebhookSeguro ?? true}
+                                            onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookSeguro: e.target.checked })}
+                                            className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                                        />
+                                        <label htmlFor="secure" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                                            Exigir Autenticação (Token)
+                                        </label>
+                                    </div>
+
+                                    {settingsForm.ROTWebhookSeguro && (
+                                        <div className="space-y-3 pl-6 border-l-2 border-purple-100 dark:border-purple-900 ml-1">
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fonte do Token</label>
+                                                <select
+                                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                                    value={settingsForm.ROTWebhookTokenSource || 'HEADER'}
+                                                    onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookTokenSource: e.target.value as any })}
+                                                >
+                                                    <option value="HEADER">Header (Cabeçalho)</option>
+                                                    <option value="QUERY">Query Param (URL)</option>
+                                                </select>
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                    Chave ({settingsForm.ROTWebhookTokenSource === 'QUERY' ? 'Nome do Parâmetro' : 'Nome do Header'})
+                                                </label>
+                                                <input
+                                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                                    placeholder={settingsForm.ROTWebhookTokenSource === 'QUERY' ? 'Ex: token' : 'Ex: x-webhook-token'}
+                                                    value={settingsForm.ROTWebhookTokenKey || ''}
+                                                    onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookTokenKey: e.target.value })}
+                                                />
+                                            </div>
+
+                                            <div>
+                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor do Token (Segredo)</label>
+                                                <div className="relative">
+                                                    <input
+                                                        type={showToken ? "text" : "password"}
+                                                        className="w-full pl-3 pr-20 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 font-mono"
+                                                        placeholder="Digite o token secreto..."
+                                                        value={settingsForm.ROTWebhookToken || ''}
+                                                        onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookToken: e.target.value })}
+                                                    />
+                                                    <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setShowToken(!showToken)}
+                                                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transaction-colors"
+                                                            title={showToken ? "Ocultar token" : "Mostrar token"}
+                                                        >
+                                                            {showToken ? <EyeCloseIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSettingsForm({ ...settingsForm, ROTWebhookToken: crypto.randomUUID() })}
+                                                            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transaction-colors"
+                                                            title="Gerar novo token aleatório (UUID)"
+                                                        >
+                                                            <RefreshIcon className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 

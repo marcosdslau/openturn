@@ -1,13 +1,15 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ExecutionService } from './engine/execution.service';
-import { TipoRotina, HttpMetodo } from '@prisma/client';
+import { SchedulerService } from './scheduler.service';
+import { TipoRotina, HttpMetodo, WebhookTokenSource } from '@prisma/client';
 
 @Injectable()
 export class RotinaService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly executionService: ExecutionService,
+        private readonly schedulerService: SchedulerService,
     ) { }
 
     async findAll(instituicaoCodigo: number) {
@@ -82,6 +84,8 @@ export class RotinaService {
                 ROTWebhookPath: data.ROTWebhookPath,
                 ROTWebhookMetodo: data.ROTWebhookMetodo as HttpMetodo,
                 ROTWebhookSeguro: data.ROTWebhookSeguro ?? true,
+                ROTWebhookTokenSource: data.ROTWebhookTokenSource,
+                ROTWebhookTokenKey: data.ROTWebhookTokenKey,
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo ?? true,
@@ -93,6 +97,16 @@ export class RotinaService {
 
         // Criar primeira versão
         await this.createVersion(rotina.ROTCodigo, data.ROTCodigoJS, usuarioCodigo, 'Versão inicial');
+
+        // Agendar se for CRON e estiver ativa
+        if (rotina.ROTTipo === 'SCHEDULE' && rotina.ROTAtivo && rotina.ROTCronExpressao) {
+            this.schedulerService.addCronJob(
+                rotina.ROTCodigo,
+                rotina.ROTCronExpressao,
+                rotina.INSInstituicaoCodigo,
+                rotina.ROTNome
+            );
+        }
 
         return rotina;
     }
@@ -115,7 +129,7 @@ export class RotinaService {
             await this.createVersion(id, data.ROTCodigoJS, usuarioCodigo, data.observacao);
         }
 
-        return this.prisma.rOTRotina.update({
+        const updated = await this.prisma.rOTRotina.update({
             where: { ROTCodigo: id },
             data: {
                 ROTNome: data.ROTNome,
@@ -125,12 +139,33 @@ export class RotinaService {
                 ROTWebhookPath: data.ROTWebhookPath,
                 ROTWebhookMetodo: data.ROTWebhookMetodo as HttpMetodo,
                 ROTWebhookSeguro: data.ROTWebhookSeguro,
+                ROTWebhookTokenSource: data.ROTWebhookTokenSource,
+                ROTWebhookTokenKey: data.ROTWebhookTokenKey,
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo,
                 ROTTimeoutSeconds: data.ROTTimeoutSeconds,
             },
         });
+
+        // Atualizar agendamento
+        if (updated.ROTTipo === 'SCHEDULE') {
+            if (updated.ROTAtivo && updated.ROTCronExpressao) {
+                this.schedulerService.addCronJob(
+                    updated.ROTCodigo,
+                    updated.ROTCronExpressao,
+                    updated.INSInstituicaoCodigo,
+                    updated.ROTNome
+                );
+            } else {
+                this.schedulerService.removeCronJob(updated.ROTCodigo);
+            }
+        } else {
+            // Se mudou de tipo ou algo assim, garante remoção
+            this.schedulerService.removeCronJob(updated.ROTCodigo);
+        }
+
+        return updated;
     }
 
     async remove(id: number, instituicaoCodigo: number) {
@@ -144,6 +179,9 @@ export class RotinaService {
         if (!existing) {
             throw new NotFoundException('Rotina não encontrada');
         }
+
+        // Remove agendamento antes de deletar
+        this.schedulerService.removeCronJob(id);
 
         return this.prisma.rOTRotina.delete({
             where: { ROTCodigo: id },

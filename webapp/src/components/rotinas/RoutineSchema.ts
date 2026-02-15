@@ -15,8 +15,8 @@ export interface SchemaTable {
 
 export const ROUTINE_SCHEMA: SchemaTable[] = [
     {
-        name: "pESPessoa",
-        alias: "pessoa",
+        name: "PESPessoa",
+        alias: "Pessoa",
         description: "Cadastro de Pessoas (Alunos, Funcionários, etc)",
         fields: [
             { name: "PESCodigo", type: "Int", pk: true, description: "Identificador único" },
@@ -38,12 +38,12 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         ]
     },
     {
-        name: "mATMatricula",
-        alias: "matricula",
+        name: "MATMatricula",
+        alias: "Matricula",
         description: "Vínculos de matrícula da pessoa",
         fields: [
             { name: "MATCodigo", type: "Int", pk: true, description: "ID Matrícula" },
-            { name: "PESCodigo", type: "Int", fk: "pESPessoa", description: "ID Pessoa" },
+            { name: "PESCodigo", type: "Int", fk: "PESPessoa", description: "ID Pessoa" },
             { name: "MATNumero", type: "String", description: "Número Matrícula (RA)" },
             { name: "MATCurso", type: "String", description: "Curso" },
             { name: "MATSerie", type: "String", description: "Série/Período" },
@@ -53,13 +53,13 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         ]
     },
     {
-        name: "rEGRegistroPassagem",
-        alias: "registroPassagem",
+        name: "REGRegistroPassagem",
+        alias: "RegistroPassagem",
         description: "Logs de acesso nas catracas",
         fields: [
             { name: "REGCodigo", type: "Int", pk: true, description: "ID Registro" },
-            { name: "PESCodigo", type: "Int", fk: "pESPessoa", description: "ID Pessoa" },
-            { name: "EQPCodigo", type: "Int", fk: "eQPEquipamento", description: "ID Equipamento" },
+            { name: "PESCodigo", type: "Int", fk: "PESPessoa", description: "ID Pessoa" },
+            { name: "EQPCodigo", type: "Int", fk: "EQPEquipamento", description: "ID Equipamento" },
             { name: "REGAcao", type: "Enum", description: "ENTRADA | SAIDA" },
             { name: "REGTimestamp", type: "BigInt", description: "Unix Timestamp" },
             { name: "REGDataHora", type: "DateTime", description: "Data/Hora legível" },
@@ -67,8 +67,8 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         ]
     },
     {
-        name: "eQPEquipamento",
-        alias: "equipamento",
+        name: "EQPEquipamento",
+        alias: "Equipamento",
         description: "Dispositivos de controle de acesso",
         fields: [
             { name: "EQPCodigo", type: "Int", pk: true, description: "ID Equipamento" },
