@@ -60,10 +60,15 @@ export default function RoutineEditorPage() {
     const [settingsForm, setSettingsForm] = useState<Partial<Rotina>>({});
 
     const editorRef = useRef<any>(null);
+    const saveRef = useRef<() => void>(() => { });
 
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
-        // Add extra libs or configuration here if needed
+
+        // Register Cmd+S / Ctrl+S inside Monaco Editor
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+            saveRef.current();
+        });
     };
 
     const loadRotina = useCallback(async () => {
@@ -180,6 +185,23 @@ export default function RoutineEditorPage() {
             setSaving(false);
         }
     };
+
+    // Keep saveRef in sync + global keyboard shortcut
+    useEffect(() => {
+        saveRef.current = handleSave;
+    });
+
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+                e.preventDefault();
+                e.stopPropagation();
+                saveRef.current();
+            }
+        };
+        window.addEventListener('keydown', onKeyDown, { capture: true });
+        return () => window.removeEventListener('keydown', onKeyDown, { capture: true });
+    }, []);
 
     const handleExecute = async () => {
         if (!rotina) return;
