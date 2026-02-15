@@ -58,20 +58,19 @@ export function SchemaVisualizer() {
     };
 
     const handleMouseDownCanvas = (e: React.MouseEvent) => {
-        // Only trigger canvas drag if clicking directly on the background
-        if (e.target === e.currentTarget || (e.target as HTMLElement).tagName === 'svg') {
-            setDragging({
-                type: 'CANVAS',
-                startX: e.clientX,
-                startY: e.clientY,
-                originalX: pan.x,
-                originalY: pan.y,
-            });
-        }
+        // Allow panning on any click that bubbles up (background, svg, transform container)
+        // We rely on stopPropagation in children to prevent this for tables/controls
+        setDragging({
+            type: 'CANVAS',
+            startX: e.clientX,
+            startY: e.clientY,
+            originalX: pan.x,
+            originalY: pan.y,
+        });
     };
 
     const handleMouseDownTable = (e: React.MouseEvent, tableName: string) => {
-        e.stopPropagation(); // Prevent canvas drag
+        e.stopPropagation(); // Explicitly stop propagation to prevent canvas pan
         const pos = positions[tableName];
         setDragging({
             type: 'TABLE',
@@ -183,6 +182,53 @@ export function SchemaVisualizer() {
         }
     };
 
+    // --- Fit to Screen ---
+    const handleFitToScreen = () => {
+        if (!containerRef.current) return;
+
+        // 1. Calculate Bounding Box of all tables
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        Object.keys(positions).forEach(key => {
+            const pos = positions[key];
+            const height = getTableHeight(key);
+            minX = Math.min(minX, pos.x);
+            minY = Math.min(minY, pos.y);
+            maxX = Math.max(maxX, pos.x + TABLE_WIDTH);
+            maxY = Math.max(maxY, pos.y + height);
+        });
+
+        // Add padding
+        const PADDING = 50;
+        const contentWidth = maxX - minX + (PADDING * 2);
+        const contentHeight = maxY - minY + (PADDING * 2);
+
+        // 2. Get Container Dimensions
+        const { width: containerWidth, height: containerHeight } = containerRef.current.getBoundingClientRect();
+
+        // 3. Calculate Scale to fit
+        const scaleX = containerWidth / contentWidth;
+        const scaleY = containerHeight / contentHeight;
+        const newScale = Math.min(scaleX, scaleY, 1); // Don't zoom in more than 100% just to fit
+
+        // 4. Calculate Pan to center
+        // Center of content
+        const contentCenterX = minX + (maxX - minX) / 2;
+        const contentCenterY = minY + (maxY - minY) / 2;
+
+        // Target center (center of container)
+        // We need to apply the reverse transform logic:
+        // desiredPan = (containerCenter - contentCenter * newScale)
+        const newPanX = (containerWidth / 2) - (contentCenterX * newScale);
+        const newPanY = (containerHeight / 2) - (contentCenterY * newScale);
+
+        setScale(newScale);
+        setPan({ x: newPanX, y: newPanY });
+    };
+
     return (
         <div
             ref={containerRef}
@@ -248,12 +294,12 @@ export function SchemaVisualizer() {
                                 transform: `translate(${pos.x}px, ${pos.y}px)`,
                                 width: TABLE_WIDTH,
                             }}
-                            className={`absolute flex flex-col bg-white dark:bg-gray-900 border rounded-xl shadow-xl z-10 transition-shadow ${isDragging ? 'shadow-2xl ring-2 ring-blue-500 border-transparent' : 'border-gray-200 dark:border-gray-800'}`}
+                            onMouseDown={(e) => handleMouseDownTable(e, table.name)}
+                            className={`absolute flex flex-col bg-white dark:bg-gray-900 border rounded-xl shadow-xl z-20 transition-shadow cursor-grab active:cursor-grabbing ${isDragging ? 'shadow-2xl ring-2 ring-indigo-500 border-indigo-500 z-30' : 'border-gray-200 dark:border-gray-800'}`}
                         >
-                            {/* Header Handle */}
+                            {/* Header */}
                             <div
-                                onMouseDown={(e) => handleMouseDownTable(e, table.name)}
-                                className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-700 p-3 rounded-t-xl cursor-grab active:cursor-grabbing flex justify-between items-center group"
+                                className="bg-gray-50 dark:bg-gray-800/80 border-b border-gray-100 dark:border-gray-700 p-3 rounded-t-xl flex justify-between items-center group"
                             >
                                 <span className="font-bold text-gray-800 dark:text-gray-100 text-sm truncate">{table.alias}</span>
                                 <span className="text-[10px] text-gray-400 font-mono opacity-0 group-hover:opacity-100 transition-opacity">{table.name}</span>
@@ -283,6 +329,7 @@ export function SchemaVisualizer() {
                 <button
                     onClick={() => setScale(s => Math.min(s + 0.1, 2))}
                     className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold"
+                    title="Zoom In"
                 >
                     +
                 </button>
@@ -292,8 +339,25 @@ export function SchemaVisualizer() {
                 <button
                     onClick={() => setScale(s => Math.max(s - 0.1, 0.5))}
                     className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold"
+                    title="Zoom Out"
                 >
                     -
+                </button>
+
+                <div className="h-2"></div> {/* Spacer */}
+
+                <button
+                    onClick={handleFitToScreen}
+                    className="w-8 h-8 flex items-center justify-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-300"
+                    title="Enquadrar (Fit to Screen)"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="5 9 2 9 2 15 5 15"></polyline>
+                        <polyline points="9 5 9 2 15 2 15 5"></polyline>
+                        <polyline points="19 9 22 9 22 15 19 15"></polyline>
+                        <polyline points="9 19 9 22 15 22 15 19"></polyline>
+                        <circle cx="12" cy="12" r="3"></circle>
+                    </svg>
                 </button>
             </div>
         </div>
