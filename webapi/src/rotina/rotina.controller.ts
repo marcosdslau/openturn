@@ -93,6 +93,14 @@ export class RotinaController {
         );
     }
 
+    @Delete('versions/bulk')
+    async deleteVersions(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Body() body: { ids: number[] },
+    ) {
+        return this.rotinaService.deleteVersions(body.ids, instituicaoCodigo);
+    }
+
     @Delete('versions/:versionId')
     async deleteVersion(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,

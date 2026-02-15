@@ -305,4 +305,32 @@ export class RotinaService {
             where: { HVICodigo: versionId },
         });
     }
+    async deleteVersions(versionIds: number[], instituicaoId: number) {
+        // Verifica se todas as versões pertencem a rotinas da instituição
+        const versions = await this.prisma.rOTHistoricoVersao.findMany({
+            where: {
+                HVICodigo: { in: versionIds },
+                rotina: {
+                    INSInstituicaoCodigo: instituicaoId
+                }
+            },
+            select: { HVICodigo: true }
+        });
+
+        // Opcional: Validar se encontrou todas. 
+        // Se a UI mandar IDs que não existem (ex: deletados por outro user), findMany retorna menos.
+        // Vamos deletar apenas o que encontramos para ser idempotente/seguro.
+
+        if (versions.length === 0) {
+            return { count: 0 };
+        }
+
+        const idsToDelete = versions.map(v => v.HVICodigo);
+
+        return this.prisma.rOTHistoricoVersao.deleteMany({
+            where: {
+                HVICodigo: { in: idsToDelete }
+            }
+        });
+    }
 }

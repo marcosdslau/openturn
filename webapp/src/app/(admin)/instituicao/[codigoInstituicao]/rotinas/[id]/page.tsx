@@ -244,6 +244,17 @@ export default function RoutineEditorPage() {
         }
     };
 
+    const handleDeleteVersions = async (versionIds: number[]) => {
+        try {
+            await RotinaService.deleteVersions(versionIds, codigoInstituicao);
+            showToast("success", "Excluído", `${versionIds.length} versão(ões) excluída(s)`);
+            loadVersions(); // Refresh list
+        } catch (error) {
+            console.error("Error deleting versions", error);
+            showToast("error", "Erro", "Erro ao excluir versões");
+        }
+    };
+
     const handleInsertSnippet = (snippet: string) => {
         if (editorRef.current) {
             const contribution = editorRef.current.getPosition();
@@ -406,6 +417,7 @@ export default function RoutineEditorPage() {
                                     setDiffModalOpen(true);
                                 }}
                                 onRestoreVersion={handleRestore}
+                                onDeleteVersions={handleDeleteVersions}
                             />
                         )}
                     </div>

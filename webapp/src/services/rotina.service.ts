@@ -86,4 +86,8 @@ export const RotinaService = {
     deleteVersion: async (versionId: number, instituicaoCodigo: number) => {
         return apiDelete(`/instituicao/${instituicaoCodigo}/rotina/versions/${versionId}`);
     },
+
+    deleteVersions: async (versionIds: number[], instituicaoCodigo: number) => {
+        return apiDelete(`/instituicao/${instituicaoCodigo}/rotina/versions/bulk`, { ids: versionIds });
+    },
 };

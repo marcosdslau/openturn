@@ -73,5 +73,8 @@ export const apiPut = <T = any>(path: string, body: any) =>
 export const apiPatch = <T = any>(path: string, body: any) =>
     api<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
 
-export const apiDelete = <T = any>(path: string) =>
-    api<T>(path, { method: 'DELETE' });
+export const apiDelete = <T = any>(path: string, body?: any) =>
+    api<T>(path, {
+        method: 'DELETE',
+        ...(body ? { body: JSON.stringify(body) } : {})
+    });
