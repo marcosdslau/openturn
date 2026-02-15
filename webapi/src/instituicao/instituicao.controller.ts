@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { InstituicaoService } from './instituicao.service';
 import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -33,6 +33,13 @@ export class InstituicaoController {
     @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
     @Put(':id')
     update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateInstituicaoDto) {
+        return this.service.update(id, dto);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT)
+    @Patch(':id')
+    patch(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateInstituicaoDto) {
+        // Aproveita a mesma lógica do update (que já aceita partial no DTO)
         return this.service.update(id, dto);
     }
 

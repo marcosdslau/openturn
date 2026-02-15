@@ -22,7 +22,7 @@ interface Cliente {
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
 export default function InstituicoesGlobalPage() {
-    const { isGlobal } = useAuth();
+    const { user, isGlobal } = useAuth();
     const [instituicoes, setInstituicoes] = useState<Instituicao[]>([]);
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
@@ -35,6 +35,9 @@ export default function InstituicoesGlobalPage() {
     const [editing, setEditing] = useState<Instituicao | null>(null);
     const [form, setForm] = useState({ INSNome: "", CLICodigo: 0 });
     const [saving, setSaving] = useState(false);
+
+    const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+    const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'toggle', id: number, name: string, active?: boolean } | null>(null);
 
     const load = useCallback(async () => {
         if (!isGlobal) return;
@@ -51,6 +54,14 @@ export default function InstituicoesGlobalPage() {
     }, [isGlobal, page, limit]);
 
     useEffect(() => { load(); }, [load]);
+
+    // Clear alert after 3 seconds
+    useEffect(() => {
+        if (alert) {
+            const timer = setTimeout(() => setAlert(null), 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [alert]);
 
     const openNew = () => {
         setEditing(null);
@@ -69,24 +80,64 @@ export default function InstituicoesGlobalPage() {
         try {
             if (editing) {
                 await apiPatch(`/instituicoes/${editing.INSCodigo}`, form);
+                setAlert({ type: 'success', message: 'Instituição atualizada com sucesso.' });
             } else {
                 await apiPost("/instituicoes", form);
+                setAlert({ type: 'success', message: 'Instituição criada com sucesso.' });
             }
             setShowModal(false);
             load();
-        } catch { /* ignore */ } finally { setSaving(false); }
+        } catch {
+            setAlert({ type: 'error', message: 'Erro ao salvar instituição.' });
+        } finally { setSaving(false); }
     };
 
-    const handleDelete = async (codigo: number) => {
-        if (!confirm("Deseja realmente excluir esta instituição?")) return;
-        await apiDelete(`/instituicoes/${codigo}`);
-        load();
+    const confirmToggleStatus = (i: Instituicao) => {
+        setConfirmAction({
+            type: 'toggle',
+            id: i.INSCodigo,
+            name: i.INSNome,
+            active: i.INSAtivo
+        });
+    };
+
+    const confirmDelete = (i: Instituicao) => {
+        setConfirmAction({
+            type: 'delete',
+            id: i.INSCodigo,
+            name: i.INSNome
+        });
+    };
+
+    const handleConfirmAction = async () => {
+        if (!confirmAction) return;
+
+        try {
+            if (confirmAction.type === 'delete') {
+                await apiDelete(`/instituicoes/${confirmAction.id}`);
+                setAlert({ type: 'success', message: 'Instituição excluída com sucesso.' });
+            } else if (confirmAction.type === 'toggle') {
+                await apiPatch(`/instituicoes/${confirmAction.id}`, { INSAtivo: !confirmAction.active });
+                setAlert({ type: 'success', message: `Instituição ${!confirmAction.active ? 'ativada' : 'inativada'} com sucesso.` });
+            }
+            load();
+        } catch (error) {
+            setAlert({ type: 'error', message: 'Erro ao processar a ação.' });
+        } finally {
+            setConfirmAction(null);
+        }
     };
 
     if (!isGlobal) return <div className="p-6">Acesso negado.</div>;
 
     return (
         <div className="space-y-6">
+            {alert && (
+                <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg text-white ${alert.type === 'success' ? 'bg-green-500' : 'bg-red-500'}`}>
+                    {alert.message}
+                </div>
+            )}
+
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Instituições (Global)</h2>
                 <Button size="sm" onClick={openNew}>+ Nova Instituição</Button>
@@ -117,9 +168,17 @@ export default function InstituicoesGlobalPage() {
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${i.INSAtivo ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                                         }`}>{i.INSAtivo ? "Ativo" : "Inativo"}</span>
                                 </td>
-                                <td className="px-5 py-3 flex gap-2">
-                                    <button onClick={() => openEdit(i)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    <button onClick={() => handleDelete(i.INSCodigo)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                                <td className="px-5 py-3 flex gap-3">
+                                    <button onClick={() => openEdit(i)} className="text-xs text-brand-500 hover:underline font-medium">Editar</button>
+                                    {user?.grupo === 'SUPER_ROOT' && (
+                                        <button
+                                            onClick={() => confirmToggleStatus(i)}
+                                            className={`text-xs font-medium hover:underline ${i.INSAtivo ? "text-amber-500" : "text-green-500"}`}
+                                        >
+                                            {i.INSAtivo ? "Inativar" : "Ativar"}
+                                        </button>
+                                    )}
+                                    <button onClick={() => confirmDelete(i)} className="text-xs text-red-500 hover:underline font-medium">Excluir</button>
                                 </td>
                             </tr>
                         ))}
@@ -159,26 +218,66 @@ export default function InstituicoesGlobalPage() {
                 </p>
             </div>
 
-            {/* Modal */}
+            {/* Modal Form */}
             {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 dark:bg-gray-900 space-y-4">
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-2xl bg-white p-6 dark:bg-gray-900 space-y-4 shadow-xl border border-gray-200 dark:border-gray-800">
                         <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
                             {editing ? "Editar Instituição" : "Nova Instituição"}
                         </h3>
-                        <div className="space-y-3">
-                            <input placeholder="Nome *" value={form.INSNome} onChange={(e) => setForm({ ...form, INSNome: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <select value={form.CLICodigo} onChange={(e) => setForm({ ...form, CLICodigo: parseInt(e.target.value) })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white">
-                                <option value={0}>Selecione um Cliente</option>
-                                {clientes.map(c => <option key={c.CLICodigo} value={c.CLICodigo}>{c.CLINome}</option>)}
-                            </select>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome</label>
+                                <input
+                                    placeholder="Nome da Instituição"
+                                    value={form.INSNome}
+                                    onChange={(e) => setForm({ ...form, INSNome: e.target.value })}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Cliente</label>
+                                <select
+                                    value={form.CLICodigo}
+                                    onChange={(e) => setForm({ ...form, CLICodigo: parseInt(e.target.value) })}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                >
+                                    <option value={0}>Selecione um Cliente</option>
+                                    {clientes.map(c => <option key={c.CLICodigo} value={c.CLICodigo}>{c.CLINome}</option>)}
+                                </select>
+                            </div>
                         </div>
-                        <div className="flex gap-3 justify-end">
-                            <Button size="sm" onClick={() => setShowModal(false)}>Cancelar</Button>
+                        <div className="flex gap-3 justify-end pt-2">
+                            <Button variant="outline" size="sm" onClick={() => setShowModal(false)}>Cancelar</Button>
                             <Button size="sm" onClick={handleSave} disabled={saving || !form.INSNome || !form.CLICodigo}>
                                 {saving ? "Salvando..." : "Salvar"}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Confirmation Modal */}
+            {confirmAction && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                    <div className="w-full max-w-sm rounded-xl bg-white p-6 dark:bg-gray-900 shadow-xl border border-gray-200 dark:border-gray-800">
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90 mb-2">
+                            {confirmAction.type === 'delete' ? 'Confirmar Exclusão' :
+                                confirmAction.active ? 'Ao inativar, nenhum usuário deste tenant poderá acessar o sistema.' : 'Confirmar Ativação'}
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
+                            {confirmAction.type === 'delete'
+                                ? `Tem certeza que deseja excluir a instituição "${confirmAction.name}"? Esta ação não pode ser desfeita.`
+                                : `Deseja realmente ${confirmAction.active ? 'inativar' : 'ativar'} a instituição "${confirmAction.name}"?`}
+                        </p>
+                        <div className="flex gap-3 justify-end">
+                            <Button variant="outline" size="sm" onClick={() => setConfirmAction(null)}>Cancelar</Button>
+                            <Button
+                                size="sm"
+                                onClick={handleConfirmAction}
+                                className={confirmAction.type === 'delete' || (confirmAction.type === 'toggle' && confirmAction.active) ? "bg-red-600 hover:bg-red-700" : "bg-green-600 hover:bg-green-700"}
+                            >
+                                Confirmar
                             </Button>
                         </div>
                     </div>
