@@ -22,7 +22,7 @@ interface Cliente {
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
 export default function InstituicoesGlobalPage() {
-    const { user, isGlobal } = useAuth();
+    const { isGlobal, isSuperRoot } = useAuth();
     const [instituicoes, setInstituicoes] = useState<Instituicao[]>([]);
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
@@ -170,7 +170,7 @@ export default function InstituicoesGlobalPage() {
                                 </td>
                                 <td className="px-5 py-3 flex gap-3">
                                     <button onClick={() => openEdit(i)} className="text-xs text-brand-500 hover:underline font-medium">Editar</button>
-                                    {user?.grupo === 'SUPER_ROOT' && (
+                                    {isSuperRoot && (
                                         <button
                                             onClick={() => confirmToggleStatus(i)}
                                             className={`text-xs font-medium hover:underline ${i.INSAtivo ? "text-amber-500" : "text-green-500"}`}
