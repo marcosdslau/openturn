@@ -8,6 +8,7 @@ export interface Rotina {
     ROTCronExpressao?: string;
     ROTWebhookPath?: string;
     ROTWebhookMetodo?: "GET" | "POST" | "PUT" | "PATCH";
+    ROTWebhookAguardar?: boolean;
     ROTWebhookSeguro: boolean;
     ROTWebhookTokenSource?: "HEADER" | "QUERY";
     ROTWebhookTokenKey?: string;

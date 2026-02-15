@@ -20,6 +20,7 @@ export default function NovaRotinaPage() {
         ROTCronExpressao: "0 * * * *", // Default hourly
         ROTWebhookPath: "/minha-rotina",
         ROTWebhookMetodo: "POST",
+        ROTWebhookAguardar: false,
         ROTWebhookSeguro: true,
         ROTWebhookTokenSource: "HEADER",
         ROTWebhookTokenKey: "x-webhook-token",
@@ -192,6 +193,17 @@ export default async function(context, console) {
                                         </button>
                                     </div>
                                 )}
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-2">
+                                <input
+                                    type="checkbox"
+                                    id="wait"
+                                    checked={formData.ROTWebhookAguardar}
+                                    onChange={(e) => setFormData({ ...formData, ROTWebhookAguardar: e.target.checked })}
+                                    className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                                />
+                                <label htmlFor="wait" className="text-sm font-medium text-purple-900 dark:text-purple-300 cursor-pointer">Aguardar processamento (Síncrono)</label>
                             </div>
 
                             <div className="flex items-center gap-2 pt-2">

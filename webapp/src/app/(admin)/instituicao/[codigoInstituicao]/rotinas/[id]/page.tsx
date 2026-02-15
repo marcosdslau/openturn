@@ -79,6 +79,7 @@ export default function RoutineEditorPage() {
                 ROTCronExpressao: data.ROTCronExpressao,
                 ROTWebhookPath: data.ROTWebhookPath,
                 ROTWebhookMetodo: data.ROTWebhookMetodo,
+                ROTWebhookAguardar: data.ROTWebhookAguardar,
                 ROTWebhookSeguro: data.ROTWebhookSeguro,
                 ROTWebhookTokenSource: data.ROTWebhookTokenSource,
                 ROTWebhookTokenKey: data.ROTWebhookTokenKey,
@@ -476,6 +477,19 @@ export default function RoutineEditorPage() {
                                             <option value="PUT">PUT</option>
                                             <option value="PATCH">PATCH</option>
                                         </select>
+                                    </div>
+
+                                    <div className="flex items-center gap-2">
+                                        <input
+                                            type="checkbox"
+                                            id="wait"
+                                            checked={settingsForm.ROTWebhookAguardar || false}
+                                            onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookAguardar: e.target.checked })}
+                                            className="w-4 h-4 text-purple-600 rounded border-gray-300 focus:ring-purple-500"
+                                        />
+                                        <label htmlFor="wait" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                                            Aguardar processamento (Síncrono)
+                                        </label>
                                     </div>
 
                                     <div className="flex items-center gap-2">

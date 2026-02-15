@@ -227,6 +227,7 @@ model ROTRotina {
   ROTCronExpressao      String?
   ROTWebhookPath        String?
   ROTWebhookMetodo      HttpMetodo?
+  ROTWebhookAguardar    Boolean              @default(false)
   ROTWebhookSeguro      Boolean              @default(true)
   ROTWebhookTokenSource WebhookTokenSource?  @default(HEADER)
   ROTWebhookTokenKey    String?              @default("x-webhook-token")

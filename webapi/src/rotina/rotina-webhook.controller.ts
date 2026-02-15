@@ -69,20 +69,45 @@ export class RotinaWebhookController {
         // Geralmente webhooks devem responder rápido. Vamos disparar sem awaitar o resultado final
         // mas garantindo que o erro de start seja capturado.
 
-        this.executionService.execute(
-            rotina.ROTCodigo,
-            rotina.INSInstituicaoCodigo,
-            'WEBHOOK',
-            {
-                body,
-                query,
-                headers,
-                method,
+        // Executa a rotina
+        if (rotina.ROTWebhookAguardar) {
+            try {
+                const data = await this.executionService.execute(
+                    rotina.ROTCodigo,
+                    rotina.INSInstituicaoCodigo,
+                    'WEBHOOK',
+                    {
+                        body,
+                        query,
+                        headers,
+                        method,
+                    }
+                );
+                const {result} = data;
+                return result;
+            } catch (err: any) {
+                this.logger.error(`Erro ao executar webhook síncrono ${path}:`, err);
+                // Retorna erro 500 ou 400 dependendo do erro
+                // Vamos retornar o erro para quem chamou
+                throw err;
             }
-        ).catch(err => {
-            this.logger.error(`Erro ao executar webhook ${path}:`, err);
-        });
+        } else {
+            // Fire and Forget (Async)
+            this.executionService.execute(
+                rotina.ROTCodigo,
+                rotina.INSInstituicaoCodigo,
+                'WEBHOOK',
+                {
+                    body,
+                    query,
+                    headers,
+                    method,
+                }
+            ).catch(err => {
+                this.logger.error(`Erro ao executar webhook assíncrono ${path}:`, err);
+            });
 
-        return { message: 'Webhook received', execution: 'started' };
+            return { message: 'Webhook received', execution: 'started' };
+        }
     }
 }
