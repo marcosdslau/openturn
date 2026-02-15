@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/context/ThemeContext";
 import { AuthProvider } from "@/context/AuthContext";
 
 import { TenantProvider } from "@/context/TenantContext";
+import { ToastProvider } from "@/context/ToastContext";
 
 const outfit = Outfit({
   subsets: ["latin"],
@@ -24,7 +25,9 @@ export default function RootLayout({
         <ThemeProvider>
           <AuthProvider>
             <TenantProvider>
-              <SidebarProvider>{children}</SidebarProvider>
+              <ToastProvider>
+                <SidebarProvider>{children}</SidebarProvider>
+              </ToastProvider>
             </TenantProvider>
           </AuthProvider>
         </ThemeProvider>

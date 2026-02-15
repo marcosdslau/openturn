@@ -182,12 +182,12 @@ enum ENUM_ACAO_PASSAGEM {
 | 5.6 | Como desenvolvedor, quero adaptar o `TenantInterceptor` para contextos dinâmicos | MUST | Filtros RLS baseados no contexto selecionado via Header `x-tenant-id` |
 
 **Entregáveis:**
-- [ ] Backend: Refatoração da tabela `USRUsuario` e criação de `USRAcesso`
-- [ ] Backend: Lógica de login que retorna escopos disponíveis
-- [ ] Backend: Interceptor de Tenant atualizado para suportar troca de contexto e **bypass global** para papéis SUPER
-- [ ] Frontend: Componente "Tenant Switcher" no Header/Dashboard (oculto ou "Global" para SUPER)
-- [ ] Frontend: Menu de Gestão de Usuários com atribuição de escopo (Client/Inst + Role)
-- [ ] Proteção de rotas reativa ao papel do usuário no contexto ativo
+- [x] Backend: Refatoração da tabela `USRUsuario` e criação de `USRAcesso`
+- [x] Backend: Lógica de login que retorna escopos disponíveis
+- [x] Backend: Interceptor de Tenant atualizado para suportar troca de contexto e **bypass global** para papéis SUPER
+- [x] Frontend: Componente "Tenant Switcher" no Header/Dashboard (oculto ou "Global" para SUPER)
+- [x] Frontend: Menu de Gestão de Usuários com atribuição de escopo (Client/Inst + Role)
+- [x] Proteção de rotas reativa ao papel do usuário no contexto ativo
 
 ---
 
@@ -203,9 +203,9 @@ enum ENUM_ACAO_PASSAGEM {
 | 6.4 | Como sistema, quero validar a conectividade com o ERP | SHOULD | Botão "Testar Conexão" que faz um ping na API do ERP selecionado |
 
 **Entregáveis:**
-- [ ] UI: Seletor de ERP e formulário de credenciais na tela de Instituição
-- [ ] Backend: CRUD de `ERPConfiguracao` com isolamento por Tenant
-- [ ] Backend: Factory de Adapters para teste de conexão básica
+- [x] UI: Seletor de ERP e formulário de credenciais na tela de Instituição
+- [x] Backend: CRUD de `ERPConfiguracao` com isolamento por Tenant
+- [x] Backend: Factory de Adapters para teste de conexão básica
 
 ---
 
@@ -215,18 +215,28 @@ enum ENUM_ACAO_PASSAGEM {
 
 | # | User Story | Prioridade | AC |
 |---|-----------|------------|-----|
-| 7.1 | Como desenvolvedor, quero criar múltiplas rotinas por instituição | MUST | Tabela `ROTRotina` permite N registros por `INSInstituicaoCodigo` |
-| 7.2 | Como Gestor, quero escrever código JS via Monaco Editor | MUST | Editor com syntax highlighting e acesso ao objeto `context` |
-| 7.3 | Como sistema, quero injetar as credenciais do ERP no script | MUST | Script acessa `context.erp.urlBase`, `context.erp.token`, etc. |
-| 7.4 | Como sistema, quero permitir que o script grave no DB | MUST | `context.db.savePessoa`, `context.db.saveMatricula` disponíveis na sandbox |
-| 7.5 | Como sistema, quero disparar rotinas via Cron ou Webhook | MUST | Execução automática baseada na configuração da rotina |
-| 7.6 | Como Gestor, quero ver os logs de execução detalhados | MUST | `ROTExecucaoLog` mostra input/output e erros da rotina |
+| 7.1 | Como Gestor, quero um menu "Rotinas" por instituição | MUST | Tela acessível em `/instituicao/[cod]/rotinas` |
+| 7.2 | Como Gestor, quero listar todas as rotinas da minha instituição | MUST | Lista com nome, trigger, última execução e status ativo |
+| 7.3 | Como Gestor, quero criar/editar rotinas com Monaco Editor e Helper | MUST | Editor integrado com painel lateral de documentação (exemplos context/db) |
+| 7.4 | Como Gestor, quero configurar gatilhos Webhook ou Schedule e Timeout | MUST | Configuração de trigger e tempo máximo de execução (seconds) |
+| 7.5 | Como Gestor, quero executar uma rotina manualmente para testes | MUST | Botão "Executar Agora" que dispara execução em processo isolado |
+| 7.6 | Como sistema, quero garantir isolamento de Tenant (RLS) no `context.db` | MUST | Backend injeta filtro de `INSInstituicaoCodigo` em TODA operação de DB |
+| 7.7 | Como Gestor, quero um "Live Console" para assistir logs em tempo real | MUST | Tela que conecta via webhook/WS para streaming de logs de uma rotina |
+| 7.8 | Como Gestor, quero histórico de versões do código da rotina | MUST | Tabela `ROTHistoricoVersao` grava snapshot do código a cada save |
+| 7.9 | Como Gestor, quero comparar versões com visão split/diff e restore | MUST | Uso de Monaco Diff Editor para comparar e botão de restaurar versão |
+| 7.10 | Como sistema, quero executar rotinas em processos filhos (não-bloqueante) | MUST | Uso de `child_process` para isolamento e encerramento por timeout |
+| 7.11 | Como Gestor, quero ver os logs de execução detalhados | MUST | `ROTExecucaoLog` mostra histórico completo e erros |
+| 7.12 | Como Gestor, quero enviar comandos para todos os equipamentos ativos | MUST | Injeção de `context.adapters.equipamentos` (lista) para iteração |
+| 7.13 | Como Gestor, quero usar logs estruturados (info, warn, error) | MUST | `context.console` suporta múltiplos níveis visíveis no Live Console |
 
 **Entregáveis:**
-- [ ] Interface: Editor Monaco integrado à gestão de rotinas
-- [ ] Engine: Sandbox `isolated-vm` com injeção de contexto (`erp`, `db`, `httpClient`)
-- [ ] Engine: Scheduler dinâmico e Router de Webhooks
-- [ ] Dashboard: Histórico de execuções por rotina e instituição
+- [ ] UI: Menu "Rotinas" e tela de listagem (Status + Última Execução)
+- [ ] UI: Editor Monaco com **Routine Helper** e **Version History (Diff Editor)**
+- [ ] UI: Dashboard de **Live Console** para streaming de logs em tempo real
+- [ ] Engine: Proxy de segurança para `context.db` garantindo isolamento de Tenant (RLS)
+- [ ] Engine: Gerenciador de Processos Filhos (`child_process`) com controle de Timeout
+- [ ] Engine: Suporte a `isolated-vm` com injeção de `axios` e `db` escopado
+- [ ] Backend: Lógica de versionamento (Snapshot on Save + Restore + Delete)
 
 ---
 
@@ -316,7 +326,7 @@ graph LR
 | Sprint 2 | ✅ Concluído | Módulos ✅ Passagens ✅ DTOs ✅ Paginação ✅ |
 | Sprint 3 | ✅ Concluído | ControlId ✅ Push ✅ Monitor ✅ Online ✅ Sync ✅ |
 | Sprint 4 | ✅ Concluído | Dashboard ✅ Passagens ✅ CRUDs ✅ Auth ✅ Tenant ✅ |
-| Sprint 5 | ⬜ Não iniciado | — |
-| Sprint 6 | ⬜ Não iniciado | — |
+| Sprint 5 | ✅ Concluído | Usuários ✅ Acessos ✅ Tenant Switcher ✅ |
+| Sprint 6 | ✅ Concluído | Configurações ERP ✅ Frontend ✅ Backend ✅ |
 | Sprint 7 | ⬜ Não iniciado | — |
 | Sprint 8 | ⬜ Não iniciado | — |

@@ -58,6 +58,11 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
             name: "Usuários",
             path: `${basePath}/usuarios`,
         },
+        {
+            icon: <PlugInIcon />,
+            name: "Rotinas",
+            path: `${basePath}/rotinas`,
+        },
     ];
 
     if (isSuperRoot) {

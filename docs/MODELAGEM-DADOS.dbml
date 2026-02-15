@@ -74,25 +74,47 @@ Table USRUsuario {
   USRNome String [not null]
   USREmail String [unique]
   USRSenha String
+  USRAtivo Boolean [default: true]
+  
+  // Profile fields
+  USRTelefone String
+  USRBio String
+  USRFotoUrl String
+  
+  // Social links
+  USRFacebook String
+  USRTwitter String
+  USRLinkedin String
+  USRInstagram String
+  
+  // Address information
+  USRPais String
+  USRCidade String
+  USREstado String
+  USRCep String
+  USRTaxId String
+
   createdAt timestamp [default: `now()`]
+  updatedAt timestamp [default: `now()`]
 }
 
 Table USRAcesso {
   UACCodigo Int [pk, increment]
   USRCodigo Int [ref: > USRUsuario.USRCodigo]
-  USRGrupo ENUM_GRUPO_ACESSO [note: 'Papel do usuário neste escopo']
+  grupo ENUM_GRUPO_ACESSO [note: 'Papel do usuário neste escopo']
   CLICodigo Int [ref: > CLICliente.CLICodigo, note: 'NULL = Acesso a todos os Clientes (apenas para SUPER roles)']
-  INSCodigo Int [ref: > INSInstituicao.INSCodigo, note: 'NULL = Acesso a todas as Instituições do Cliente (ou Global se CLICodigo for NULL)']
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo, note: 'NULL = Acesso a todas as Instituições do Cliente (ou Global se CLICodigo for NULL)']
+  createdAt timestamp [default: `now()`]
   
   note: 'Mapeia usuários para múltiplos papéis e tenants. SUPER_ROOT/ADMIN com CLICodigo=NULL possuem acesso global automático.'
 }
 
 enum ENUM_GRUPO_ACESSO {
-  SUPER_ROOT [note: 'Acesso Global Irrestrito. Cria: qualquer um']
-  SUPER_ADMIN [note: 'Acesso Global. Cria: Admin, Gestor, Operacao']
-  ADMIN [note: 'Escopo: Cliente. Acessa todas inst. do cliente. Cria: Admin, Gestor, Operacao']
-  GESTOR [note: 'Escopo: Instituição. Cria: Gestor, Operacao']
-  OPERACAO [note: 'Escopo: Instituição. Sem permissão de criação/gestão de usuários']
+  SUPER_ROOT [note: 'Acesso Global Irrestrito']
+  SUPER_ADMIN [note: 'Acesso Global']
+  ADMIN [note: 'Escopo: Cliente']
+  GESTOR [note: 'Escopo: Instituição']
+  OPERACAO [note: 'Escopo: Instituição']
 }
 
 // === CORE: Registro de Passagens em Catracas ===
@@ -117,29 +139,22 @@ enum ENUM_ACAO_PASSAGEM {
 
 Table ROTRotina {
   ROTCodigo            Int       [pk, increment]
-  ROTNome              String    [not null, note: 'Nome descritivo da rotina']
-  ROTDescricao         String    [note: 'Descrição do que a rotina faz']
-  ROTTipo              ENUM_TIPO_ROTINA [not null, note: 'SCHEDULE ou WEBHOOK']
-
-  // --- Campos para SCHEDULE (CronJob) ---
-  ROTCronExpressao     String    [note: 'Expressão cron (ex: 0 */6 * * *). Obrigatório se tipo=SCHEDULE']
-
-  // --- Campos para WEBHOOK ---
-  ROTWebhookPath       String    [note: 'Path relativo do webhook (ex: /sync-alunos). Base fixa: /instituicao/:cod/webhook/...']
-  ROTWebhookMetodo     ENUM_HTTP_METODO [note: 'GET, POST, PUT, PATCH. Obrigatório se tipo=WEBHOOK']
-
-  // --- Código JavaScript (Monaco Editor) ---
-  ROTCodigoJS          String    [not null, note: 'Código JavaScript da rotina. Tem acesso ao context.erp (config da inst) e context.db']
-
-  // --- Controle ---
+  ROTNome              String    [not null]
+  ROTDescricao         String
+  ROTTipo              ENUM_TIPO_ROTINA [not null]
+  ROTCronExpressao     String
+  ROTWebhookPath       String
+  ROTWebhookMetodo     ENUM_HTTP_METODO
+  ROTWebhookSeguro     Boolean   [default: true, note: 'Se requer validação de token']
+  ROTWebhookToken      String    [note: 'Token para validação no header/query']
+  ROTCodigoJS          String    [not null]
   ROTAtivo             Boolean   [default: true]
-  ROTTimeout           Int       [default: 30000, note: 'Timeout de execução em ms (default 30s)']
-
-  // --- Tenant + Audit ---
-  INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo, note: 'Tenant - RLS']
+  ROTTimeoutSeconds    Int       [default: 30, note: 'Tempo máximo de execução em segundos']
+  ROTUltimaExecucao    DateTime
+  INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo]
   createdAt            DateTime  [default: `now()`]
   updatedAt            DateTime  [default: `now()`]
-  createdBy            Int       [ref: > USRUsuario.USRCodigo, note: 'Usuário que criou']
+  createdBy            Int       [ref: > USRUsuario.USRCodigo]
 }
 
 Table ROTExecucaoLog {
@@ -159,6 +174,15 @@ Table ROTExecucaoLog {
   EXERequestPath       String    [note: 'Path completo da requisição webhook']
 
   INSInstituicaoCodigo Int       [ref: > INSInstituicao.INSCodigo, note: 'Tenant - RLS']
+  createdAt            DateTime  [default: `now()`]
+}
+
+Table ROTHistoricoVersao {
+  HVICodigo            Int       [pk, increment]
+  ROTCodigo            Int       [ref: > ROTRotina.ROTCodigo]
+  HVICodigoJS          String    [not null, note: 'Snapshot do código na versão']
+  HVIObservacao        String    [note: 'Opcional: o que mudou nesta versão']
+  createdBy            Int       [ref: > USRUsuario.USRCodigo]
   createdAt            DateTime  [default: `now()`]
 }
 

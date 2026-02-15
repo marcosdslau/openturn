@@ -45,6 +45,8 @@ model INSInstituicao {
   acessos          USRAcesso[]
   passagens        REGRegistroPassagem[]
   cmdcomandoFilas  CMDComandoFila[]
+  rotrotinas       ROTRotina[]
+  rotexecucaoLogs  ROTExecucaoLog[]
 }
 
 model PESPessoa {
@@ -134,9 +136,11 @@ model USRUsuario {
   USRCep    String?
   USRTaxId  String?
 
-  createdAt DateTime    @default(now())
-  updatedAt DateTime    @updatedAt
-  acessos   USRAcesso[]
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  acessos             USRAcesso[]
+  rotrotinas          ROTRotina[]
+  rothistoricoVersaos ROTHistoricoVersao[]
 }
 
 model USRAcesso {
@@ -188,4 +192,78 @@ model CMDComandoFila {
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
+}
+
+// === EXECUTION ENGINE: Rotinas Dinâmicas ===
+
+enum TipoRotina {
+  SCHEDULE
+  WEBHOOK
+}
+
+enum HttpMetodo {
+  GET
+  POST
+  PUT
+  PATCH
+}
+
+enum StatusExecucao {
+  SUCESSO
+  ERRO
+  TIMEOUT
+}
+
+model ROTRotina {
+  ROTCodigo            Int                  @id @default(autoincrement())
+  ROTNome              String
+  ROTDescricao         String?
+  ROTTipo              TipoRotina
+  ROTCronExpressao     String?
+  ROTWebhookPath       String?
+  ROTWebhookMetodo     HttpMetodo?
+  ROTWebhookSeguro     Boolean              @default(true)
+  ROTWebhookToken      String?
+  ROTCodigoJS          String
+  ROTAtivo             Boolean              @default(true)
+  ROTTimeoutSeconds    Int                  @default(30)
+  ROTUltimaExecucao    DateTime?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  createdBy            Int
+  criador              USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
+  execucoes            ROTExecucaoLog[]
+  versoes              ROTHistoricoVersao[]
+}
+
+model ROTExecucaoLog {
+  EXECodigo            Int            @id @default(autoincrement())
+  ROTCodigo            Int
+  rotina               ROTRotina      @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  EXEStatus            StatusExecucao
+  EXEInicio            DateTime
+  EXEFim               DateTime?
+  EXEDuracaoMs         Int?
+  EXEResultado         Json?
+  EXEErro              String?
+  EXETrigger           String
+  EXERequestBody       Json?
+  EXERequestParams     Json?
+  EXERequestPath       String?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model ROTHistoricoVersao {
+  HVICodigo     Int        @id @default(autoincrement())
+  ROTCodigo     Int
+  rotina        ROTRotina  @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  HVICodigoJS   String
+  HVIObservacao String?
+  createdBy     Int
+  criador       USRUsuario @relation(fields: [createdBy], references: [USRCodigo])
+  createdAt     DateTime   @default(now())
 }

@@ -101,13 +101,21 @@ As rotinas JavaScript rodam em um ambiente **isolado (sandbox)** com acesso cont
 
 | Objeto Disponível | Descrição |
 |-------------------|-----------|
-| `context.adapters.erp` | Adapter do ERP configurado na instituição |
-| `context.adapters.catraca` | Adapter da catraca configurada |
-| `context.instituicao` | Dados da instituição atual |
+| `context.adapters.erp` | Credenciais e adapter do ERP configurado na instituição |
+| `context.adapters.equipamentos` | Lista de adapters para **todos os equipamentos (catracas) ativos** da instituição. Permite iteração para comandos em massa. |
+| `context.instituicao` | Cadastro e dados da instituição atual |
 | `context.request` | Dados da requisição HTTP (apenas para Webhooks) |
-| `context.db` | Acesso de leitura ao banco (queries seguras) |
+| `context.db` | Acesso CRUD aos modelos do Prisma (Pessoas, Matriculas, Passagens, etc) |
+| `context.manual` | Boolean indicando se a execução foi disparada manualmente |
+| `context.console` | Logger estruturado com níveis: `log`, `info`, `warn`, `error` |
 | `fetch` | Chamadas HTTP externas |
-| `console.log` | Logging (gravado no log de execução) |
+
+### Acesso ao Banco de Dados (Prisma)
+A engine deve ser estruturada para permitir o controle fino de quais modelos do Prisma estão expostos na sandbox. Inicialmente:
+- `context.db.pessoa`
+- `context.db.matricula`
+- `context.db.registroPassagem`
+- `context.db.equipamento`
 
 ### Fluxo de Execução
 
@@ -130,7 +138,12 @@ sequenceDiagram
 ```
 
 ### Segurança
-- **Isolamento**: Código executa em `vm2` ou `isolated-vm`, sem acesso ao filesystem.
-- **Timeout**: Limite de execução configurável (default: 30s).
-- **Rate Limiting**: Limite de execuções por minuto por instituição.
-- **Audit Trail**: Toda execução é registrada em `ROTExecucaoLog` com status, duração e resultado.
+- **Sandbox**: Uso de `isolated-vm` (RECOMENDADO) para isolar execução de código arbitrário
+- **Timeout**: Limite de tempo configurável por rotina (padrão: 30s)
+- **RLS (Row-Level Security)**: O `context.db` é um **Proxy** que injeta automaticamente o filtro de `INSInstituicaoCodigo` em todas as operações. Isso garante que:
+  - Uma rotina da Instituição A **nunca** acesse dados da Instituição B
+  - Todas as queries (`findMany`, `findFirst`, `create`, `update`, `delete`) são automaticamente filtradas
+  - O desenvolvedor da rotina não precisa (e não pode) especificar manualmente o tenant
+- **Process Isolation**: Cada execução roda em um `child_process` separado para evitar bloqueio do Event Loop
+- **Webhook Security**: Validação opcional de token via header ou query parameter
+- **Audit Trail**: Toda execução é registrada em `ROTExecucaoLog` com status, duração e resultado

@@ -14,6 +14,7 @@ import { RegistroPassagemModule } from './registro-passagem/registro-passagem.mo
 import { ControlidModule } from './controlid/controlid.module';
 import { UsuarioModule } from './usuario/usuario.module';
 import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
+import { RotinaModule } from './rotina/rotina.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
     ControlidModule,
     UsuarioModule,
     AdminUsuarioModule,
+    RotinaModule,
   ],
   controllers: [AppController],
   providers: [
