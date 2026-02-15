@@ -84,8 +84,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setUser(data.usuario);
 
-        // Redirect to first available institution
+        // Redirect: prioritize activeScope > localStorage > first available institution
         let instId = activeScope?.instituicaoId;
+        if (!instId) {
+            const saved = localStorage.getItem("openturn_last_inst");
+            if (saved && saved !== "0") {
+                instId = Number(saved);
+            }
+        }
         if (!instId) {
             try {
                 const instList = await apiGet<{ data: any[] }>("/instituicoes?limit=1");
@@ -95,6 +101,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } catch {
                 // fallback
             }
+        }
+        if (instId) {
+            localStorage.setItem("openturn_last_inst", String(instId));
         }
 
         router.push(instId ? `/instituicao/${instId}/dashboard` : "/");

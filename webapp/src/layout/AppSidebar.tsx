@@ -19,11 +19,17 @@ import {
 
 function useNavItems(): NavItem[] {
   const params = useParams();
-  const { isGlobal } = useAuth();
-  const code = params?.codigoInstituicao || "0";
+  const { isSuperRoot, isAdmin } = useAuth();
+
+  // Lazy-initialize from localStorage to avoid stale "0" on first render
+  const lastInst = typeof window !== 'undefined'
+    ? (localStorage.getItem("openturn_last_inst") || "0")
+    : "0";
+
+  const code = (params?.codigoInstituicao as string) || lastInst;
   const base = `/instituicao/${code}`;
 
-  return useMemo(() => getMainNavItems(base as string, isGlobal), [base, isGlobal]);
+  return useMemo(() => getMainNavItems(base as string, isSuperRoot, isAdmin), [base, isSuperRoot, isAdmin]);
 }
 
 const AppSidebar: React.FC = () => {
