@@ -59,6 +59,10 @@ export default function RoutineEditorPage() {
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [settingsForm, setSettingsForm] = useState<Partial<Rotina>>({});
 
+    // Resizable Console State
+    const [consoleHeight, setConsoleHeight] = useState(180);
+    const [isResizing, setIsResizing] = useState(false);
+
     const editorRef = useRef<any>(null);
     const saveRef = useRef<() => void>(() => { });
 
@@ -272,6 +276,46 @@ export default function RoutineEditorPage() {
         }
     };
 
+    // Resize Handlers
+    const startResizing = useCallback(() => {
+        setIsResizing(true);
+    }, []);
+
+    const stopResizing = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    const resize = useCallback((mouseMoveEvent: any) => {
+        if (isResizing) {
+            // Calculate height from bottom
+            const newHeight = window.innerHeight - mouseMoveEvent.clientY;
+            // Min 100px, Max 80% of window
+            if (newHeight > 100 && newHeight < window.innerHeight * 0.8) {
+                setConsoleHeight(newHeight);
+            }
+        }
+    }, [isResizing]);
+
+    useEffect(() => {
+        if (isResizing) {
+            window.addEventListener("mousemove", resize);
+            window.addEventListener("mouseup", stopResizing);
+            // Disable text selection/iframe interaction while resizing
+            document.body.style.cursor = 'row-resize';
+            document.body.style.userSelect = 'none';
+        } else {
+            window.removeEventListener("mousemove", resize);
+            window.removeEventListener("mouseup", stopResizing);
+            document.body.style.cursor = '';
+            document.body.style.userSelect = '';
+        }
+
+        return () => {
+            window.removeEventListener("mousemove", resize);
+            window.removeEventListener("mouseup", stopResizing);
+        };
+    }, [isResizing, resize, stopResizing]);
+
     if (loading) return <div className="p-8 text-center">Carregando editor...</div>;
     if (!rotina) return <div className="p-8 text-center">Rotina não encontrada</div>;
 
@@ -395,8 +439,20 @@ export default function RoutineEditorPage() {
                             />
                         </div>
                     </div>
+                    {/* Resizer */}
+                    <div
+                        className="h-1 bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 dark:hover:bg-blue-500 cursor-row-resize transition-colors z-10 flex items-center justify-center group"
+                        onMouseDown={startResizing}
+                    >
+                        {/* Handle visual */}
+                        <div className="w-8 h-1 bg-gray-300 dark:bg-gray-600 rounded-full group-hover:bg-white/50 hidden group-hover:block" />
+                    </div>
+
                     {/* Console Panel */}
-                    <div className="h-48 shrink-0">
+                    <div style={{ height: consoleHeight }} className="shrink-0 relative transition-[height] ease-linear duration-0">
+                        {isResizing && (
+                            <div className="absolute inset-0 z-50 bg-transparent" />
+                        )}
                         <ConsolePanel
                             rotinaCodigo={rotina.ROTCodigo}
                             instituicaoCodigo={codigoInstituicao}
