@@ -6,10 +6,11 @@ import { SchedulerService } from './scheduler.service';
 import { ExecutionService } from './engine/execution.service';
 import { ConsoleGateway } from './console.gateway';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { LogCleanupService } from './log-cleanup.service';
 
 @Module({
     controllers: [RotinaController, RotinaWebhookController],
-    providers: [RotinaService, SchedulerService, ExecutionService, ConsoleGateway, PrismaService],
+    providers: [RotinaService, SchedulerService, ExecutionService, ConsoleGateway, PrismaService, LogCleanupService],
     exports: [RotinaService, ExecutionService],
 })
 export class RotinaModule { }

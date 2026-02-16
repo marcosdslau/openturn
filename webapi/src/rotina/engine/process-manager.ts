@@ -3,12 +3,19 @@ import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { ConsoleGateway } from '../console.gateway';
 
+export interface LogEntry {
+    level: 'log' | 'info' | 'warn' | 'error';
+    message: string;
+    timestamp: string;
+}
+
 export interface ExecutionResult {
     success: boolean;
     result?: any;
     error?: string;
     duration: number;
     timedOut: boolean;
+    logs: LogEntry[];
 }
 
 @Injectable()
@@ -37,6 +44,7 @@ export class ProcessManager {
     ): Promise<ExecutionResult> {
         const startTime = Date.now();
         let timedOut = false;
+        const logs: LogEntry[] = [];
 
         // Notifica início via WebSocket
         if (this.consoleGateway) {
@@ -60,13 +68,16 @@ export class ProcessManager {
                 timedOut = true;
                 this.logger.warn(`Execution ${executionId} timed out after ${timeoutSeconds}s`);
 
+                const timeoutLog: LogEntry = {
+                    level: 'error',
+                    message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
+                    timestamp: new Date().toISOString(),
+                };
+                logs.push(timeoutLog);
+
                 // Envia log de timeout via WebSocket
                 if (this.consoleGateway) {
-                    this.consoleGateway.sendLog(rotinaCodigo, {
-                        level: 'error',
-                        message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
-                        timestamp: new Date().toISOString(),
-                    });
+                    this.consoleGateway.sendLog(rotinaCodigo, timeoutLog);
                 }
 
                 child.kill('SIGKILL');
@@ -85,12 +96,17 @@ export class ProcessManager {
             // Escuta mensagens do processo filho
             child.on('message', async (message: any) => {
                 // Se for um log, transmite via WebSocket
-                if (message.type === 'log' && this.consoleGateway) {
-                    this.consoleGateway.sendLog(rotinaCodigo, {
+                if (message.type === 'log') {
+                    const logEntry: LogEntry = {
                         level: message.level,
                         message: message.message,
                         timestamp: message.timestamp,
-                    });
+                    };
+                    logs.push(logEntry);
+
+                    if (this.consoleGateway) {
+                        this.consoleGateway.sendLog(rotinaCodigo, logEntry);
+                    }
                     return; // Não resolve a promise
                 }
 
@@ -125,33 +141,35 @@ export class ProcessManager {
                 const duration = Date.now() - startTime;
 
                 if (message.type === 'success') {
-                    const result = {
+                    const executionResult = {
                         success: true,
                         result: message.result,
                         duration,
                         timedOut: false,
+                        logs,
                     };
 
                     // Notifica fim via WebSocket
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, result);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, executionResult);
                     }
 
-                    resolve(result);
+                    resolve(executionResult);
                 } else if (message.type === 'error') {
-                    const result = {
+                    const executionResult = {
                         success: false,
                         error: message.error,
                         duration,
                         timedOut: false,
+                        logs,
                     };
 
                     // Notifica fim via WebSocket
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, result);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, executionResult);
                     }
 
-                    resolve(result);
+                    resolve(executionResult);
                 }
 
                 this.cleanup(executionId);
@@ -169,6 +187,7 @@ export class ProcessManager {
                     error: error.message,
                     duration,
                     timedOut,
+                    logs,
                 };
 
                 // Notifica fim via WebSocket
@@ -193,6 +212,7 @@ export class ProcessManager {
                         error: `Process exited with code ${code}`,
                         duration,
                         timedOut,
+                        logs,
                     };
 
                     if (this.consoleGateway) {
@@ -206,6 +226,7 @@ export class ProcessManager {
                         error: `Process killed with signal ${signal}`,
                         duration,
                         timedOut: signal === 'SIGKILL',
+                        logs,
                     };
 
                     if (this.consoleGateway) {

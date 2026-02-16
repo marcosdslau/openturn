@@ -14,6 +14,14 @@ export class CreateInstituicaoDto {
     @IsOptional()
     @IsBoolean()
     INSAtivo?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    INSLogsAutoExcluir?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    INSLogsDiasRetencao?: number;
 }
 
 export class UpdateInstituicaoDto {
@@ -28,4 +36,12 @@ export class UpdateInstituicaoDto {
     @IsOptional()
     @IsBoolean()
     INSAtivo?: boolean;
+
+    @IsOptional()
+    @IsBoolean()
+    INSLogsAutoExcluir?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    INSLogsDiasRetencao?: number;
 }

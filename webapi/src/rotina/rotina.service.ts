@@ -333,4 +333,92 @@ export class RotinaService {
             }
         });
     }
+
+    async getExecutionLogs(
+        rotinaCodigo: number,
+        instituicaoCodigo: number,
+        search?: string,
+        limit: number = 50,
+        levels?: string[],
+        startDate?: string,
+        endDate?: string,
+    ) {
+        const rotina = await this.prisma.rOTRotina.findFirst({
+            where: {
+                ROTCodigo: rotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+        });
+
+        if (!rotina) {
+            throw new NotFoundException('Rotina não encontrada');
+        }
+
+        // Filtro básico por rotina
+        const where: any = {
+            ROTCodigo: rotinaCodigo,
+        };
+
+        // Filtro de Data
+        if (startDate || endDate) {
+            where.EXEInicio = {};
+            if (startDate) where.EXEInicio.gte = new Date(startDate);
+            if (endDate) where.EXEInicio.lte = new Date(endDate);
+        }
+
+        // Filtro de Busca (Texto no Erro)
+        // Removido: A busca no banco limitava apenas a erros da execução.
+        // Como queremos buscar dentro do JSON de logs, faremos em memória.
+        // { EXEErro: { contains: search, mode: 'insensitive' } },
+
+        // Limit expandido para permitir filtragem em memória
+        const dbLimit = (search || levels) ? limit * 5 : limit;
+
+        const executions = await this.prisma.rOTExecucaoLog.findMany({
+            where,
+            orderBy: { EXEInicio: 'desc' },
+            take: dbLimit,
+        });
+
+        // Pós-processamento para filtrar logs individuais dentro do JSON
+        if (search || levels) {
+            const searchLower = search?.toLowerCase();
+
+            return executions.map(exec => {
+                let filteredLogs = (exec.EXELogs as any[]) || [];
+
+                if (Array.isArray(filteredLogs)) {
+                    filteredLogs = filteredLogs.filter(log => {
+                        // Filtro por Nível
+                        if (levels && levels.length > 0 && !levels.includes(log.level)) {
+                            return false;
+                        }
+
+                        // Filtro por Mensagem (Search)
+                        if (searchLower) {
+                            const msgMatch = log.message?.toLowerCase().includes(searchLower);
+                            const levelMatch = log.level?.toLowerCase().includes(searchLower);
+                            return msgMatch || levelMatch;
+                        }
+
+                        return true;
+                    });
+                }
+
+                const executionErrorMatch = searchLower && exec.EXEErro?.toLowerCase().includes(searchLower);
+
+                // Se filtramos logs e sobrou zero, E não deu match no erro global, ignoramos esta execução
+                if (filteredLogs.length === 0 && !executionErrorMatch) {
+                    if (search || levels) return null;
+                }
+
+                return {
+                    ...exec,
+                    EXELogs: filteredLogs
+                };
+            }).filter(Boolean).slice(0, limit) as any[];
+        }
+
+        return executions;
+    }
 }

@@ -6,11 +6,12 @@ import { TimeIcon } from "@/icons";
 
 interface RoutineVersionHistoryProps {
     rotinaCodigo: number;
+    instituicaoCodigo: number;
     currentCode: string; // Adicionado para comparar com o atual
     onRestore: (code: string) => void;
 }
 
-export default function RoutineVersionHistory({ rotinaCodigo, currentCode, onRestore }: RoutineVersionHistoryProps) {
+export default function RoutineVersionHistory({ rotinaCodigo, instituicaoCodigo, currentCode, onRestore }: RoutineVersionHistoryProps) {
     const [versions, setVersions] = useState<RotinaVersao[]>([]);
     const [selectedVersion, setSelectedVersion] = useState<RotinaVersao | null>(null);
     const [loading, setLoading] = useState(true);
@@ -18,7 +19,7 @@ export default function RoutineVersionHistory({ rotinaCodigo, currentCode, onRes
     const loadVersions = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await RotinaService.getVersions(rotinaCodigo);
+            const data = await RotinaService.getVersions(rotinaCodigo, instituicaoCodigo);
             setVersions(data);
             if (data.length > 0) {
                 setSelectedVersion(data[0]);
@@ -28,7 +29,7 @@ export default function RoutineVersionHistory({ rotinaCodigo, currentCode, onRes
         } finally {
             setLoading(false);
         }
-    }, [rotinaCodigo]);
+    }, [rotinaCodigo, instituicaoCodigo]);
 
     useEffect(() => {
         loadVersions();
@@ -39,7 +40,7 @@ export default function RoutineVersionHistory({ rotinaCodigo, currentCode, onRes
         if (!confirm("Deseja restaurar esta versão? O código atual será substituído.")) return;
 
         try {
-            await RotinaService.restoreVersion(selectedVersion.HVICodigo);
+            await RotinaService.restoreVersion(selectedVersion.HVICodigo, instituicaoCodigo);
             onRestore(selectedVersion.HVICodigoJS);
             alert("Versão restaurada com sucesso!");
         } catch (error) {

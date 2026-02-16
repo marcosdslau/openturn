@@ -77,6 +77,7 @@ export class ExecutionService {
                 duracaoMs: result.duration,
                 resultado: result.result,
                 erro: result.error,
+                logs: result.logs,
                 trigger,
                 requestData,
             });
@@ -265,6 +266,7 @@ export class ExecutionService {
         duracaoMs: number;
         resultado?: any;
         erro?: string;
+        logs?: any[];
         trigger: string;
         requestData?: any;
     }) {
@@ -278,6 +280,7 @@ export class ExecutionService {
                 EXEDuracaoMs: data.duracaoMs,
                 EXEResultado: data.resultado,
                 EXEErro: data.erro,
+                EXELogs: data.logs,
                 EXETrigger: data.trigger,
                 EXERequestBody: data.requestData?.body,
                 EXERequestParams: data.requestData?.params,

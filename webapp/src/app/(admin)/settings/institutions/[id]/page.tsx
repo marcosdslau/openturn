@@ -57,15 +57,21 @@ export default function InstitutionERPPage() {
     const [showPassword, setShowPassword] = useState(false);
     const [headers, setHeaders] = useState<{ key: string; value: string }[]>([]);
 
+    // Log Retention settings
+    const [autoExcluirLogs, setAutoExcluirLogs] = useState(true);
+    const [diasRetencao, setDiasRetencao] = useState(90);
+
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
             const [instRes, configRes] = await Promise.all([
-                apiGet<Instituicao>(`/instituicoes/${id}`),
+                apiGet<Instituicao & { INSLogsAutoExcluir: boolean, INSLogsDiasRetencao: number }>(`/instituicoes/${id}`),
                 apiGet<ERPConfig | null>(`/instituicoes/${id}/erp-config`),
             ]);
 
             setInstituicao(instRes);
+            setAutoExcluirLogs(instRes.INSLogsAutoExcluir ?? true);
+            setDiasRetencao(instRes.INSLogsDiasRetencao ?? 90);
 
             if (configRes) {
                 setSistema(configRes.ERPSistema);
@@ -115,7 +121,8 @@ export default function InstitutionERPPage() {
                 if (h.key.trim()) headerObj[h.key.trim()] = h.value;
             });
 
-            await apiPut(`/instituicoes/${id}/erp-config`, {
+            // Update ERP Config
+            const erpPromise = apiPut(`/instituicoes/${id}/erp-config`, {
                 ERPSistema: sistema,
                 ERPUrlBase: urlBase || null,
                 ERPToken: token || null,
@@ -125,6 +132,14 @@ export default function InstitutionERPPage() {
                     headers: headerObj
                 }
             });
+
+            // Update Institution settings (new fields)
+            const instPromise = apiPut(`/instituicoes/${id}`, {
+                INSLogsAutoExcluir: autoExcluirLogs,
+                INSLogsDiasRetencao: diasRetencao
+            });
+
+            await Promise.all([erpPromise, instPromise]);
 
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
@@ -154,13 +169,13 @@ export default function InstitutionERPPage() {
             />
 
             <h2 className="text-2xl font-bold text-gray-800 dark:text-white/90">
-                Configuração ERP: {instituicao?.INSNome || "Instituição"}
+                Configurações: {instituicao?.INSNome || "Instituição"}
             </h2>
 
             {error && <Alert variant="error" title="Erro" message={error} />}
             {success && <Alert variant="success" title="Sucesso" message="Configurações salvas com sucesso." />}
 
-            <form onSubmit={handleSave}>
+            <form onSubmit={handleSave} className="space-y-6">
                 <ComponentCard
                     title="Configuração do ERP Educacional"
                     desc="Preencha as credenciais de acesso para integração com o sistema de gestão acadêmica."
@@ -273,23 +288,59 @@ export default function InstitutionERPPage() {
                             </div>
                         </div>
                     </div>
+                </ComponentCard>
 
-                    <div className="flex items-center justify-end gap-3 pt-4">
-                        <Button
-                            variant="outline"
-                            onClick={() => router.push("/settings")}
-                            disabled={saving}
-                        >
-                            Voltar
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={!sistema || saving}
-                        >
-                            {saving ? "Salvando..." : "Salvar Configurações"}
-                        </Button>
+                {/* Log Retention Settings */}
+                <ComponentCard
+                    title="Retenção de Logs"
+                    desc="Configure a política de descarte automático de logs de execução de rotinas."
+                >
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div className="sm:col-span-2 flex items-center gap-3">
+                            <input
+                                type="checkbox"
+                                id="autoExcluirLogs"
+                                checked={autoExcluirLogs}
+                                onChange={(e) => setAutoExcluirLogs(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <Label htmlFor="autoExcluirLogs" className="mb-0 cursor-pointer">
+                                Ativar exclusão automática de logs antigos
+                            </Label>
+                        </div>
+
+                        <div>
+                            <Label>Dias de retenção</Label>
+                            <InputField
+                                type="number"
+                                min="1"
+                                max="3650"
+                                value={diasRetencao.toString()}
+                                onChange={(e: any) => setDiasRetencao(parseInt(e.target.value) || 0)}
+                                disabled={!autoExcluirLogs}
+                            />
+                            <p className="mt-2 text-xs text-gray-500">
+                                Após este período, os logs de rotinas serão permanentemente removidos.
+                            </p>
+                        </div>
                     </div>
                 </ComponentCard>
+
+                <div className="flex items-center justify-end gap-3">
+                    <Button
+                        variant="outline"
+                        onClick={() => router.push("/settings")}
+                        disabled={saving}
+                    >
+                        Voltar
+                    </Button>
+                    <Button
+                        type="submit"
+                        disabled={saving}
+                    >
+                        {saving ? "Salvando..." : "Salvar Configurações"}
+                    </Button>
+                </div>
             </form>
         </div>
     );

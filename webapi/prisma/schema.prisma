@@ -31,22 +31,24 @@ model CLICliente {
 }
 
 model INSInstituicao {
-  INSCodigo        Int                   @id @default(autoincrement())
-  CLICodigo        Int
-  cliente          CLICliente            @relation(fields: [CLICodigo], references: [CLICodigo])
-  INSNome          String
-  INSCodigoExterno String?
-  INSAtivo         Boolean               @default(true)
-  createdAt        DateTime              @default(now())
-  pessoas          PESPessoa[]
-  matriculas       MATMatricula[]
-  equipamentos     EQPEquipamento[]
-  erpConfig        ERPConfiguracao[]
-  acessos          USRAcesso[]
-  passagens        REGRegistroPassagem[]
-  cmdcomandoFilas  CMDComandoFila[]
-  rotrotinas       ROTRotina[]
-  rotexecucaoLogs  ROTExecucaoLog[]
+  INSCodigo           Int                   @id @default(autoincrement())
+  CLICodigo           Int
+  cliente             CLICliente            @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSNome             String
+  INSCodigoExterno    String?
+  INSAtivo            Boolean               @default(true)
+  INSLogsAutoExcluir  Boolean               @default(true)
+  INSLogsDiasRetencao Int                   @default(90)
+  createdAt           DateTime              @default(now())
+  pessoas             PESPessoa[]
+  matriculas          MATMatricula[]
+  equipamentos        EQPEquipamento[]
+  erpConfig           ERPConfiguracao[]
+  acessos             USRAcesso[]
+  passagens           REGRegistroPassagem[]
+  cmdcomandoFilas     CMDComandoFila[]
+  rotrotinas          ROTRotina[]
+  rotexecucaoLogs     ROTExecucaoLog[]
 }
 
 model PESPessoa {
@@ -256,6 +258,7 @@ model ROTExecucaoLog {
   EXEDuracaoMs         Int?
   EXEResultado         Json?
   EXEErro              String?
+  EXELogs              Json?
   EXETrigger           String
   EXERequestBody       Json?
   EXERequestParams     Json?

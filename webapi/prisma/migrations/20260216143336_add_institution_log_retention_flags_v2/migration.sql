@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "INSInstituicao" ADD COLUMN     "INSLogsAutoExcluir" BOOLEAN NOT NULL DEFAULT true,
+ADD COLUMN     "INSLogsDiasRetencao" INTEGER NOT NULL DEFAULT 90;

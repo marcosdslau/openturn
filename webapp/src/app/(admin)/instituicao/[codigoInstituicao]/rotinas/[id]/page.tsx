@@ -397,7 +397,11 @@ export default function RoutineEditorPage() {
                     </div>
                     {/* Console Panel */}
                     <div className="h-48 shrink-0">
-                        <ConsolePanel rotinaCodigo={rotina.ROTCodigo} height="100%" />
+                        <ConsolePanel
+                            rotinaCodigo={rotina.ROTCodigo}
+                            instituicaoCodigo={codigoInstituicao}
+                            height="100%"
+                        />
                     </div>
                 </div>
 

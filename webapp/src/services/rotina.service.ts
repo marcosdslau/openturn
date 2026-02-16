@@ -90,4 +90,23 @@ export const RotinaService = {
     deleteVersions: async (versionIds: number[], instituicaoCodigo: number) => {
         return apiDelete(`/instituicao/${instituicaoCodigo}/rotina/versions/bulk`, { ids: versionIds });
     },
+
+    getLogs: async (
+        id: number,
+        instituicaoCodigo: number,
+        search?: string,
+        levels?: string[],
+        startDate?: string,
+        endDate?: string,
+        limit: number = 100
+    ) => {
+        const query = new URLSearchParams();
+        if (search) query.append('search', search);
+        if (levels && levels.length > 0) query.append('levels', levels.join(','));
+        if (startDate) query.append('startDate', startDate);
+        if (endDate) query.append('endDate', endDate);
+        query.append('limit', limit.toString());
+
+        return apiGet<any[]>(`/instituicao/${instituicaoCodigo}/rotina/${id}/logs?${query.toString()}`);
+    },
 };

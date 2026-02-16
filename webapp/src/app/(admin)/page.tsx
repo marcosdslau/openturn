@@ -18,7 +18,7 @@ export default function RootRedirect() {
     }
 
     const redirect = async () => {
-      let instId = user?.instituicaoId;
+      let instId = user?.activeScope?.instituicaoId;
       if (!instId) {
         try {
           const list = await apiGet<{ data: any[] }>("/instituicoes?limit=1");

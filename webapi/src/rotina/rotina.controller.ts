@@ -9,6 +9,7 @@ import {
     ParseIntPipe,
     UseGuards,
     Req,
+    Query,
 } from '@nestjs/common';
 import { RotinaService } from './rotina.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -107,5 +108,20 @@ export class RotinaController {
         @Param('versionId', ParseIntPipe) versionId: number,
     ) {
         return this.rotinaService.deleteVersion(versionId, instituicaoCodigo);
+    }
+
+    @Get(':id/logs')
+    async getLogs(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Query('search') search?: string,
+        @Query('levels') levels?: string | string[],
+        @Query('startDate') startDate?: string,
+        @Query('endDate') endDate?: string,
+        @Query('limit', new ParseIntPipe({ optional: true })) limit?: number,
+    ) {
+        // Normalize levels to array
+        const levelsArray = levels ? (Array.isArray(levels) ? levels : [levels]) : undefined;
+        return this.rotinaService.getExecutionLogs(id, instituicaoCodigo, search, limit || 50, levelsArray, startDate, endDate);
     }
 }
