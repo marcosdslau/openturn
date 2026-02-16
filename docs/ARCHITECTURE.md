@@ -98,14 +98,15 @@ Motor de execução dinâmica que permite criar rotinas JavaScript por institui�
 
 #### Execução Schedule (CronJob)
 - O `CronScheduler` do NestJS (`@nestjs/schedule`) carrega todas as rotinas ativas do tipo `SCHEDULE`.
-- No momento definido pela expressão cron, executa o código JS em uma **sandbox isolada** (`vm2` ou `isolated-vm`).
+- No momento definido pela expressão cron, executa o código JS em um **processo filho isolado** (`child_process.fork`).
+- A comunicação entre o processo pai (API) e o filho (Sandbox) é feita via **IPC/RPC** para acesso seguro ao banco de dados com RLS.
 - O resultado (sucesso/erro) é gravado na tabela `ROTExecucaoLog`.
 
 #### Execução Webhook
 - URL base fixa: `/instituicao/:codigoInstituicao/webhook/:path`
 - O `WebhookRouter` dinâmico intercepta requisições nesse padrão.
 - Busca a rotina correspondente ao `path` + `método HTTP` configurado.
-- Executa o código JS na sandbox, injetando:
+- Executa o código JS no processo isolado, injetando:
   - `request.body` — corpo da requisição
   - `request.params` — query parameters
   - `request.path` — path completo
@@ -115,10 +116,10 @@ Motor de execução dinâmica que permite criar rotinas JavaScript por institui�
 #### Sandbox de Execução (Segurança)
 | Regra | Descrição |
 |-------|-----------|
-| **Isolamento** | Código roda em VM isolada (sem acesso ao filesystem do servidor) |
-| **Timeout** | Execução limitada a 30s (configurável por rotina) |
-| **Contexto injetado** | Apenas APIs aprovadas: `fetch`, `console.log`, adaptadores ERP |
-| **Logs** | Toda execução gera registro em `ROTExecucaoLog` |
+| **Isolamento** | Código roda em processo separado (fork), sem acesso direto ao ambiente global da API. |
+| **Timeout** | Execução monitorada pelo pai e encerrada via `SIGKILL` após o limite (default 30s). |
+| **Contexto RPC** | Acesso ao banco via `Proxy` que encaminha chamadas RPC ao pai, onde o RLS é aplicado. |
+| **Logs Real-time** | Logs de `console` são transmitidos via WebSocket em tempo real para o frontend. |
 
 ## Grupos de Acesso de Usuários
 | Grupo | Escopo | Permissões |

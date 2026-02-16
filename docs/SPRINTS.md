@@ -230,13 +230,13 @@ enum ENUM_ACAO_PASSAGEM {
 | 7.13 | Como Gestor, quero usar logs estruturados (info, warn, error) | MUST | `context.console` suporta múltiplos níveis visíveis no Live Console |
 
 **Entregáveis:**
-- [ ] UI: Menu "Rotinas" e tela de listagem (Status + Última Execução)
-- [ ] UI: Editor Monaco com **Routine Helper** e **Version History (Diff Editor)**
-- [ ] UI: Dashboard de **Live Console** para streaming de logs em tempo real
-- [ ] Engine: Proxy de segurança para `context.db` garantindo isolamento de Tenant (RLS)
-- [ ] Engine: Gerenciador de Processos Filhos (`child_process`) com controle de Timeout
-- [ ] Engine: Suporte a `isolated-vm` com injeção de `axios` e `db` escopado
-- [ ] Backend: Lógica de versionamento (Snapshot on Save + Restore + Delete)
+- [x] UI: Menu "Rotinas" e tela de listagem (Status + Última Execução)
+- [x] UI: Editor Monaco com **Routine Helper** e **Version History (Diff Editor)**
+- [x] UI: Dashboard de **Live Console** para streaming de logs em tempo real
+- [x] Engine: Proxy de segurança para `context.db` garantindo isolamento de Tenant (RLS)
+- [x] Engine: Gerenciador de Processos Filhos (`child_process`) com controle de Timeout
+- [x] Engine: Suporte a sandbox segura com injeção de `console` e `db` escopado
+- [x] Backend: Lógica de versionamento (Snapshot on Save + Restore + Delete)
 
 ---
 
@@ -280,19 +280,19 @@ gantt
     Integração Catracas         :s3, after s2, 14d
 
     section Sprint 4
-    Frontend & Dashboard        :s4, after s3, 14d
+    Frontend & Dashboard        :done, s4, after s3, 14d
 
     section Sprint 5
-    Gestão de Usuários          :s5, after s4, 14d
+    Gestão de Usuários          :done, s5, after s4, 14d
 
     section Sprint 6
-    Integração ERP              :s6, after s5, 14d
+    Integração ERP              :done, s6, after s5, 14d
 
     section Sprint 7
-    Execution Engine            :s7, after s6, 14d
+    Execution Engine            :done, s7, after s6, 14d
 
     section Sprint 8
-    Segurança & Produção        :s8, after s7, 14d
+    Segurança & Produção        :active, s8, after s7, 14d
 ```
 
 ---
@@ -328,5 +328,5 @@ graph LR
 | Sprint 4 | ✅ Concluído | Dashboard ✅ Passagens ✅ CRUDs ✅ Auth ✅ Tenant ✅ |
 | Sprint 5 | ✅ Concluído | Usuários ✅ Acessos ✅ Tenant Switcher ✅ |
 | Sprint 6 | ✅ Concluído | Configurações ERP ✅ Frontend ✅ Backend ✅ |
-| Sprint 7 | ⬜ Não iniciado | — |
-| Sprint 8 | ⬜ Não iniciado | — |
+| Sprint 7 | ✅ Concluído | Rotinas ✅ Engine ✅ Sandbox ✅ Logs/Websocket ✅ |
+| Sprint 8 | 🚀 Iniciado | Preparação de Hardening e Auditoria |
