@@ -357,7 +357,8 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
                             <div className="flex items-center gap-1">
                                 <div className="relative">
                                     <input
-                                        type="date"
+                                        type="datetime-local"
+                                        step="1"
                                         className="h-5 rounded bg-[#1e1e1e] border border-gray-700 px-1 text-[10px] text-gray-300 focus:border-blue-500 outline-none"
                                         value={dateRange.start || ''}
                                         onChange={(e) => setDateRange(prev => ({ ...prev, start: e.target.value }))}
@@ -366,7 +367,8 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
                                 <span className="text-gray-600 text-[10px]">até</span>
                                 <div className="relative">
                                     <input
-                                        type="date"
+                                        type="datetime-local"
+                                        step="1"
                                         className="h-5 rounded bg-[#1e1e1e] border border-gray-700 px-1 text-[10px] text-gray-300 focus:border-blue-500 outline-none"
                                         value={dateRange.end || ''}
                                         onChange={(e) => setDateRange(prev => ({ ...prev, end: e.target.value }))}
