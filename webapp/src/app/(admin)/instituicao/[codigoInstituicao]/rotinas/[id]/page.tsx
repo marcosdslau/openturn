@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Editor, { OnMount } from "@monaco-editor/react";
 import { RotinaService, Rotina, RotinaVersao } from "@/services/rotina.service";
+import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { RoutineHelper } from "@/components/rotinas/RoutineHelper";
 import { VersionHistory, RoutineVersion } from "@/components/rotinas/VersionHistory";
 import { RoutineDiffModal } from "@/components/rotinas/RoutineDiffModal";
@@ -24,7 +25,8 @@ import {
     RefreshIcon,
     EyeIcon,
     EyeCloseIcon,
-    CopyIcon
+    CopyIcon,
+    BoxIcon
 } from "@/icons";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
@@ -62,6 +64,8 @@ export default function RoutineEditorPage() {
     // Resizable Console State
     const [consoleHeight, setConsoleHeight] = useState(180);
     const [isResizing, setIsResizing] = useState(false);
+    // Maximize State
+    const [isMaximized, setIsMaximized] = useState(false);
 
     const editorRef = useRef<any>(null);
     const saveRef = useRef<() => void>(() => { });
@@ -316,11 +320,23 @@ export default function RoutineEditorPage() {
         };
     }, [isResizing, resize, stopResizing]);
 
+    // Handle Escape Key
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape" && isMaximized) {
+                setIsMaximized(false);
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [isMaximized]);
+
     if (loading) return <div className="p-8 text-center">Carregando editor...</div>;
     if (!rotina) return <div className="p-8 text-center">Rotina não encontrada</div>;
 
     return (
-        <div className="flex flex-col h-[calc(100vh-7rem)] w-full">
+        <div className={`flex flex-col w-full transition-all duration-300 ${isMaximized ? 'fixed inset-0 z-[100] bg-white dark:bg-gray-900 h-screen' : 'h-[calc(100vh-7rem)] relative'}`}>
             {/* Header */}
             <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-2 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -414,6 +430,17 @@ export default function RoutineEditorPage() {
                         <CheckLineIcon className="w-4 h-4" />
                         Save Changes
                     </Button>
+
+                    <Tooltip content={isMaximized ? "Restaurar tamanho" : "Maximizar tela"} placement="bottom">
+                        <Button
+                            onClick={() => setIsMaximized(!isMaximized)}
+                            variant={isMaximized ? "primary" : "outline"}
+                            size="sm"
+                            className={`w-11 !px-0 flex items-center justify-center ${isMaximized ? "bg-blue-50 text-blue-600 border-blue-200 hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:border-blue-800 shadow-none ring-0" : ""}`}
+                        >
+                            {isMaximized ? <CloseIcon className="w-5 h-5" /> : <BoxIcon className="w-5 h-5" />}
+                        </Button>
+                    </Tooltip>
                 </div>
             </div>
 
