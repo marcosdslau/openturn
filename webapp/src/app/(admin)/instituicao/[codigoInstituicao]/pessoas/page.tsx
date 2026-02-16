@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
@@ -8,7 +9,7 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon } from "@/icons";
+import { AlertIcon, UserCircleIcon } from "@/icons";
 
 interface Pessoa {
     PESCodigo: number;
@@ -19,12 +20,15 @@ interface Pessoa {
     PESTelefone: string | null;
     PESCelular: string | null;
     PESCartaoTag: string | null;
+    PESFotoBase64: string | null;
+    PESFotoExtensao: string | null;
     PESAtivo: boolean;
 }
 
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
 export default function PessoasPage() {
+    const router = useRouter();
     const { codigoInstituicao } = useTenant();
     const { showToast } = useToast();
     const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -38,10 +42,10 @@ export default function PessoasPage() {
     const personModal = useModal();
     const deactivateModal = useModal();
 
-    const [editing, setEditing] = useState<Pessoa | null>(null);
     const [form, setForm] = useState({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
     const [saving, setSaving] = useState(false);
     const [deactivateTarget, setDeactivateTarget] = useState<Pessoa | null>(null);
+    const [editing, setEditing] = useState<Pessoa | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -62,18 +66,7 @@ export default function PessoasPage() {
     useEffect(() => { load(); }, [load]);
 
     const openNew = () => {
-        setEditing(null);
         setForm({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
-        personModal.openModal();
-    };
-
-    const openEdit = (p: Pessoa) => {
-        setEditing(p);
-        setForm({
-            PESNome: p.PESNome, PESDocumento: p.PESDocumento || "",
-            PESEmail: p.PESEmail || "", PESCelular: p.PESCelular || "",
-            PESCartaoTag: p.PESCartaoTag || "",
-        });
         personModal.openModal();
     };
 
@@ -146,7 +139,22 @@ export default function PessoasPage() {
                             <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Nenhuma pessoa encontrada.</td></tr>
                         ) : pessoas.map((p) => (
                             <tr key={p.PESCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
-                                <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{p.PESNome}</td>
+                                <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-center">
+                                            {p.PESFotoBase64 ? (
+                                                <img
+                                                    src={`data:image/${p.PESFotoExtensao || 'png'};base64,${p.PESFotoBase64}`}
+                                                    alt={p.PESNome}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <UserCircleIcon className="w-8 h-8 text-gray-400" />
+                                            )}
+                                        </div>
+                                        <span className="font-medium">{p.PESNome}</span>
+                                    </div>
+                                </td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.PESDocumento || "—"}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.PESEmail || "—"}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.PESCartaoTag || "—"}</td>
@@ -155,7 +163,12 @@ export default function PessoasPage() {
                                         }`}>{p.PESAtivo ? "Ativa" : "Inativa"}</span>
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
-                                    <button onClick={() => openEdit(p)} className="text-xs text-brand-500 hover:underline">Editar</button>
+                                    <button
+                                        onClick={() => router.push(`/instituicao/${codigoInstituicao}/pessoas/${p.PESCodigo}/edit`)}
+                                        className="text-xs text-brand-500 hover:underline"
+                                    >
+                                        Editar
+                                    </button>
                                     <button onClick={() => handleDeactivateClick(p)} className="text-xs text-red-500 hover:underline">Desativar</button>
                                 </td>
                             </tr>
@@ -204,7 +217,7 @@ export default function PessoasPage() {
             >
                 <div className="space-y-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-                        {editing ? "Editar Pessoa" : "Nova Pessoa"}
+                        Nova Pessoa
                     </h3>
                     <div className="space-y-3">
                         <input placeholder="Nome *" value={form.PESNome} onChange={(e) => setForm({ ...form, PESNome: e.target.value })}

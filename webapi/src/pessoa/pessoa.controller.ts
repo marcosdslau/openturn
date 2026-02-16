@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { PessoaService } from './pessoa.service';
 import { CreatePessoaDto, UpdatePessoaDto } from './dto/pessoa.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -39,6 +39,15 @@ export class PessoaController {
 
     @Put(':id')
     update(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdatePessoaDto
+    ) {
+        return this.service.update(instituicaoCodigo, id, dto);
+    }
+
+    @Patch(':id')
+    patch(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
         @Param('id', ParseIntPipe) id: number,
         @Body() dto: UpdatePessoaDto

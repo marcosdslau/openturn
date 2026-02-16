@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreatePessoaDto, UpdatePessoaDto } from './dto/pessoa.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
+import { resizeBase64Image } from '../common/utils/image.utils';
 
 @Injectable()
 export class PessoaService {
@@ -30,8 +31,16 @@ export class PessoaService {
             }),
         ]);
 
+        // Generate thumbnails for the list
+        const processedData = await Promise.all(data.map(async (p) => {
+            if (p.PESFotoBase64) {
+                p.PESFotoBase64 = await resizeBase64Image(p.PESFotoBase64, 72, 72);
+            }
+            return p;
+        }));
+
         return {
-            data,
+            data: processedData,
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         };
     }

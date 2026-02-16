@@ -74,6 +74,14 @@ export class UpdatePessoaDto {
     PESCartaoTag?: string;
 
     @IsOptional()
+    @IsString()
+    PESFotoBase64?: string | null;
+
+    @IsOptional()
+    @IsString()
+    PESFotoExtensao?: string | null;
+
+    @IsOptional()
     @IsBoolean()
     PESAtivo?: boolean;
 }
