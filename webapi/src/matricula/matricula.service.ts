@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateMatriculaDto, UpdateMatriculaDto } from './dto/matricula.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
+import { resizeBase64Image } from '../common/utils/image.utils';
 
 @Injectable()
 export class MatriculaService {
@@ -22,7 +23,7 @@ export class MatriculaService {
                 where: { INSInstituicaoCodigo: instituicaoCodigo },
                 skip,
                 take: limit,
-                include: { pessoa: { select: { PESCodigo: true, PESNome: true } } },
+                include: { pessoa: { select: { PESCodigo: true, PESNome: true, PESFotoBase64: true, PESFotoExtensao: true } } },
                 orderBy: { MATCodigo: 'desc' },
             }),
             this.prisma.rls.mATMatricula.count({
@@ -30,8 +31,16 @@ export class MatriculaService {
             }),
         ]);
 
+        // Generate thumbnails for the person photos in the list
+        const processedData = await Promise.all(data.map(async (m) => {
+            if (m.pessoa?.PESFotoBase64) {
+                m.pessoa.PESFotoBase64 = await resizeBase64Image(m.pessoa.PESFotoBase64, 72, 72);
+            }
+            return m;
+        }));
+
         return {
-            data,
+            data: processedData,
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
         };
     }

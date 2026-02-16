@@ -17,8 +17,9 @@ export class CreateEquipamentoDto {
     @IsString()
     EQPEnderecoIp?: string;
 
+    @IsOptional()
     @IsInt()
-    INSInstituicaoCodigo: number;
+    INSInstituicaoCodigo?: number;
 }
 
 export class UpdateEquipamentoDto {

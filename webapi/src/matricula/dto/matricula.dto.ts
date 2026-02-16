@@ -19,8 +19,9 @@ export class CreateMatriculaDto {
     @IsString()
     MATTurma?: string;
 
+    @IsOptional()
     @IsInt()
-    INSInstituicaoCodigo: number;
+    INSInstituicaoCodigo?: number;
 }
 
 export class UpdateMatriculaDto {

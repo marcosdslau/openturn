@@ -284,7 +284,7 @@ export default function PessoaPhoto({ base64, extensao, onChange, onConfirm }: P
                     ) : (
                         <div className="w-[180px] h-[240px] flex items-center justify-center bg-gray-50 dark:bg-white/[0.03] rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-700">
                             <div className="w-[150px] h-[150px] flex items-center justify-center text-gray-300 dark:text-gray-600">
-                                <UserCircleIcon className="w-full h-full" />
+                                <UserCircleIcon className="" />
                             </div>
                         </div>
                     )}

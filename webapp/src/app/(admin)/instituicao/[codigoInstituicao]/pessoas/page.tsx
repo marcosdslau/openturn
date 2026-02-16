@@ -138,7 +138,11 @@ export default function PessoasPage() {
                         ) : pessoas.length === 0 ? (
                             <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Nenhuma pessoa encontrada.</td></tr>
                         ) : pessoas.map((p) => (
-                            <tr key={p.PESCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                            <tr
+                                key={p.PESCodigo}
+                                onClick={() => router.push(`/instituicao/${codigoInstituicao}/pessoas/${p.PESCodigo}/edit`)}
+                                className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                            >
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
                                     <div className="flex items-center gap-3">
                                         <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-center">
@@ -149,7 +153,7 @@ export default function PessoasPage() {
                                                     className="w-full h-full object-cover"
                                                 />
                                             ) : (
-                                                <UserCircleIcon className="w-8 h-8 text-gray-400" />
+                                                <UserCircleIcon className="w-6 h-6 text-gray-400" />
                                             )}
                                         </div>
                                         <span className="font-medium">{p.PESNome}</span>
@@ -164,12 +168,14 @@ export default function PessoasPage() {
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
                                     <button
-                                        onClick={() => router.push(`/instituicao/${codigoInstituicao}/pessoas/${p.PESCodigo}/edit`)}
-                                        className="text-xs text-brand-500 hover:underline"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeactivateClick(p);
+                                        }}
+                                        className="text-xs text-red-500 hover:underline"
                                     >
-                                        Editar
+                                        Desativar
                                     </button>
-                                    <button onClick={() => handleDeactivateClick(p)} className="text-xs text-red-500 hover:underline">Desativar</button>
                                 </td>
                             </tr>
                         ))}

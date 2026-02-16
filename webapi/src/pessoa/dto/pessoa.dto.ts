@@ -36,6 +36,7 @@ export class CreatePessoaDto {
     @IsString()
     PESIdExterno?: string;
 
+    @IsOptional()
     @IsInt()
     INSInstituicaoCodigo: number;
 }

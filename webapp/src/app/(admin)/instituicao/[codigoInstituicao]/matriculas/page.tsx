@@ -8,7 +8,8 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon } from "@/icons";
+import { AlertIcon, UserCircleIcon } from "@/icons";
+import SearchableSelect from "@/components/form/SearchableSelect";
 
 interface Matricula {
     MATCodigo: number;
@@ -17,7 +18,11 @@ interface Matricula {
     MATSerie: string | null;
     MATTurma: string | null;
     MATAtivo: boolean;
-    pessoa: { PESNome: string };
+    pessoa: {
+        PESNome: string;
+        PESFotoBase64?: string | null;
+        PESFotoExtensao?: string | null;
+    };
 }
 
 interface Pessoa {
@@ -143,7 +148,22 @@ export default function MatriculasPage() {
                             <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Nenhuma matrícula encontrada.</td></tr>
                         ) : matriculas.map((m) => (
                             <tr key={m.MATCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
-                                <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{m.pessoa?.PESNome || "—"}</td>
+                                <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
+                                    <div className="flex items-center gap-3">
+                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-center">
+                                            {m.pessoa?.PESFotoBase64 ? (
+                                                <img
+                                                    src={`data:image/${m.pessoa.PESFotoExtensao || 'png'};base64,${m.pessoa.PESFotoBase64}`}
+                                                    alt={m.pessoa?.PESNome}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <UserCircleIcon className="w-6 h-6 text-gray-400" />
+                                            )}
+                                        </div>
+                                        <span className="font-medium">{m.pessoa?.PESNome || "—"}</span>
+                                    </div>
+                                </td>
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{m.MATNumero}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
                                     {m.MATCurso} {m.MATSerie ? `- ${m.MATSerie}` : ""}
@@ -206,11 +226,13 @@ export default function MatriculasPage() {
                         {editing ? "Editar Matrícula" : "Nova Matrícula"}
                     </h3>
                     <div className="space-y-3">
-                        <select value={form.PESCodigo} onChange={(e) => setForm({ ...form, PESCodigo: parseInt(e.target.value) })}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none">
-                            <option value={0}>Selecione uma Pessoa</option>
-                            {pessoas.map(p => <option key={p.PESCodigo} value={p.PESCodigo}>{p.PESNome}</option>)}
-                        </select>
+                        <SearchableSelect
+                            label="Pessoa *"
+                            options={pessoas.map(p => ({ value: p.PESCodigo, label: p.PESNome }))}
+                            value={form.PESCodigo}
+                            onChange={(val) => setForm({ ...form, PESCodigo: Number(val) })}
+                            placeholder="Selecione uma Pessoa"
+                        />
                         <input placeholder="Número da Matrícula *" value={form.MATNumero} onChange={(e) => setForm({ ...form, MATNumero: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
                         <input placeholder="Curso" value={form.MATCurso} onChange={(e) => setForm({ ...form, MATCurso: e.target.value })}
