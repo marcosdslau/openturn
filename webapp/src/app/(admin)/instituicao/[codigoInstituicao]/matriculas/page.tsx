@@ -53,6 +53,7 @@ export default function MatriculasPage() {
     const [deleteTarget, setDeleteTarget] = useState<Matricula | null>(null);
 
     const load = useCallback(async () => {
+        if (!codigoInstituicao) return;
         setLoading(true);
         try {
             const [matRes, pesRes] = await Promise.all([

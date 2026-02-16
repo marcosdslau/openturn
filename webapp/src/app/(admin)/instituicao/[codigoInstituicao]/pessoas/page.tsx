@@ -48,6 +48,7 @@ export default function PessoasPage() {
     const [editing, setEditing] = useState<Pessoa | null>(null);
 
     const load = useCallback(async () => {
+        if (!codigoInstituicao) return;
         setLoading(true);
         try {
             const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/pessoa?page=${page}&limit=${limit}`);
