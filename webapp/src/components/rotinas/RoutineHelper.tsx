@@ -235,7 +235,53 @@ const estatisticas = await context.db.PESPessoa.groupBy({
     },
 ];
 
-const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...generateSchemaSnippets()];
+const WEBHOOK_SNIPPETS = [
+    {
+        label: 'Webhook - Acessar Body',
+        detail: 'Recupera dados enviados no corpo da requisição POST/PUT',
+        code: `const body = context.request?.body;
+console.log('Dados recebidos:', body);
+// Ex: const nome = body?.cliente?.nome;
+`,
+    },
+    {
+        label: 'Webhook - Acessar Query Params',
+        detail: 'Recupera parâmetros da URL (ex: ?id=123)',
+        code: `const query = context.request?.query;
+const id = query?.id;
+console.log('Query ID:', id);
+`,
+    },
+    {
+        label: 'Webhook - Acessar Headers',
+        detail: 'Recupera cabeçalhos HTTP da requisição',
+        code: `const headers = context.request?.headers;
+const contentType = headers?.['content-type'];
+console.log('Content-Type:', contentType);
+`,
+    },
+    {
+        label: 'Webhook - Verificar Método HTTP',
+        detail: 'Identifica se é GET, POST, DELETE, etc.',
+        code: `const method = context.request?.method;
+if (method === 'POST') {
+    console.log('Processando criação...');
+}
+`,
+    },
+    {
+        label: 'Webhook - Parâmetros de Rota (Slug)',
+        detail: 'Acessa o slug da rota e parâmetros dinâmicos',
+        code: `const path = context.request?.path;
+console.log('Acessado via rota:', path);
+
+// Se a rota tiver parâmetros extras configurados no sistema:
+const params = context.request?.params;
+`,
+    },
+];
+
+const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...WEBHOOK_SNIPPETS, ...generateSchemaSnippets()];
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');

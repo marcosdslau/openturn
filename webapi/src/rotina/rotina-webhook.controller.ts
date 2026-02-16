@@ -81,9 +81,11 @@ export class RotinaWebhookController {
                         query,
                         headers,
                         method,
+                        path: `/${path}`,
+                        params: req.params,
                     }
                 );
-                const {result} = data;
+                const { result } = data;
                 return result;
             } catch (err: any) {
                 this.logger.error(`Erro ao executar webhook síncrono ${path}:`, err);
@@ -102,6 +104,8 @@ export class RotinaWebhookController {
                     query,
                     headers,
                     method,
+                    path: `/${path}`,
+                    params: req.params,
                 }
             ).catch(err => {
                 this.logger.error(`Erro ao executar webhook assíncrono ${path}:`, err);
