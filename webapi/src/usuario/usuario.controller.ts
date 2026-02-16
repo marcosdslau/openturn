@@ -33,58 +33,5 @@ export class UsuarioController {
     changePassword(@Request() req: any, @Body() dto: ChangePasswordDto) {
         return this.service.changePassword(req.user.userId, dto);
     }
-
-    // Admin endpoints (require ADMIN or GESTOR role)
-    @Post()
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    create(@Body() dto: CreateUsuarioDto, @Request() req: any) {
-        return this.service.create(dto, req.user.activeScope);
-    }
-
-    @Get()
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    findAll(@Query() query: PaginationDto, @Request() req: any) {
-        return this.service.findAll(query, req.user.activeScope);
-    }
-
-    @Get(':id')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    findOne(@Param('id', ParseIntPipe) id: number) {
-        return this.service.findOne(id);
-    }
-
-    @Patch(':id')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateUsuarioDto) {
-        return this.service.update(id, dto);
-    }
-
-    @Delete(':id')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    remove(@Param('id', ParseIntPipe) id: number) {
-        return this.service.remove(id);
-    }
-
-    @Post(':id/acessos')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    addAcesso(
-        @Param('id', ParseIntPipe) id: number,
-        @Body() dto: CreateAcessoDto,
-        @Request() req: any,
-    ) {
-        return this.service.addAcesso(id, dto, req.user.acessos);
-    }
-
-    @Delete('acessos/:acessoId')
-    @UseGuards(JwtAuthGuard, RolesGuard)
-    @Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-    removeAcesso(@Param('acessoId', ParseIntPipe) acessoId: number) {
-        return this.service.removeAcesso(acessoId);
-    }
 }
+

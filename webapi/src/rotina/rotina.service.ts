@@ -185,8 +185,23 @@ export class RotinaService {
         // Remove agendamento antes de deletar
         this.schedulerService.removeCronJob(id);
 
-        return this.prisma.rOTRotina.delete({
-            where: { ROTCodigo: id },
+        // Deletar registros dependentes (exclusão em cascata manual)
+        // Usando transação para garantir atomicidade
+        return this.prisma.$transaction(async (tx) => {
+            // 1. Deletar logs de execução
+            await tx.rOTExecucaoLog.deleteMany({
+                where: { ROTCodigo: id },
+            });
+
+            // 2. Deletar histórico de versões
+            await tx.rOTHistoricoVersao.deleteMany({
+                where: { ROTCodigo: id },
+            });
+
+            // 3. Deletar a rotina
+            return tx.rOTRotina.delete({
+                where: { ROTCodigo: id },
+            });
         });
     }
 

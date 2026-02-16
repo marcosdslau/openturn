@@ -9,32 +9,48 @@ import { GrupoAcesso } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-@Controller('equipamentos')
+@Controller('instituicao/:instituicaoCodigo/equipamento')
 export class EquipamentoController {
     constructor(private service: EquipamentoService) { }
 
     @Post()
-    create(@Body() dto: CreateEquipamentoDto) {
-        return this.service.create(dto);
+    create(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Body() dto: CreateEquipamentoDto
+    ) {
+        return this.service.create(instituicaoCodigo, dto);
     }
 
     @Get()
-    findAll(@Query() query: PaginationDto) {
-        return this.service.findAll(query);
+    findAll(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Query() query: PaginationDto
+    ) {
+        return this.service.findAll(instituicaoCodigo, query);
     }
 
     @Get(':id')
-    findOne(@Param('id', ParseIntPipe) id: number) {
-        return this.service.findOne(id);
+    findOne(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.findOne(instituicaoCodigo, id);
     }
 
     @Put(':id')
-    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateEquipamentoDto) {
-        return this.service.update(id, dto);
+    update(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateEquipamentoDto
+    ) {
+        return this.service.update(instituicaoCodigo, id, dto);
     }
 
     @Delete(':id')
-    remove(@Param('id', ParseIntPipe) id: number) {
-        return this.service.remove(id);
+    remove(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.remove(instituicaoCodigo, id);
     }
 }

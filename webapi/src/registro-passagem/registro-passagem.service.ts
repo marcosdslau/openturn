@@ -8,7 +8,7 @@ import { Prisma } from '@prisma/client';
 export class RegistroPassagemService {
     constructor(private prisma: PrismaService) { }
 
-    async create(dto: CreatePassagemDto) {
+    async create(instituicaoCodigo: number, dto: CreatePassagemDto) {
         const now = new Date();
         return this.prisma.rls.rEGRegistroPassagem.create({
             data: {
@@ -17,16 +17,18 @@ export class RegistroPassagemService {
                 EQPCodigo: dto.EQPCodigo,
                 REGTimestamp: BigInt(Math.floor(now.getTime() / 1000)),
                 REGDataHora: now,
-                INSInstituicaoCodigo: dto.INSInstituicaoCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
             },
         });
     }
 
-    async findAll(query: QueryPassagemDto): Promise<PaginatedResult<any>> {
+    async findAll(instituicaoCodigo: number, query: QueryPassagemDto): Promise<PaginatedResult<any>> {
         const { page, limit, PESCodigo, EQPCodigo, dataInicio, dataFim, REGAcao } = query;
         const skip = (page - 1) * limit;
 
-        const where: Prisma.REGRegistroPassagemWhereInput = {};
+        const where: Prisma.REGRegistroPassagemWhereInput = {
+            INSInstituicaoCodigo: instituicaoCodigo
+        };
         if (PESCodigo) where.PESCodigo = PESCodigo;
         if (EQPCodigo) where.EQPCodigo = EQPCodigo;
         if (REGAcao) where.REGAcao = REGAcao;

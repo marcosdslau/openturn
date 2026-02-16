@@ -54,8 +54,16 @@ export async function api<T = any>(
     }
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({}));
-        throw new Error(error.message || `API Error: ${res.status}`);
+        let errorMessage = `API Error: ${res.status}`;
+        try {
+            const error = await res.json();
+            errorMessage = error.message || errorMessage;
+        } catch {
+            // Se falhar ao ler JSON, tenta ler como texto
+            const text = await res.text().catch(() => '');
+            if (text) errorMessage = text;
+        }
+        throw new Error(errorMessage);
     }
 
     const text = await res.text();

@@ -43,7 +43,7 @@ export default function PassagensPage() {
             if (dataInicio) params.set("dataInicio", dataInicio);
             if (dataFim) params.set("dataFim", dataFim);
 
-            const res = await apiGet<{ data: Passagem[]; meta: Meta }>(`/passagens?${params}`);
+            const res = await apiGet<{ data: Passagem[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/passagem?${params}`);
             let data = res.data || [];
 
             // Client-side search by name/document
@@ -131,8 +131,8 @@ export default function PassagensPage() {
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.pessoa?.PESDocumento || "—"}</td>
                                 <td className="px-5 py-3">
                                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.REGAcao === "ENTRADA"
-                                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
                                         }`}>
                                         {p.REGAcao === "ENTRADA" ? "Entrada" : "Saída"}
                                     </span>

@@ -5,6 +5,10 @@ import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
+import { Modal } from "@/components/ui/modal";
+import { useModal } from "@/hooks/useModal";
+import { useToast } from "@/context/ToastContext";
+import { AlertIcon } from "@/icons";
 
 interface Pessoa {
     PESCodigo: number;
@@ -22,6 +26,7 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 
 export default function PessoasPage() {
     const { codigoInstituicao } = useTenant();
+    const { showToast } = useToast();
     const [pessoas, setPessoas] = useState<Pessoa[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
@@ -29,16 +34,19 @@ export default function PessoasPage() {
     const [limit, setLimit] = useState(10);
     const [search, setSearch] = useState("");
 
-    // Modal state
-    const [showModal, setShowModal] = useState(false);
+    // Modals
+    const personModal = useModal();
+    const deactivateModal = useModal();
+
     const [editing, setEditing] = useState<Pessoa | null>(null);
     const [form, setForm] = useState({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
     const [saving, setSaving] = useState(false);
+    const [deactivateTarget, setDeactivateTarget] = useState<Pessoa | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(`/pessoas?page=${page}&limit=${limit}`);
+            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/pessoa?page=${page}&limit=${limit}`);
             let data = res.data || [];
             if (search) {
                 const s = search.toLowerCase();
@@ -46,15 +54,17 @@ export default function PessoasPage() {
             }
             setPessoas(data);
             setMeta(res.meta);
-        } catch { /* ignore */ } finally { setLoading(false); }
-    }, [codigoInstituicao, page, limit, search]);
+        } catch (error: any) {
+            showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as pessoas.");
+        } finally { setLoading(false); }
+    }, [codigoInstituicao, page, limit, search, showToast]);
 
     useEffect(() => { load(); }, [load]);
 
     const openNew = () => {
         setEditing(null);
         setForm({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
-        setShowModal(true);
+        personModal.openModal();
     };
 
     const openEdit = (p: Pessoa) => {
@@ -64,26 +74,42 @@ export default function PessoasPage() {
             PESEmail: p.PESEmail || "", PESCelular: p.PESCelular || "",
             PESCartaoTag: p.PESCartaoTag || "",
         });
-        setShowModal(true);
+        personModal.openModal();
     };
 
     const handleSave = async () => {
         setSaving(true);
         try {
             if (editing) {
-                await apiPatch(`/pessoas/${editing.PESCodigo}`, form);
+                await apiPatch(`/instituicao/${codigoInstituicao}/pessoa/${editing.PESCodigo}`, form);
+                showToast("success", "Pessoa atualizada", "Os dados foram salvos com sucesso.");
             } else {
-                await apiPost("/pessoas", { ...form, INSInstituicaoCodigo: codigoInstituicao });
+                await apiPost(`/instituicao/${codigoInstituicao}/pessoa`, form);
+                showToast("success", "Pessoa criada", "O novo registro foi cadastrado com sucesso.");
             }
-            setShowModal(false);
+            personModal.closeModal();
             load();
-        } catch { /* ignore */ } finally { setSaving(false); }
+        } catch (error: any) {
+            showToast("error", "Erro ao salvar", error.message || "Ocorreu um erro ao processar a solicitação.");
+        } finally { setSaving(false); }
     };
 
-    const handleDelete = async (codigo: number) => {
-        if (!confirm("Deseja realmente desativar esta pessoa?")) return;
-        await apiDelete(`/pessoas/${codigo}`);
-        load();
+    const handleDeactivateClick = (p: Pessoa) => {
+        setDeactivateTarget(p);
+        deactivateModal.openModal();
+    };
+
+    const confirmDeactivate = async () => {
+        if (!deactivateTarget) return;
+        setSaving(true);
+        try {
+            await apiDelete(`/instituicao/${codigoInstituicao}/pessoa/${deactivateTarget.PESCodigo}`);
+            showToast("success", "Pessoa desativada", "O registro foi desativado com sucesso.");
+            deactivateModal.closeModal();
+            load();
+        } catch (error: any) {
+            showToast("error", "Erro ao desativar", error.message || "Não foi possível desativar a pessoa.");
+        } finally { setSaving(false); }
     };
 
     return (
@@ -97,7 +123,7 @@ export default function PessoasPage() {
             <input
                 type="text" placeholder="Buscar por nome ou documento..."
                 value={search} onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
             />
 
             {/* Table */}
@@ -126,11 +152,11 @@ export default function PessoasPage() {
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.PESCartaoTag || "—"}</td>
                                 <td className="px-5 py-3">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${p.PESAtivo ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
-                                        }`}>{p.PESAtivo ? "Ativo" : "Inativo"}</span>
+                                        }`}>{p.PESAtivo ? "Ativa" : "Inativa"}</span>
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
                                     <button onClick={() => openEdit(p)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    <button onClick={() => handleDelete(p.PESCodigo)} className="text-xs text-red-500 hover:underline">Desativar</button>
+                                    <button onClick={() => handleDeactivateClick(p)} className="text-xs text-red-500 hover:underline">Desativar</button>
                                 </td>
                             </tr>
                         ))}
@@ -148,7 +174,7 @@ export default function PessoasPage() {
                             setLimit(Number(e.target.value));
                             setPage(1);
                         }}
-                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none"
                     >
                         <option value={5}>5</option>
                         <option value={10}>10</option>
@@ -170,34 +196,64 @@ export default function PessoasPage() {
                 </p>
             </div>
 
-            {/* Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 dark:bg-gray-900 space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-                            {editing ? "Editar Pessoa" : "Nova Pessoa"}
-                        </h3>
-                        <div className="space-y-3">
-                            <input placeholder="Nome *" value={form.PESNome} onChange={(e) => setForm({ ...form, PESNome: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Documento (CPF)" value={form.PESDocumento} onChange={(e) => setForm({ ...form, PESDocumento: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Email" value={form.PESEmail} onChange={(e) => setForm({ ...form, PESEmail: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Celular" value={form.PESCelular} onChange={(e) => setForm({ ...form, PESCelular: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Cartão/Tag" value={form.PESCartaoTag} onChange={(e) => setForm({ ...form, PESCartaoTag: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                        </div>
-                        <div className="flex gap-3 justify-end">
-                            <Button size="sm" onClick={() => setShowModal(false)}>Cancelar</Button>
-                            <Button size="sm" onClick={handleSave} disabled={saving || !form.PESNome}>
-                                {saving ? "Salvando..." : "Salvar"}
-                            </Button>
-                        </div>
+            {/* Person Modal */}
+            <Modal
+                isOpen={personModal.isOpen}
+                onClose={personModal.closeModal}
+                className="max-w-md p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        {editing ? "Editar Pessoa" : "Nova Pessoa"}
+                    </h3>
+                    <div className="space-y-3">
+                        <input placeholder="Nome *" value={form.PESNome} onChange={(e) => setForm({ ...form, PESNome: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Documento (CPF)" value={form.PESDocumento} onChange={(e) => setForm({ ...form, PESDocumento: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Email" value={form.PESEmail} onChange={(e) => setForm({ ...form, PESEmail: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Celular" value={form.PESCelular} onChange={(e) => setForm({ ...form, PESCelular: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Cartão/Tag" value={form.PESCartaoTag} onChange={(e) => setForm({ ...form, PESCartaoTag: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button size="sm" variant="outline" onClick={personModal.closeModal}>Cancelar</Button>
+                        <Button size="sm" onClick={handleSave} disabled={saving || !form.PESNome}>
+                            {saving ? "Salvando..." : "Salvar"}
+                        </Button>
                     </div>
                 </div>
-            )}
+            </Modal>
+
+            {/* Deactivation Modal */}
+            <Modal
+                isOpen={deactivateModal.isOpen}
+                onClose={deactivateModal.closeModal}
+                className="max-w-md p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Confirmar Desativação</h3>
+                    <div className="flex items-start gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/10">
+                        <div className="flex-shrink-0">
+                            <AlertIcon className="h-6 w-6 text-amber-500" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-400">Atenção!</h4>
+                            <p className="mt-1 text-sm text-amber-700 dark:text-amber-400/80">
+                                Deseja realmente desativar o registro de <strong>{deactivateTarget?.PESNome}</strong>?
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button size="sm" variant="outline" onClick={deactivateModal.closeModal}>Cancelar</Button>
+                        <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white border-transparent" onClick={confirmDeactivate} disabled={saving}>
+                            {saving ? "Desativando..." : "Sim, Desativar"}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

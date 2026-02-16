@@ -5,6 +5,10 @@ import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
+import { Modal } from "@/components/ui/modal";
+import { useModal } from "@/hooks/useModal";
+import { useToast } from "@/context/ToastContext";
+import { AlertIcon } from "@/icons";
 
 interface Equipamento {
     EQPCodigo: number;
@@ -19,33 +23,39 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 
 export default function EquipamentosPage() {
     const { codigoInstituicao } = useTenant();
+    const { showToast } = useToast();
     const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
 
-    // Modal
-    const [showModal, setShowModal] = useState(false);
+    // Modals
+    const equipmentModal = useModal();
+    const deleteModal = useModal();
+
     const [editing, setEditing] = useState<Equipamento | null>(null);
     const [form, setForm] = useState({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "" });
     const [saving, setSaving] = useState(false);
+    const [deleteTarget, setDeleteTarget] = useState<Equipamento | null>(null);
 
     const load = useCallback(async () => {
         setLoading(true);
         try {
-            const res = await apiGet<{ data: Equipamento[]; meta: Meta }>(`/equipamentos?page=${page}&limit=${limit}`);
+            const res = await apiGet<{ data: Equipamento[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/equipamento?page=${page}&limit=${limit}`);
             setEquipamentos(res.data || []);
             setMeta(res.meta);
-        } catch { /* ignore */ } finally { setLoading(false); }
-    }, [codigoInstituicao, page, limit]);
+        } catch (error: any) {
+            showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar os equipamentos.");
+        } finally { setLoading(false); }
+    }, [codigoInstituicao, page, limit, showToast]);
 
     useEffect(() => { load(); }, [load]);
 
     const openNew = () => {
         setEditing(null);
         setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "" });
-        setShowModal(true);
+        equipmentModal.openModal();
     };
 
     const openEdit = (e: Equipamento) => {
@@ -54,26 +64,42 @@ export default function EquipamentosPage() {
             EQPDescricao: e.EQPDescricao || "", EQPMarca: e.EQPMarca || "",
             EQPModelo: e.EQPModelo || "", EQPEnderecoIp: e.EQPEnderecoIp || "",
         });
-        setShowModal(true);
+        equipmentModal.openModal();
     };
 
     const handleSave = async () => {
         setSaving(true);
         try {
             if (editing) {
-                await apiPatch(`/equipamentos/${editing.EQPCodigo}`, form);
+                await apiPatch(`/instituicao/${codigoInstituicao}/equipamento/${editing.EQPCodigo}`, form);
+                showToast("success", "Equipamento atualizado", "Os dados foram salvos com sucesso.");
             } else {
-                await apiPost("/equipamentos", { ...form, INSInstituicaoCodigo: codigoInstituicao });
+                await apiPost(`/instituicao/${codigoInstituicao}/equipamento`, form);
+                showToast("success", "Equipamento criado", "O novo equipamento foi cadastrado com sucesso.");
             }
-            setShowModal(false);
+            equipmentModal.closeModal();
             load();
-        } catch { /* ignore */ } finally { setSaving(false); }
+        } catch (error: any) {
+            showToast("error", "Erro ao salvar", error.message || "Ocorreu um erro ao processar a solicitação.");
+        } finally { setSaving(false); }
     };
 
-    const handleDelete = async (codigo: number) => {
-        if (!confirm("Deseja realmente excluir este equipamento?")) return;
-        await apiDelete(`/equipamentos/${codigo}`);
-        load();
+    const handleDeleteClick = (e: Equipamento) => {
+        setDeleteTarget(e);
+        deleteModal.openModal();
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
+        setSaving(true);
+        try {
+            await apiDelete(`/instituicao/${codigoInstituicao}/equipamento/${deleteTarget.EQPCodigo}`);
+            showToast("success", "Equipamento removido", "O equipamento foi excluído com sucesso.");
+            deleteModal.closeModal();
+            load();
+        } catch (error: any) {
+            showToast("error", "Erro ao excluir", error.message || "Não foi possível remover o equipamento.");
+        } finally { setSaving(false); }
     };
 
     return (
@@ -113,7 +139,7 @@ export default function EquipamentosPage() {
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
                                     <button onClick={() => openEdit(e)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    <button onClick={() => handleDelete(e.EQPCodigo)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                                    <button onClick={() => handleDeleteClick(e)} className="text-xs text-red-500 hover:underline">Excluir</button>
                                 </td>
                             </tr>
                         ))}
@@ -131,7 +157,7 @@ export default function EquipamentosPage() {
                             setLimit(Number(e.target.value));
                             setPage(1);
                         }}
-                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none"
                     >
                         <option value={5}>5</option>
                         <option value={10}>10</option>
@@ -153,32 +179,62 @@ export default function EquipamentosPage() {
                 </p>
             </div>
 
-            {/* Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 dark:bg-gray-900 space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-                            {editing ? "Editar Equipamento" : "Novo Equipamento"}
-                        </h3>
-                        <div className="space-y-3">
-                            <input placeholder="Descrição *" value={form.EQPDescricao} onChange={(e) => setForm({ ...form, EQPDescricao: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Marca" value={form.EQPMarca} onChange={(e) => setForm({ ...form, EQPMarca: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Modelo" value={form.EQPModelo} onChange={(e) => setForm({ ...form, EQPModelo: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Endereço IP" value={form.EQPEnderecoIp} onChange={(e) => setForm({ ...form, EQPEnderecoIp: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                        </div>
-                        <div className="flex gap-3 justify-end">
-                            <Button size="sm" onClick={() => setShowModal(false)}>Cancelar</Button>
-                            <Button size="sm" onClick={handleSave} disabled={saving}>
-                                {saving ? "Salvando..." : "Salvar"}
-                            </Button>
-                        </div>
+            {/* Equipment Modal */}
+            <Modal
+                isOpen={equipmentModal.isOpen}
+                onClose={equipmentModal.closeModal}
+                className="max-w-md p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        {editing ? "Editar Equipamento" : "Novo Equipamento"}
+                    </h3>
+                    <div className="space-y-3">
+                        <input placeholder="Descrição *" value={form.EQPDescricao} onChange={(e) => setForm({ ...form, EQPDescricao: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Marca" value={form.EQPMarca} onChange={(e) => setForm({ ...form, EQPMarca: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Modelo" value={form.EQPModelo} onChange={(e) => setForm({ ...form, EQPModelo: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input placeholder="Endereço IP" value={form.EQPEnderecoIp} onChange={(e) => setForm({ ...form, EQPEnderecoIp: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button size="sm" variant="outline" onClick={equipmentModal.closeModal}>Cancelar</Button>
+                        <Button size="sm" onClick={handleSave} disabled={saving}>
+                            {saving ? "Salvando..." : "Salvar"}
+                        </Button>
                     </div>
                 </div>
-            )}
+            </Modal>
+
+            {/* Deletion Modal */}
+            <Modal
+                isOpen={deleteModal.isOpen}
+                onClose={deleteModal.closeModal}
+                className="max-w-md p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">Confirmar Exclusão</h3>
+                    <div className="flex items-start gap-4 p-4 rounded-xl bg-red-50 dark:bg-red-900/10">
+                        <div className="flex-shrink-0">
+                            <AlertIcon className="h-6 w-6 text-red-500" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-semibold text-red-800 dark:text-red-400">Atenção!</h4>
+                            <p className="mt-1 text-sm text-red-700 dark:text-red-400/80">
+                                Tem certeza que deseja excluir o equipamento <strong>{deleteTarget?.EQPDescricao}</strong>? Esta ação não pode ser desfeita.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button size="sm" variant="outline" onClick={deleteModal.closeModal}>Cancelar</Button>
+                        <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white border-transparent" onClick={confirmDelete} disabled={saving}>
+                            {saving ? "Excluindo..." : "Sim, Excluir"}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }

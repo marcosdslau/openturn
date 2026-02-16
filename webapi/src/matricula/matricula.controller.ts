@@ -9,32 +9,48 @@ import { GrupoAcesso } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-@Controller('matriculas')
+@Controller('instituicao/:instituicaoCodigo/matricula')
 export class MatriculaController {
     constructor(private service: MatriculaService) { }
 
     @Post()
-    create(@Body() dto: CreateMatriculaDto) {
-        return this.service.create(dto);
+    create(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Body() dto: CreateMatriculaDto
+    ) {
+        return this.service.create(instituicaoCodigo, dto);
     }
 
     @Get()
-    findAll(@Query() query: PaginationDto) {
-        return this.service.findAll(query);
+    findAll(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Query() query: PaginationDto
+    ) {
+        return this.service.findAll(instituicaoCodigo, query);
     }
 
     @Get(':id')
-    findOne(@Param('id', ParseIntPipe) id: number) {
-        return this.service.findOne(id);
+    findOne(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.findOne(instituicaoCodigo, id);
     }
 
     @Put(':id')
-    update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateMatriculaDto) {
-        return this.service.update(id, dto);
+    update(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: UpdateMatriculaDto
+    ) {
+        return this.service.update(instituicaoCodigo, id, dto);
     }
 
     @Delete(':id')
-    remove(@Param('id', ParseIntPipe) id: number) {
-        return this.service.remove(id);
+    remove(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.remove(instituicaoCodigo, id);
     }
 }

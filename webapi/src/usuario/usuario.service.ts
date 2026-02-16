@@ -22,7 +22,7 @@ export class UsuarioService {
         private authService: AuthService,
     ) { }
 
-    async create(dto: CreateUsuarioDto, activeScope: any) {
+    async create(instituicaoCodigo: number, dto: CreateUsuarioDto) {
         let usuario = await this.prisma.uSRUsuario.findUnique({
             where: { USREmail: dto.email },
         });
@@ -38,50 +38,43 @@ export class UsuarioService {
             });
         }
 
-        // Add auto-permission if activeScope is present
-        if (activeScope?.clienteId || activeScope?.instituicaoId) {
-            const accessData = {
-                USRCodigo: usuario.USRCodigo,
-                grupo: GrupoAcesso.OPERACAO,
-                CLICodigo: activeScope.clienteId || null,
-                INSInstituicaoCodigo: activeScope.instituicaoId || null,
-            };
+        // Add auto-permission for the current institution
+        const accessData = {
+            USRCodigo: usuario.USRCodigo,
+            grupo: GrupoAcesso.OPERACAO,
+            INSInstituicaoCodigo: instituicaoCodigo,
+        };
 
-            // Use upsert-like logic to avoid duplicate access records
-            const existingAccess = await this.prisma.uSRAcesso.findFirst({
-                where: accessData,
+        // Use upsert-like logic to avoid duplicate access records for this institution
+        const existingAccess = await this.prisma.uSRAcesso.findFirst({
+            where: accessData,
+        });
+
+        if (!existingAccess) {
+            await this.prisma.uSRAcesso.create({
+                data: accessData,
             });
-
-            if (!existingAccess) {
-                await this.prisma.uSRAcesso.create({
-                    data: accessData,
-                });
-            }
         }
 
         return usuario;
     }
 
-    async findAll(query: PaginationDto, activeScope: any): Promise<PaginatedResult<any>> {
+    async findAll(instituicaoCodigo: number, query: PaginationDto): Promise<PaginatedResult<any>> {
         const { page, limit } = query;
         const skip = (page - 1) * limit;
 
-        // Build filter conditions
+        // Build filter conditions: All users that have access to THIS institution
         const whereConditions: any = {
             acessos: {
                 some: {
-                    // Exclude SUPER_ADMIN and SUPER_ROOT
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    // Exclude SUPER_ADMIN and SUPER_ROOT from general management
                     grupo: {
                         notIn: [GrupoAcesso.SUPER_ADMIN, GrupoAcesso.SUPER_ROOT],
                     },
                 },
             },
         };
-
-        // Filter by institution if activeScope has instituicaoId
-        if (activeScope?.instituicaoId) {
-            whereConditions.acessos.some.INSInstituicaoCodigo = activeScope.instituicaoId;
-        }
 
         const [data, total] = await Promise.all([
             this.prisma.uSRUsuario.findMany({
@@ -95,10 +88,7 @@ export class UsuarioService {
                     createdAt: true,
                     acessos: {
                         where: {
-                            // Only show acessos for the current institution
-                            ...(activeScope?.instituicaoId
-                                ? { INSInstituicaoCodigo: activeScope.instituicaoId }
-                                : {}),
+                            INSInstituicaoCodigo: instituicaoCodigo
                         },
                         select: {
                             UACCodigo: true,
@@ -121,15 +111,19 @@ export class UsuarioService {
         };
     }
 
-    async findOne(id: number) {
-        const usuario = await this.prisma.uSRUsuario.findUnique({
-            where: { USRCodigo: id },
+    async findOne(instituicaoCodigo: number, id: number) {
+        const usuario = await this.prisma.uSRUsuario.findFirst({
+            where: {
+                USRCodigo: id,
+                acessos: { some: { INSInstituicaoCodigo: instituicaoCodigo } }
+            },
             select: {
                 USRCodigo: true,
                 USRNome: true,
                 USREmail: true,
                 createdAt: true,
                 acessos: {
+                    where: { INSInstituicaoCodigo: instituicaoCodigo },
                     select: {
                         UACCodigo: true,
                         grupo: true,
@@ -141,12 +135,12 @@ export class UsuarioService {
                 },
             },
         });
-        if (!usuario) throw new NotFoundException(`Usuário ${id} não encontrado`);
+        if (!usuario) throw new NotFoundException(`Usuário ${id} não encontrado nesta instituição`);
         return usuario;
     }
 
-    async update(id: number, dto: UpdateUsuarioDto) {
-        await this.findOne(id);
+    async update(instituicaoCodigo: number, id: number, dto: UpdateUsuarioDto) {
+        await this.findOne(instituicaoCodigo, id);
 
         const data: any = {};
         if (dto.nome) data.USRNome = dto.nome;
@@ -159,12 +153,23 @@ export class UsuarioService {
         });
     }
 
-    async remove(id: number) {
-        await this.findOne(id);
-        return this.prisma.uSRUsuario.delete({ where: { USRCodigo: id } });
+    async remove(instituicaoCodigo: number, id: number) {
+        const usuario = await this.findOne(instituicaoCodigo, id);
+
+        // IMPORTANT: We should probably only remove the access to THIS institution
+        // unless they have NO other accesses. But for now, let's keep it simple:
+        // if deleting from instituicao context, we remove the institution access.
+        // If they have no other accesses, we could delete the user, but it's safer to just remove access.
+
+        return this.prisma.uSRAcesso.deleteMany({
+            where: {
+                USRCodigo: id,
+                INSInstituicaoCodigo: instituicaoCodigo
+            }
+        });
     }
 
-    async addAcesso(userId: number, dto: CreateAcessoDto, creatorAcessos: any[]) {
+    async addAcesso(instituicaoCodigo: number, userId: number, dto: CreateAcessoDto, creatorAcessos: any[]) {
         // Validate hierarchy: creator cannot grant a role higher than their own
         const creatorMaxLevel = Math.max(
             ...creatorAcessos.map((a: any) => HIERARCHY[a.grupo] || 0),
@@ -177,23 +182,28 @@ export class UsuarioService {
             );
         }
 
-        await this.findOne(userId);
+        // Check if user exists (even if not in this institution yet)
+        const usuario = await this.prisma.uSRUsuario.findUnique({ where: { USRCodigo: userId } });
+        if (!usuario) throw new NotFoundException(`Usuário ${userId} não encontrado`);
 
         return this.prisma.uSRAcesso.create({
             data: {
                 USRCodigo: userId,
                 grupo: dto.grupo,
                 CLICodigo: dto.clienteId ?? null,
-                INSInstituicaoCodigo: dto.instituicaoId ?? null,
+                INSInstituicaoCodigo: instituicaoCodigo, // Enforce current institution
             },
         });
     }
 
-    async removeAcesso(acessoId: number) {
-        const acesso = await this.prisma.uSRAcesso.findUnique({
-            where: { UACCodigo: acessoId },
+    async removeAcesso(instituicaoCodigo: number, acessoId: number) {
+        const acesso = await this.prisma.uSRAcesso.findFirst({
+            where: {
+                UACCodigo: acessoId,
+                INSInstituicaoCodigo: instituicaoCodigo
+            },
         });
-        if (!acesso) throw new NotFoundException(`Acesso ${acessoId} não encontrado`);
+        if (!acesso) throw new NotFoundException(`Acesso ${acessoId} não encontrado nesta instituição`);
         return this.prisma.uSRAcesso.delete({ where: { UACCodigo: acessoId } });
     }
 

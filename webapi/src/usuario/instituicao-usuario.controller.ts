@@ -1,6 +1,9 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
-import { PessoaService } from './pessoa.service';
-import { CreatePessoaDto, UpdatePessoaDto } from './dto/pessoa.dto';
+import {
+    Controller, Get, Post, Patch, Delete, Body, Param, Query,
+    ParseIntPipe, UseGuards, Request,
+} from '@nestjs/common';
+import { UsuarioService } from './usuario.service';
+import { CreateUsuarioDto, UpdateUsuarioDto, CreateAcessoDto } from './dto/usuario.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -8,15 +11,15 @@ import { Roles } from '../auth/roles.decorator';
 import { GrupoAcesso } from '@prisma/client';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
-@Controller('instituicao/:instituicaoCodigo/pessoa')
-export class PessoaController {
-    constructor(private service: PessoaService) { }
+@Roles(GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
+@Controller('instituicao/:instituicaoCodigo/usuario')
+export class InstituicaoUsuarioController {
+    constructor(private service: UsuarioService) { }
 
     @Post()
     create(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-        @Body() dto: CreatePessoaDto
+        @Body() dto: CreateUsuarioDto
     ) {
         return this.service.create(instituicaoCodigo, dto);
     }
@@ -37,11 +40,11 @@ export class PessoaController {
         return this.service.findOne(instituicaoCodigo, id);
     }
 
-    @Put(':id')
+    @Patch(':id')
     update(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
         @Param('id', ParseIntPipe) id: number,
-        @Body() dto: UpdatePessoaDto
+        @Body() dto: UpdateUsuarioDto
     ) {
         return this.service.update(instituicaoCodigo, id, dto);
     }
@@ -52,5 +55,23 @@ export class PessoaController {
         @Param('id', ParseIntPipe) id: number
     ) {
         return this.service.remove(instituicaoCodigo, id);
+    }
+
+    @Post(':id/acessos')
+    addAcesso(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: CreateAcessoDto,
+        @Request() req: any,
+    ) {
+        return this.service.addAcesso(instituicaoCodigo, id, dto, req.user.acessos);
+    }
+
+    @Delete('acessos/:acessoId')
+    removeAcesso(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('acessoId', ParseIntPipe) acessoId: number
+    ) {
+        return this.service.removeAcesso(instituicaoCodigo, acessoId);
     }
 }

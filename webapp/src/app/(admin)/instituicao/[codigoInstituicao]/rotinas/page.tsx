@@ -4,15 +4,21 @@ import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import Button from "@/components/ui/button/Button";
 import { Rotina, RotinaService } from "@/services/rotina.service";
-import { ArrowRightIcon, TrashBinIcon, PencilIcon, PlusIcon } from "@/icons";
+import { ArrowRightIcon, TrashBinIcon, PencilIcon, PlusIcon, AlertIcon } from "@/icons";
 import { useRouter } from "next/navigation";
+import { Modal } from "@/components/ui/modal";
+import { useModal } from "@/hooks/useModal";
+import { useToast } from "@/context/ToastContext";
 
 export default function RotinasPage() {
     const { codigoInstituicao } = useTenant();
     const router = useRouter();
+    const { showToast } = useToast();
+    const deleteModal = useModal();
     const [rotinas, setRotinas] = useState<Rotina[]>([]);
     const [loading, setLoading] = useState(true);
     const [executing, setExecuting] = useState<number | null>(null);
+    const [deleteTarget, setDeleteTarget] = useState<Rotina | null>(null);
 
     const loadRotinas = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -22,10 +28,11 @@ export default function RotinasPage() {
             setRotinas(data);
         } catch (error) {
             console.error("Erro ao carregar rotinas", error);
+            showToast("error", "Erro ao carregar", "Não foi possível carregar as rotinas.");
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [codigoInstituicao, showToast]);
 
     useEffect(() => {
         loadRotinas();
@@ -36,24 +43,31 @@ export default function RotinasPage() {
         setExecuting(id);
         try {
             await RotinaService.execute(id, codigoInstituicao);
-            alert("Execução iniciada! Acompanhe no console.");
+            showToast("success", "Execução iniciada", "Acompanhe o progresso no console da rotina.");
             loadRotinas();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Erro ao executar rotina", error);
-            alert("Erro ao iniciar execução.");
+            showToast("error", "Erro na execução", error.message || "Não foi possível iniciar a rotina.");
         } finally {
             setExecuting(null);
         }
     };
 
-    const handleDelete = async (id: number) => {
-        if (!confirm("Tem certeza que deseja excluir esta rotina?")) return;
+    const handleDeleteClick = (rotina: Rotina) => {
+        setDeleteTarget(rotina);
+        deleteModal.openModal();
+    };
+
+    const confirmDelete = async () => {
+        if (!deleteTarget) return;
         try {
-            await RotinaService.delete(id, codigoInstituicao);
+            await RotinaService.delete(deleteTarget.ROTCodigo, codigoInstituicao);
+            showToast("success", "Rotina excluída", "A rotina foi removida com sucesso.");
+            deleteModal.closeModal();
             loadRotinas();
-        } catch (error) {
+        } catch (error: any) {
             console.error("Erro ao excluir rotina", error);
-            alert("Erro ao excluir rotina.");
+            showToast("error", "Erro ao excluir", error.message || "Ocorreu um erro ao tentar remover a rotina.");
         }
     };
 
@@ -134,7 +148,7 @@ export default function RotinasPage() {
                                         <PencilIcon className="w-4 h-4" />
                                     </button>
                                     <button
-                                        onClick={() => handleDelete(rotina.ROTCodigo)}
+                                        onClick={() => handleDeleteClick(rotina)}
                                         className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                                         title="Excluir"
                                     >
@@ -146,6 +160,42 @@ export default function RotinasPage() {
                     </tbody>
                 </table>
             </div>
+
+            {/* Modal de Confirmação de Exclusão */}
+            <Modal
+                isOpen={deleteModal.isOpen}
+                onClose={deleteModal.closeModal}
+                className="max-w-[450px] p-6 lg:p-8"
+            >
+                <div className="text-center">
+                    <div className="flex items-center justify-center w-16 h-16 mx-auto mb-6 bg-red-100 rounded-full dark:bg-red-900/20">
+                        <AlertIcon className="w-8 h-8 text-red-600 dark:text-red-500" />
+                    </div>
+                    <h4 className="mb-2 text-xl font-semibold text-gray-800 dark:text-white/90">
+                        Confirmar Exclusão
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                        Tem certeza que deseja excluir a rotina <span className="font-semibold text-gray-800 dark:text-white">"{deleteTarget?.ROTNome}"</span>?
+                        Esta ação não pode ser desfeita.
+                    </p>
+
+                    <div className="flex items-center justify-center gap-3 mt-8">
+                        <Button
+                            variant="outline"
+                            onClick={deleteModal.closeModal}
+                            className="w-full sm:w-auto"
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={confirmDelete}
+                            className="w-full bg-red-600 hover:bg-red-700 sm:w-auto"
+                        >
+                            Confirmar Exclusão
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }
