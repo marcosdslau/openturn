@@ -72,7 +72,24 @@ export default function InstituicoesGlobalPage() {
 
     const openEdit = (i: Instituicao) => {
         setEditing(i);
-        setForm({ INSNome: i.INSNome, CLICodigo: i.CLICodigo, INSConfigHardware: i.INSConfigHardware || {} });
+        const existingConfig = i.INSConfigHardware || {};
+        const controlid = existingConfig.controlid || {};
+        const monitor = controlid.monitor || {};
+
+        // Ensure path is set if missing
+        if (!monitor.path) {
+            monitor.path = `/api/instituicao/${i.INSCodigo}/monitor/controlid`;
+        }
+
+        const newConfig = {
+            ...existingConfig,
+            controlid: {
+                ...controlid,
+                monitor
+            }
+        };
+
+        setForm({ INSNome: i.INSNome, CLICodigo: i.CLICodigo, INSConfigHardware: newConfig });
         setShowModal(true);
     };
 
@@ -280,6 +297,24 @@ export default function InstituicoesGlobalPage() {
                                             }}
                                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                                         />
+                                    </div>
+                                    <div className="col-span-2">
+                                        <label className="block text-xs font-medium text-gray-500 mb-1">Path Base (Opcional)</label>
+                                        <input
+                                            placeholder="Ex: /api/monitor"
+                                            value={form.INSConfigHardware?.controlid?.monitor?.path || ""}
+                                            onChange={(e) => {
+                                                const newConfig = { ...form.INSConfigHardware };
+                                                if (!newConfig.controlid) newConfig.controlid = {};
+                                                if (!newConfig.controlid.monitor) newConfig.controlid.monitor = {};
+                                                newConfig.controlid.monitor.path = e.target.value;
+                                                setForm({ ...form, INSConfigHardware: newConfig });
+                                            }}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                        />
+                                        <p className="mt-1 text-[10px] text-gray-400">
+                                            Caso o monitor esteja atrás de um proxy reverso.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

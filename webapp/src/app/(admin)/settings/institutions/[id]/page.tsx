@@ -64,7 +64,8 @@ export default function InstitutionERPPage() {
 
     // Hardware Monitor settings
     const [monitorIp, setMonitorIp] = useState("");
-    const [monitorPort, setMonitorPort] = useState(0);
+    const [monitorPort, setMonitorPort] = useState(80);
+    const [monitorPath, setMonitorPath] = useState("");
 
     const loadData = useCallback(async () => {
         setLoading(true);
@@ -82,6 +83,7 @@ export default function InstitutionERPPage() {
             const hwConfig = instRes.INSConfigHardware || {};
             setMonitorIp(hwConfig.controlid?.monitor?.ip || "");
             setMonitorPort(hwConfig.controlid?.monitor?.port || 0);
+            setMonitorPath(hwConfig.controlid?.monitor?.path || `/api/instituicao/${instRes.INSCodigo}/monitor/controlid`);
 
             if (configRes) {
                 setSistema(configRes.ERPSistema);
@@ -151,7 +153,8 @@ export default function InstitutionERPPage() {
                     ...(currentConfig.controlid || {}),
                     monitor: {
                         ip: monitorIp,
-                        port: monitorPort
+                        port: monitorPort,
+                        path: monitorPath
                     }
                 }
             };
@@ -223,6 +226,18 @@ export default function InstitutionERPPage() {
                                 value={monitorPort.toString()}
                                 onChange={(e) => setMonitorPort(parseInt(e.target.value) || 0)}
                             />
+                        </div>
+                        <div className="sm:col-span-2">
+                            <Label>Path Base (Opcional)</Label>
+                            <InputField
+                                type="text"
+                                placeholder="Ex: /api/monitor"
+                                value={monitorPath}
+                                onChange={(e) => setMonitorPath(e.target.value)}
+                            />
+                            <p className="mt-1 text-xs text-gray-500">
+                                Caso o monitor esteja atrás de um proxy reverso com prefixo.
+                            </p>
                         </div>
                     </div>
                 </ComponentCard>
