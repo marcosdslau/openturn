@@ -55,8 +55,32 @@ Table EQPEquipamento {
   EQPMarca String [note: 'Ex: ControlId']
   EQPModelo String [note: 'Ex: iDNext, iDNext+iDFace, iDNext+iDFaceMax, iDBlock, iDBlock+iDFace, iDBlock+iDFaceMax']
   EQPEnderecoIp String
+  EQPConfig Json [note: 'JSON com Login, Senha, Modo (Standalone/Online/Push), Porta, etc']
+  EQPUltimoSincronismo DateTime
+  EQPAtivo Boolean [default: true]
   INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
   createdAt timestamp [default: `now()`]
+}
+
+Table CMDComandoFila {
+  CMDCodigo Int [pk, increment]
+  EQPCodigo Int [ref: > EQPEquipamento.EQPCodigo]
+  CMDVerb String [default: 'POST']
+  CMDEndpoint String [not null, note: 'Ex: load_objects, set_configuration']
+  CMDBody Json
+  CMDContentType String [default: 'application/json']
+  CMDStatus ENUM_STATUS_COMANDO [default: 'PENDENTE']
+  CMDResultado Json
+  INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp [default: `now()`]
+}
+
+enum ENUM_STATUS_COMANDO {
+  PENDENTE
+  ENVIADO
+  EXECUTADO
+  ERRO
 }
 
 Table ERPConfiguracao {
