@@ -104,4 +104,24 @@ O dispositivo deve ser configurado para apontar para o servidor OpenTurn.
 - `POST /api/instituicao/:id/monitor/controlid/card`: Cadastros de cartão
 - `POST /api/instituicao/:id/monitor/controlid/user_image`: Cadastros de foto (com `save=false`)
 
-As configurações de IP/Porta do Monitor são globais por Instituição (campo `INSConfigHardware`).
+As configurações de Monitor são armazenadas no campo `INSConfigHardware` da tabela `INSInstituicao`.
+
+**Estrutura do JSON:**
+```json
+{
+  "controlid": {
+    "monitor": {
+      "ip": "192.168.1.10",
+      "port": 8000,
+      "path": "/api/instituicao/1/monitor/controlid"
+    }
+  }
+}
+```
+
+- **IP do Monitor**: O endereço do servidor OpenTurn onde os dispositivos devem enviar as notificações.
+- **Porta**: A porta em que o servidor está escutando.
+- **Path Base**: O prefixo da URL para as notificações. Por padrão, o sistema sugere `/api/instituicao/:id/monitor/controlid`, mas pode ser alterado caso o servidor esteja atrás de um proxy reverso (Nginx/Cloudflare) que exija um caminho diferente.
+
+---
+*Este plano foi revisado com base nos exemplos oficiais de Servidor Online, Modo Push e Monitor da ControlID.*

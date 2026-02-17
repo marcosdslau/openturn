@@ -78,7 +78,8 @@ graph TD
 
 ### 4. Camada de Integração (Modular)
 - **ERPs**: Adaptadores para cada sistema educacional. Gerencia a sincronização de alunos, cursos e turmas.
-- **Catracas**: Adaptadores para comunicação com hardware. Suporta ControlId (iDNext, iDBlock) e biometria facial.
+- **Catracas**: Adaptadores para comunicação com hardware (REST API). Suporta ControlId (iDNext, iDBlock) e biometria facial.
+- **Hardware Monitors**: Recebe notificações "Push" (eventos em tempo real) diretamente dos equipamentos, permitindo o monitoramento de passagens, abertura de portas e mudanças de estado sem polling constante.
 
 ### 5. Execution Engine (Rotinas & Webhooks)
 Motor de execução dinâmica que permite criar rotinas JavaScript por instituição.
