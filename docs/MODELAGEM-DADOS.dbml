@@ -31,6 +31,7 @@ Table PESPessoa {
   PESFotoExtensao String [note: 'Extensão da foto (jpg, png)']
   PESGrupo String [note: 'Grupo da pessoa (ex: Aluno, Prof, Funcionario)']
   PESCartaoTag String [note: 'Código do cartão/tag RFID']
+  PESTemplates Json [note: 'Templates biométricos (digitais)']
   PESAtivo Boolean [default: true]
   INSInstituicaoCodigo Int [ref: > INSInstituicao.INSCodigo]
   createdAt timestamp [default: `now()`]

@@ -42,4 +42,7 @@ export class UpdateEquipamentoDto {
     @IsOptional()
     @IsBoolean()
     EQPAtivo?: boolean;
+
+    @IsOptional()
+    EQPConfig?: any;
 }

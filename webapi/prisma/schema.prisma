@@ -64,6 +64,7 @@ model PESPessoa {
   PESFotoExtensao      String?
   PESGrupo             String?
   PESCartaoTag         String?
+  PESTemplates         Json?
   PESAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
@@ -94,6 +95,8 @@ model EQPEquipamento {
   EQPMarca             String?
   EQPModelo            String?
   EQPEnderecoIp        String?
+  EQPConfig            Json?
+  EQPUltimoSincronismo DateTime?
   EQPAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])

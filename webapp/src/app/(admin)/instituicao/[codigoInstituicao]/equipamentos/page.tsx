@@ -8,7 +8,22 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon } from "@/icons";
+import { AlertIcon, RefreshIcon, EyeIcon, EyeCloseIcon } from "@/icons";
+
+const CONTROLID_MODELS = [
+    { label: "iDAccess", value: "iDAccess", image: "/images/controlId/iDAccess.jpg" },
+    { label: "iDAccess Nano", value: "iDAccess Nano", image: "/images/controlId/iDAccess_nano.jpg" },
+    { label: "iDAccess Pro", value: "iDAccess Pro", image: "/images/controlId/iDAccess_pro.jpg" },
+    { label: "iDAccess Prox", value: "iDAccess Prox", image: "/images/controlId/iDAccess-Prox.jpg" },
+    { label: "iDBlock", value: "iDBlock", image: "/images/controlId/iDBlock.jpg" },
+    { label: "iDBlock Balcão", value: "iDBlock Balcão", image: "/images/controlId/idblock_balcao.jpg" },
+    { label: "iDBlock Braço Articulado", value: "iDBlock Braço Articulado", image: "/images/controlId/idblock_bqc.jpg" },
+    { label: "iDBlock Facial", value: "iDBlock Facial", image: "/images/controlId/idblock_facial.jpg" },
+    { label: "iDBlock Next", value: "iDBlock Next", image: "/images/controlId/idblock_next.jpg" },
+    { label: "iDBlock PNE", value: "iDBlock PNE", image: "/images/controlId/idblock_pne.jpg" },
+    { label: "iDFace", value: "iDFace", image: "/images/controlId/iDFace.jpg" },
+    { label: "iDFace Max", value: "iDFace Max", image: "/images/controlId/idface_max.jpg" },
+];
 
 interface Equipamento {
     EQPCodigo: number;
@@ -17,6 +32,7 @@ interface Equipamento {
     EQPModelo: string | null;
     EQPEnderecoIp: string | null;
     EQPAtivo: boolean;
+    EQPConfig?: any;
 }
 
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
@@ -35,9 +51,16 @@ export default function EquipamentosPage() {
     const deleteModal = useModal();
 
     const [editing, setEditing] = useState<Equipamento | null>(null);
-    const [form, setForm] = useState({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "" });
+    const [form, setForm] = useState<{
+        EQPDescricao: string;
+        EQPMarca: string;
+        EQPModelo: string;
+        EQPEnderecoIp: string;
+        EQPConfig?: any;
+    }>({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", EQPConfig: {} });
     const [saving, setSaving] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Equipamento | null>(null);
+    const [showPassword, setShowPassword] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -54,7 +77,7 @@ export default function EquipamentosPage() {
 
     const openNew = () => {
         setEditing(null);
-        setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "" });
+        setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", EQPConfig: { user: 'admin', pass: 'admin', mode: 'standalone' } });
         equipmentModal.openModal();
     };
 
@@ -63,6 +86,7 @@ export default function EquipamentosPage() {
         setForm({
             EQPDescricao: e.EQPDescricao || "", EQPMarca: e.EQPMarca || "",
             EQPModelo: e.EQPModelo || "", EQPEnderecoIp: e.EQPEnderecoIp || "",
+            EQPConfig: e.EQPConfig || { user: 'admin', pass: 'admin', mode: 'standalone' }
         });
         equipmentModal.openModal();
     };
@@ -102,11 +126,26 @@ export default function EquipamentosPage() {
         } finally { setSaving(false); }
     };
 
+    const handleSync = async () => {
+        try {
+            await apiPost(`/instituicao/${codigoInstituicao}/hardware/sync`, {});
+            showToast("success", "Sincronização iniciada", "O comando de sincronização foi enviado para todos os equipamentos.");
+        } catch (error: any) {
+            showToast("error", "Erro na sincronização", error.message || "Falha ao iniciar sincronização.");
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Equipamentos</h2>
-                <Button size="sm" onClick={openNew}>+ Novo Equipamento</Button>
+                <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={handleSync}>
+                        <RefreshIcon className="w-4 h-4 mr-2" />
+                        Sincronizar Todos
+                    </Button>
+                    <Button size="sm" onClick={openNew}>+ Novo Equipamento</Button>
+                </div>
             </div>
 
             {/* Table */}
@@ -139,6 +178,9 @@ export default function EquipamentosPage() {
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
                                     <button onClick={() => openEdit(e)} className="text-xs text-brand-500 hover:underline">Editar</button>
+                                    {e.EQPMarca === 'ControlID' && (
+                                        <a href={`/instituicao/${codigoInstituicao}/equipamentos/${e.EQPCodigo}/configuracao`} className="text-xs text-blue-500 hover:underline">Configurações</a>
+                                    )}
                                     <button onClick={() => handleDeleteClick(e)} className="text-xs text-red-500 hover:underline">Excluir</button>
                                 </td>
                             </tr>
@@ -192,12 +234,104 @@ export default function EquipamentosPage() {
                     <div className="space-y-3">
                         <input placeholder="Descrição *" value={form.EQPDescricao} onChange={(e) => setForm({ ...form, EQPDescricao: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                        <input placeholder="Marca" value={form.EQPMarca} onChange={(e) => setForm({ ...form, EQPMarca: e.target.value })}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                        <input placeholder="Modelo" value={form.EQPModelo} onChange={(e) => setForm({ ...form, EQPModelo: e.target.value })}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+
+                        <div className="grid grid-cols-2 gap-3">
+                            <select
+                                value={form.EQPMarca}
+                                onChange={(e) => setForm({ ...form, EQPMarca: e.target.value, EQPModelo: "" })}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                            >
+                                <option value="">Selecione a Marca</option>
+                                <option value="ControlID">ControlID</option>
+                                <option value="Hikvision">Hikvision</option>
+                                <option value="Intelbras">Intelbras</option>
+                                <option value="Outros">Outros</option>
+                            </select>
+
+                            <select
+                                value={form.EQPModelo}
+                                onChange={(e) => setForm({ ...form, EQPModelo: e.target.value })}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                disabled={!form.EQPMarca}
+                            >
+                                <option value="">Selecione o Modelo</option>
+                                {form.EQPMarca === 'ControlID' && CONTROLID_MODELS.map(m => (
+                                    <option key={m.value} value={m.value}>{m.label}</option>
+                                ))}
+                                {form.EQPMarca === 'Hikvision' && (
+                                    <>
+                                        <option value="MinMoe">MinMoe</option>
+                                        <option value="DS-K1T">DS-K1T Series</option>
+                                    </>
+                                )}
+                                {form.EQPMarca === 'Intelbras' && (
+                                    <>
+                                        <option value="SS 311">SS 311</option>
+                                        <option value="SS 411">SS 411</option>
+                                    </>
+                                )}
+                                {form.EQPMarca === 'Outros' && (
+                                    <option value="Generico">Genérico</option>
+                                )}
+                            </select>
+                        </div>
+
+                        {form.EQPMarca === 'ControlID' && form.EQPModelo && (
+                            <div className="flex justify-center p-2 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-100 dark:border-gray-700">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                    src={CONTROLID_MODELS.find(m => m.value === form.EQPModelo)?.image}
+                                    alt={form.EQPModelo}
+                                    className="h-32 object-contain"
+                                />
+                            </div>
+                        )}
+
                         <input placeholder="Endereço IP" value={form.EQPEnderecoIp} onChange={(e) => setForm({ ...form, EQPEnderecoIp: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+
+                        {/* ControlID Config Fields */}
+                        {form.EQPMarca === 'ControlID' && (
+                            <div className="pt-2 space-y-3 border-t border-gray-100 dark:border-gray-800">
+                                <p className="text-xs font-medium text-gray-500 uppercase">Configuração ControlID</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input placeholder="Login (admin)" value={(form as any).EQPConfig?.user || ''}
+                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), user: e.target.value } })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    <div className="relative">
+                                        <input
+                                            placeholder="Senha"
+                                            type={showPassword ? "text" : "password"}
+                                            value={(form as any).EQPConfig?.pass || ''}
+                                            onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), pass: e.target.value } })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPassword(!showPassword)}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                                        >
+                                            {showPassword ? <EyeCloseIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Special Fields for iDBlock Facial and Next (3 IPs) */}
+                        {form.EQPMarca === 'ControlID' && (form.EQPModelo === 'iDBlock Facial' || form.EQPModelo === 'iDBlock Next') && (
+                            <div className="pt-2 space-y-3 border-t border-gray-100 dark:border-gray-800">
+                                <p className="text-xs font-medium text-gray-500 uppercase">Configuração iDFace (Entrada/Saída)</p>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input placeholder="IP iDFace Entrada" value={(form as any).EQPConfig?.ip_entry || ''}
+                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_entry: e.target.value } })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    <input placeholder="IP iDFace Saída" value={(form as any).EQPConfig?.ip_exit || ''}
+                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_exit: e.target.value } })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                </div>
+                            </div>
+                        )}
                     </div>
                     <div className="flex gap-3 justify-end pt-2">
                         <Button size="sm" variant="outline" onClick={equipmentModal.closeModal}>Cancelar</Button>
@@ -206,10 +340,11 @@ export default function EquipamentosPage() {
                         </Button>
                     </div>
                 </div>
-            </Modal>
+            </Modal >
+
 
             {/* Deletion Modal */}
-            <Modal
+            < Modal
                 isOpen={deleteModal.isOpen}
                 onClose={deleteModal.closeModal}
                 className="max-w-md p-6"
@@ -234,7 +369,7 @@ export default function EquipamentosPage() {
                         </Button>
                     </div>
                 </div>
-            </Modal>
-        </div>
+            </Modal >
+        </div >
     );
 }

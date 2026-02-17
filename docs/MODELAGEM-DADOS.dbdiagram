@@ -163,6 +163,36 @@
     },
     {
       "firstFieldNames": [
+        "EQPCodigo"
+      ],
+      "firstTableName": "EQPEquipamento",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "EQPCodigo"
+      ],
+      "secondTableName": "CMDComandoFila",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "CMDComandoFila",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
         "INSCodigo"
       ],
       "firstTableName": "INSInstituicao",
@@ -178,6 +208,21 @@
     },
     {
       "firstFieldNames": [
+        "USRCodigo"
+      ],
+      "firstTableName": "USRUsuario",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "USRCodigo"
+      ],
+      "secondTableName": "USRAcesso",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
         "CLICodigo"
       ],
       "firstTableName": "CLICliente",
@@ -186,7 +231,7 @@
       "secondFieldNames": [
         "CLICodigo"
       ],
-      "secondTableName": "USRUsuario",
+      "secondTableName": "USRAcesso",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []
@@ -199,9 +244,144 @@
       "firstSchemaName": "public",
       "firstRelation": "1",
       "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "USRAcesso",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "PESCodigo"
+      ],
+      "firstTableName": "PESPessoa",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "PESCodigo"
+      ],
+      "secondTableName": "REGRegistroPassagem",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "EQPCodigo"
+      ],
+      "firstTableName": "EQPEquipamento",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "EQPCodigo"
+      ],
+      "secondTableName": "REGRegistroPassagem",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
         "INSCodigo"
       ],
-      "secondTableName": "USRUsuario",
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "REGRegistroPassagem",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "ROTRotina",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "USRCodigo"
+      ],
+      "firstTableName": "USRUsuario",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "createdBy"
+      ],
+      "secondTableName": "ROTRotina",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "ROTCodigo"
+      ],
+      "firstTableName": "ROTRotina",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "ROTCodigo"
+      ],
+      "secondTableName": "ROTExecucaoLog",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "INSCodigo"
+      ],
+      "firstTableName": "INSInstituicao",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "INSInstituicaoCodigo"
+      ],
+      "secondTableName": "ROTExecucaoLog",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "ROTCodigo"
+      ],
+      "firstTableName": "ROTRotina",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "ROTCodigo"
+      ],
+      "secondTableName": "ROTHistoricoVersao",
+      "secondSchemaName": "public",
+      "secondRelation": "*",
+      "checkPoints": []
+    },
+    {
+      "firstFieldNames": [
+        "USRCodigo"
+      ],
+      "firstTableName": "USRUsuario",
+      "firstSchemaName": "public",
+      "firstRelation": "1",
+      "secondFieldNames": [
+        "createdBy"
+      ],
+      "secondTableName": "ROTHistoricoVersao",
       "secondSchemaName": "public",
       "secondRelation": "*",
       "checkPoints": []

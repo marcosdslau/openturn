@@ -3,6 +3,7 @@
 import React from "react";
 import Button from "@/components/ui/button/Button";
 import PessoaPhoto from "./PessoaPhoto";
+import BiometryCapture from "./BiometryCapture";
 
 interface PessoaFormProps {
     initialData?: any;
@@ -51,13 +52,17 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
     return (
         <div className="flex flex-col md:flex-row gap-6">
             {/* Photo Column */}
-            <div className="w-full md:w-48 flex-shrink-0">
+            <div className="w-full md:w-48 flex-shrink-0 space-y-4">
                 <PessoaPhoto
                     base64={formData.PESFotoBase64}
                     extensao={formData.PESFotoExtensao}
                     onChange={handlePhotoChange}
                     onConfirm={onSavePhoto}
                 />
+
+                {initialData?.PESCodigo && (
+                    <BiometryCapture personId={initialData.PESCodigo} />
+                )}
             </div>
 
             {/* Form Column */}
@@ -208,6 +213,8 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                     </Button>
                 </div>
             </form>
+
+            {/* Third Column or Under Profile for Biometry if editing */}
         </div>
     );
 }

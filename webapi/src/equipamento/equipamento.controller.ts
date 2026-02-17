@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { EquipamentoService } from './equipamento.service';
 import { CreateEquipamentoDto, UpdateEquipamentoDto } from './dto/equipamento.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
@@ -37,7 +37,7 @@ export class EquipamentoController {
         return this.service.findOne(instituicaoCodigo, id);
     }
 
-    @Put(':id')
+    @Patch(':id')
     update(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
         @Param('id', ParseIntPipe) id: number,
