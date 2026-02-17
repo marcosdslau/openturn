@@ -88,3 +88,20 @@ Para cadastrar digitais ou faces remotamente:
 
 ---
 *Este plano foi revisado com base nos exemplos oficiais de Servidor Online, Modo Push e Monitor da ControlID.*
+
+## 6. Monitor (Modo Online)
+
+Implementado suporte a notificações "Push" da ControlID (Monitor).
+O dispositivo deve ser configurado para apontar para o servidor OpenTurn.
+
+**Endpoints:**
+- `POST /api/instituicao/:id/monitor/controlid/dao`: Notificações de objetos
+- `POST /api/instituicao/:id/monitor/controlid/catra_event`: Logs de acesso (salvos em `REGRegistroPassagem`)
+- `POST /api/instituicao/:id/monitor/controlid/door`: Eventos de porta
+- `POST /api/instituicao/:id/monitor/controlid/operation_mode`: Mudança de modo
+- `POST /api/instituicao/:id/monitor/controlid/template`: Cadastros biométricos
+- `POST /api/instituicao/:id/monitor/controlid/face_template`: Cadastros faciais
+- `POST /api/instituicao/:id/monitor/controlid/card`: Cadastros de cartão
+- `POST /api/instituicao/:id/monitor/controlid/user_image`: Cadastros de foto (com `save=false`)
+
+As configurações de IP/Porta do Monitor são globais por Instituição (campo `INSConfigHardware`).

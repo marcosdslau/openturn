@@ -93,4 +93,67 @@ export class HardwareService {
         const provider = this.instantiate(device, targetIp);
         return await provider.customCommand(command, params);
     }
+
+    async processAccessLog(instituicaoId: number, event: any) {
+        // event structure example:
+        // { time: 167..., event: 7, user_id: 100, portal_id: 1, ... }
+        // We need to map this to REGRegistroPassagem
+        try {
+            const timestamp = event.time;
+            const userId = event.user_id;
+
+            // Log raw event for debugging
+            this.logger.debug(`Processing access log: User ${userId} at ${timestamp}`);
+
+            // Find device by IP? Or just use institution context
+            // In Push mode, how do we know which device sent it? 
+            // Usually we check request IP or we can try to trust the push if authenticated.
+            // For now, let's assume we can map user.
+
+            // Insert into REGRegistroPassagem
+            // We need PESPessoa.PESCodigo from user_id? 
+            // Assuming user_id matches PESCodigo as we synced it that way.
+
+            const person = await this.prisma.pESPessoa.findUnique({
+                where: { PESCodigo: userId }
+            });
+
+            if (!person) {
+                this.logger.warn(`User ${userId} not found in database. Skipping log.`);
+                return;
+            }
+
+            // We need a device ID (EQPCodigo). 
+            // In a real monitor implementation, we should identify the source device.
+            // For now, getting the first active device of the institution or null?
+            // Schema requires EQPCodigo.
+            // TODO: Enhance MonitorController to identify device (e.g. by IP or serial in headers)
+            // Let's assume for now we use a placeholder or look up by logic. 
+            // Just picking the first device for this MVP implementation of the log.
+            const device = await this.prisma.eQPEquipamento.findFirst({
+                where: { INSInstituicaoCodigo: instituicaoId }
+            });
+
+            if (!device) {
+                this.logger.warn(`No device found for institution ${instituicaoId}. Cannot log access.`);
+                return;
+            }
+
+            await this.prisma.rEGRegistroPassagem.create({
+                data: {
+                    PESCodigo: person.PESCodigo,
+                    EQPCodigo: device.EQPCodigo,
+                    REGAcao: 'ENTRADA', // Determine based on portal_id or direction if available
+                    REGTimestamp: BigInt(timestamp),
+                    REGDataHora: new Date(timestamp * 1000),
+                    INSInstituicaoCodigo: instituicaoId
+                }
+            });
+
+            this.logger.log(`Access logged for person ${person.PESNome}`);
+
+        } catch (error) {
+            this.logger.error(`Failed to process access log`, error);
+        }
+    }
 }

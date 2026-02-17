@@ -11,6 +11,7 @@ interface Instituicao {
     INSNome: string;
     CLICodigo: number;
     INSAtivo: boolean;
+    INSConfigHardware?: any;
     cliente?: { CLINome: string };
 }
 
@@ -33,7 +34,7 @@ export default function InstituicoesGlobalPage() {
     // Modal state
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState<Instituicao | null>(null);
-    const [form, setForm] = useState({ INSNome: "", CLICodigo: 0 });
+    const [form, setForm] = useState<{ INSNome: string; CLICodigo: number; INSConfigHardware?: any }>({ INSNome: "", CLICodigo: 0 });
     const [saving, setSaving] = useState(false);
 
     const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -65,13 +66,13 @@ export default function InstituicoesGlobalPage() {
 
     const openNew = () => {
         setEditing(null);
-        setForm({ INSNome: "", CLICodigo: clientes[0]?.CLICodigo || 0 });
+        setForm({ INSNome: "", CLICodigo: clientes[0]?.CLICodigo || 0, INSConfigHardware: {} });
         setShowModal(true);
     };
 
     const openEdit = (i: Instituicao) => {
         setEditing(i);
-        setForm({ INSNome: i.INSNome, CLICodigo: i.CLICodigo });
+        setForm({ INSNome: i.INSNome, CLICodigo: i.CLICodigo, INSConfigHardware: i.INSConfigHardware || {} });
         setShowModal(true);
     };
 
@@ -245,6 +246,42 @@ export default function InstituicoesGlobalPage() {
                                     <option value={0}>Selecione um Cliente</option>
                                     {clientes.map(c => <option key={c.CLICodigo} value={c.CLICodigo}>{c.CLINome}</option>)}
                                 </select>
+                            </div>
+
+                            <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
+                                <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-2">Hardware (ControlID Monitor)</h4>
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-500 mb-1">IP do Monitor (Servidor)</label>
+                                        <input
+                                            placeholder="Ex: 192.168.1.10"
+                                            value={form.INSConfigHardware?.controlid?.monitor?.ip || ""}
+                                            onChange={(e) => {
+                                                const newConfig = { ...form.INSConfigHardware };
+                                                if (!newConfig.controlid) newConfig.controlid = {};
+                                                if (!newConfig.controlid.monitor) newConfig.controlid.monitor = {};
+                                                newConfig.controlid.monitor.ip = e.target.value;
+                                                setForm({ ...form, INSConfigHardware: newConfig });
+                                            }}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-500 mb-1">Porta</label>
+                                        <input
+                                            placeholder="Ex: 8000"
+                                            value={form.INSConfigHardware?.controlid?.monitor?.port || ""}
+                                            onChange={(e) => {
+                                                const newConfig = { ...form.INSConfigHardware };
+                                                if (!newConfig.controlid) newConfig.controlid = {};
+                                                if (!newConfig.controlid.monitor) newConfig.controlid.monitor = {};
+                                                newConfig.controlid.monitor.port = parseInt(e.target.value) || 0;
+                                                setForm({ ...form, INSConfigHardware: newConfig });
+                                            }}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                        />
+                                    </div>
+                                </div>
                             </div>
                         </div>
                         <div className="flex gap-3 justify-end pt-2">

@@ -39,6 +39,7 @@ model INSInstituicao {
   INSAtivo            Boolean               @default(true)
   INSLogsAutoExcluir  Boolean               @default(true)
   INSLogsDiasRetencao Int                   @default(90)
+  INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   createdAt           DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]

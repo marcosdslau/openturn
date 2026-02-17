@@ -17,6 +17,7 @@ interface Instituicao {
     INSNome: string;
     CLICodigo: number;
     cliente?: { CLINome: string };
+    INSConfigHardware?: any;
 }
 
 interface ERPConfig {
@@ -61,6 +62,10 @@ export default function InstitutionERPPage() {
     const [autoExcluirLogs, setAutoExcluirLogs] = useState(true);
     const [diasRetencao, setDiasRetencao] = useState(90);
 
+    // Hardware Monitor settings
+    const [monitorIp, setMonitorIp] = useState("");
+    const [monitorPort, setMonitorPort] = useState(0);
+
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
@@ -72,6 +77,11 @@ export default function InstitutionERPPage() {
             setInstituicao(instRes);
             setAutoExcluirLogs(instRes.INSLogsAutoExcluir ?? true);
             setDiasRetencao(instRes.INSLogsDiasRetencao ?? 90);
+
+            // Load Monitor Config
+            const hwConfig = instRes.INSConfigHardware || {};
+            setMonitorIp(hwConfig.controlid?.monitor?.ip || "");
+            setMonitorPort(hwConfig.controlid?.monitor?.port || 0);
 
             if (configRes) {
                 setSistema(configRes.ERPSistema);
@@ -134,9 +144,22 @@ export default function InstitutionERPPage() {
             });
 
             // Update Institution settings (new fields)
+            const currentConfig = instituicao?.INSConfigHardware || {};
+            const newConfig = {
+                ...currentConfig,
+                controlid: {
+                    ...(currentConfig.controlid || {}),
+                    monitor: {
+                        ip: monitorIp,
+                        port: monitorPort
+                    }
+                }
+            };
+
             const instPromise = apiPut(`/instituicoes/${id}`, {
                 INSLogsAutoExcluir: autoExcluirLogs,
-                INSLogsDiasRetencao: diasRetencao
+                INSLogsDiasRetencao: diasRetencao,
+                INSConfigHardware: newConfig
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -176,6 +199,34 @@ export default function InstitutionERPPage() {
             {success && <Alert variant="success" title="Sucesso" message="Configurações salvas com sucesso." />}
 
             <form onSubmit={handleSave} className="space-y-6">
+
+                {/* Hardware Monitor Config */}
+                <ComponentCard
+                    title="Hardware Monitor (ControlID)"
+                    desc="Configurações para recepção de eventos online (Push) dos dispositivos ControlID."
+                >
+                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <Label>IP do Monitor (Servidor)</Label>
+                            <InputField
+                                type="text"
+                                placeholder="Ex: 192.168.1.10"
+                                value={monitorIp}
+                                onChange={(e) => setMonitorIp(e.target.value)}
+                            />
+                        </div>
+                        <div>
+                            <Label>Porta</Label>
+                            <InputField
+                                type="number"
+                                placeholder="Ex: 8000"
+                                value={monitorPort.toString()}
+                                onChange={(e) => setMonitorPort(parseInt(e.target.value) || 0)}
+                            />
+                        </div>
+                    </div>
+                </ComponentCard>
+
                 <ComponentCard
                     title="Configuração do ERP Educacional"
                     desc="Preencha as credenciais de acesso para integração com o sistema de gestão acadêmica."

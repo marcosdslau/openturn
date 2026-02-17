@@ -20,13 +20,22 @@ import {
 function useNavItems(): NavItem[] {
   const params = useParams();
   const { isSuperRoot, isAdmin } = useAuth();
+  const [lastInst, setLastInst] = useState("0");
+  const [mounted, setMounted] = useState(false);
 
-  // Lazy-initialize from localStorage to avoid stale "0" on first render
-  const lastInst = typeof window !== 'undefined'
-    ? (localStorage.getItem("openturn_last_inst") || "0")
-    : "0";
+  useEffect(() => {
+    setMounted(true);
+    const stored = localStorage.getItem("openturn_last_inst");
+    if (stored) {
+      setLastInst(stored);
+    }
+  }, []);
 
-  const code = (params?.codigoInstituicao as string) || lastInst;
+  // Use params code if available.
+  // If param is missing, fallback to 'lastInst' ONLY after mount (client-side).
+  // On server and first client render, strictly use '0' to avoid hydration mismatch.
+  const paramCode = params?.codigoInstituicao as string;
+  const code = paramCode || (mounted ? lastInst : "0");
   const base = `/instituicao/${code}`;
 
   return useMemo(() => getMainNavItems(base as string, isSuperRoot, isAdmin), [base, isSuperRoot, isAdmin]);

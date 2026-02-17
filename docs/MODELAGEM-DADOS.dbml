@@ -15,6 +15,7 @@ Table INSInstituicao {
   INSNome String [not null]
   INSCodigoExterno String // Identificador no ERP
   INSAtivo Boolean [default: true]
+  INSConfigHardware Json [note: 'Configurações globais de hardware (ex: Monitor ControlID)']
   createdAt timestamp [default: `now()`]
 }
 

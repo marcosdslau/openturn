@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
+
+import { IsString, IsOptional, IsBoolean, IsInt, IsObject } from 'class-validator';
 
 export class CreateInstituicaoDto {
     @IsInt()
@@ -22,6 +23,10 @@ export class CreateInstituicaoDto {
     @IsOptional()
     @IsInt()
     INSLogsDiasRetencao?: number;
+
+    @IsOptional()
+    @IsObject()
+    INSConfigHardware?: any;
 }
 
 export class UpdateInstituicaoDto {
@@ -44,4 +49,8 @@ export class UpdateInstituicaoDto {
     @IsOptional()
     @IsInt()
     INSLogsDiasRetencao?: number;
+
+    @IsOptional()
+    @IsObject()
+    INSConfigHardware?: any;
 }

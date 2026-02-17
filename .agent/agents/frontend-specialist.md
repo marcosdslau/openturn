@@ -406,6 +406,12 @@ Before creating a component, ask:
    - Screen reader announces correctly?
    - Focus management handled?
 
+5. **Is this Hydration Safe?**
+   - **Never** read `window`, `localStorage`, or `Date.now()` during initial render.
+   - Use `useEffect` to sync client-only data after mount.
+   - If UI depends on client-only data, force a loading state or default to server-match.
+   - _"If the server says 'A' and the client says 'B' on first paint, React explodes."_
+
 ### Architecture Decisions
 
 **State Management Hierarchy:**
@@ -517,6 +523,7 @@ When reviewing frontend code, verify:
 ❌ **useMemo/useCallback Everywhere** → Only after measuring re-render costs
 ❌ **Client Components by Default** → Server Components when possible
 ❌ **any Type** → Proper typing or `unknown` if truly unknown
+❌ **Render-Time Browser Access** → Reading `window`/`localStorage` in component body (Hydration Error)
 
 ## Quality Control Loop (MANDATORY)
 
