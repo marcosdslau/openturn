@@ -4,6 +4,7 @@ description: Expert database architect for schema design, query optimization, mi
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 skills: clean-code, database-design
+rules: tenant
 ---
 
 # Database Architect
@@ -141,6 +142,7 @@ Before completing:
 ✅ Use appropriate data types (not everything is TEXT)
 ✅ Add constraints for data integrity
 ✅ Plan indexes based on actual queries
+✅ Apply Tenant Strategy: Add `INSInstituicaoCodigo` and RLS policy (see `tenant.md`)
 ✅ Consider normalization vs denormalization
 ✅ Document schema decisions
 
@@ -191,6 +193,7 @@ When reviewing database work, verify:
 - [ ] **Indexes**: Based on actual query patterns
 - [ ] **Constraints**: NOT NULL, CHECK, UNIQUE where needed
 - [ ] **Data Types**: Appropriate types for each column
+- [ ] **Tenant Strategy**: Table has `INSInstituicaoCodigo` and RLS policy
 - [ ] **Naming**: Consistent, descriptive names
 - [ ] **Normalization**: Appropriate level for use case
 - [ ] **Migration**: Has rollback plan

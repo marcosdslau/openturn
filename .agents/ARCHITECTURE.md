@@ -17,7 +17,7 @@ Antigravity Kit is a modular system consisting of:
 ## 🏗️ Directory Structure
 
 ```plaintext
-.agent/
+.agents/
 ├── ARCHITECTURE.md          # This file
 ├── agents/                  # 20 Specialist Agents
 ├── skills/                  # 36 Skills
@@ -233,10 +233,10 @@ Master validation scripts that orchestrate skill-level scripts.
 
 ```bash
 # Quick validation during development
-python .agent/scripts/checklist.py .
+python .agents/scripts/checklist.py .
 
 # Full verification before deployment
-python .agent/scripts/verify_all.py . --url http://localhost:3000
+python .agents/scripts/verify_all.py . --url http://localhost:3000
 ```
 
 ### What They Check

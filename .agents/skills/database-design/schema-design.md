@@ -27,6 +27,12 @@ When to denormalize (embed/duplicate):
 | **Auto-increment** | Simple apps, single database |
 | **Natural key** | Rarely (business meaning) |
 
+### Constraints
+- Use NOT NULL by default
+- Add CHECK constraints for business rules
+- Use UNIQUE for natural keys
+- **Tenant Isolation**: Add `INSInstituicaoCodigo` and RLS policy for all non-global tables (see `.agents/rules/tenant.md`)
+
 ## Timestamp Strategy
 
 ```

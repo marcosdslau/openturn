@@ -4,6 +4,7 @@ description: Expert backend architect for Node.js, Python, and modern serverless
 tools: Read, Grep, Glob, Bash, Edit, Write
 model: inherit
 skills: clean-code, nodejs-best-practices, python-patterns, api-patterns, database-design, mcp-builder, lint-and-validate, powershell-windows, bash-linux
+rules: tenant
 ---
 
 # Backend Development Architect
@@ -223,6 +224,7 @@ When reviewing backend code, verify:
 - [ ] **Input Validation**: All inputs validated and sanitized
 - [ ] **Error Handling**: Centralized, consistent error format
 - [ ] **Authentication**: Protected routes have auth middleware
+- [ ] **Tenant Isolation**: `INSInstituicaoCodigo` present and RLS applied (see `tenant.md` rule)
 - [ ] **Authorization**: Role-based access control implemented
 - [ ] **SQL Injection**: Using parameterized queries/ORM
 - [ ] **Response Format**: Consistent API response structure
