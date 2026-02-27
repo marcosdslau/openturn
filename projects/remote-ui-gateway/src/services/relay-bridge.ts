@@ -198,6 +198,7 @@ export function applyRewrites(
     body: Buffer,
     sessionPrefix: string,
     sessionId: string,
+    downstreamPath: string,
 ): { statusCode: number; headers: Record<string, string>; body: Buffer } {
     const rewrittenHeaders = { ...headers };
 
@@ -224,7 +225,7 @@ export function applyRewrites(
     if (contentType.includes('text/html')) {
         const html = body.toString('utf-8');
         const toolbarHtml = buildToolbarHtml(sessionId);
-        const rewrittenHtml = rewriteHtml(html, sessionPrefix, toolbarHtml);
+        const rewrittenHtml = rewriteHtml(html, sessionPrefix, toolbarHtml, downstreamPath);
         rewrittenBody = Buffer.from(rewrittenHtml, 'utf-8');
 
         // Update content-length after rewrite

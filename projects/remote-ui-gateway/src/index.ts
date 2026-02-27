@@ -22,6 +22,41 @@ app.post(
     },
 );
 
+// ——— Referer Middleware for Orphaned Assets ———
+// Captures requests like /css/style.css that missed HTML rewriting
+app.use((req, res, next) => {
+    // If the request already has the session prefix, skip
+    if (req.path.startsWith('/remote/s/')) {
+        return next();
+    }
+
+    const referer = req.headers.referer;
+    if (!referer) {
+        return next();
+    }
+
+    try {
+        const url = new URL(referer);
+        // Look for /remote/s/{uuid} in the referer path
+        const match = url.pathname.match(/^\/remote\/s\/([a-f0-9-]+)\/?/i);
+
+        if (match && match[1]) {
+            const sessionId = match[1];
+            // Rewrite the internal URL to include the session prefix
+            // e.g. /css/style.css -> /remote/s/uuid/css/style.css
+            const originalPath = req.url; // includes query string
+            const newUrl = `/remote/s/${sessionId}${originalPath.startsWith('/') ? originalPath : '/' + originalPath}`;
+
+            console.log(`[Referer-Proxy] Redirecting orphaned request ${req.url} -> ${newUrl}`);
+            return res.redirect(307, newUrl);
+        }
+    } catch {
+        // Ignore invalid Referer URLs
+    }
+
+    next();
+});
+
 // ——— Main proxy route ———
 app.all(
     '/remote/s/:sessionId/*',
@@ -41,6 +76,14 @@ app.all(
             if (typeof value === 'string') forwardHeaders[key] = value;
         }
 
+        // Strip session prefix from referer/origin so the turnstile doesn't see our proxy paths
+        if (forwardHeaders['referer']) {
+            forwardHeaders['referer'] = forwardHeaders['referer'].replace(sessionPrefix, '/');
+        }
+        if (forwardHeaders['origin']) {
+            // Origin is just the scheme+host, no path — leave it
+        }
+
         // Collect body for non-GET/HEAD
         let bodyStr: string | null = null;
         if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -53,6 +96,9 @@ app.all(
             }
         }
 
+        console.log(`[Proxy] ${req.method} ${downstreamPath} (session: ${sessionId})`);
+        console.log(`[Proxy] Browser cookies: ${req.headers.cookie || '(none)'}`);
+
         try {
             const proxyResult = await relay.sendHttpRequest(
                 session,
@@ -62,15 +108,21 @@ app.all(
                 bodyStr,
             );
 
+            console.log(`[Proxy] Upstream response: status=${proxyResult.statusCode}`);
+            console.log(`[Proxy] Upstream headers:`, JSON.stringify(proxyResult.headers, null, 2));
+            console.log(`[Proxy] Upstream body (first 500 chars):`, proxyResult.body.toString('utf-8').substring(0, 500));
+
             const rewritten = applyRewrites(
                 proxyResult.statusCode,
                 proxyResult.headers,
                 proxyResult.body,
                 sessionPrefix,
                 sessionId,
+                downstreamPath,
             );
 
             // Send rewritten response
+            console.log(`[Proxy] Response: ${rewritten.statusCode} | Content-Type: ${rewritten.headers['content-type'] || 'N/A'} | Body size: ${rewritten.body.length}`);
             res.status(rewritten.statusCode);
             for (const [key, value] of Object.entries(rewritten.headers)) {
                 if (key.toLowerCase() === 'transfer-encoding') continue;
