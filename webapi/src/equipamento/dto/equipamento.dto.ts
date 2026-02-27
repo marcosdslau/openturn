@@ -18,6 +18,10 @@ export class CreateEquipamentoDto {
     EQPEnderecoIp?: string;
 
     @IsOptional()
+    @IsBoolean()
+    EQPUsaAddon?: boolean;
+
+    @IsOptional()
     @IsInt()
     INSInstituicaoCodigo?: number;
 }
@@ -38,6 +42,10 @@ export class UpdateEquipamentoDto {
     @IsOptional()
     @IsString()
     EQPEnderecoIp?: string;
+
+    @IsOptional()
+    @IsBoolean()
+    EQPUsaAddon?: boolean;
 
     @IsOptional()
     @IsBoolean()

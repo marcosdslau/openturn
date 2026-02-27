@@ -20,14 +20,29 @@ enum AcaoPassagem {
   SAIDA
 }
 
+// === ADDON ON-PREMISE CONNECTOR ===
+
+enum ConnectorStatus {
+  ONLINE
+  OFFLINE
+  PAIRING
+}
+
+enum SessaoStatus {
+  ATIVA
+  EXPIRADA
+  ENCERRADA
+}
+
 model CLICliente {
-  CLICodigo    Int              @id @default(autoincrement())
-  CLINome      String
-  CLIDocumento String?          @unique
-  CLIAtivo     Boolean          @default(true)
-  createdAt    DateTime         @default(now())
-  instituicoes INSInstituicao[]
-  acessos      USRAcesso[]
+  CLICodigo     Int              @id @default(autoincrement())
+  CLINome       String
+  CLIDocumento  String?          @unique
+  CLIAtivo      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  instituicoes  INSInstituicao[]
+  acessos       USRAcesso[]
+  conconnectors CONConnector[]
 }
 
 model INSInstituicao {
@@ -50,6 +65,8 @@ model INSInstituicao {
   cmdcomandoFilas     CMDComandoFila[]
   rotrotinas          ROTRotina[]
   rotexecucaoLogs     ROTExecucaoLog[]
+  connector           CONConnector?
+  sessoesRemotas      RMTSessaoRemota[]
 }
 
 model PESPessoa {
@@ -98,12 +115,14 @@ model EQPEquipamento {
   EQPEnderecoIp        String?
   EQPConfig            Json?
   EQPUltimoSincronismo DateTime?
+  EQPUsaAddon          Boolean               @default(false)
   EQPAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime              @default(now())
   passagens            REGRegistroPassagem[]
   cmdcomandoFilas      CMDComandoFila[]
+  sessoesRemotas       RMTSessaoRemota[]
 }
 
 model ERPConfiguracao {
@@ -147,6 +166,7 @@ model USRUsuario {
   acessos             USRAcesso[]
   rotrotinas          ROTRotina[]
   rothistoricoVersaos ROTHistoricoVersao[]
+  sessoesRemotas      RMTSessaoRemota[]
 }
 
 model USRAcesso {
@@ -281,4 +301,40 @@ model ROTHistoricoVersao {
   createdBy     Int
   criador       USRUsuario @relation(fields: [createdBy], references: [USRCodigo])
   createdAt     DateTime   @default(now())
+}
+
+// === ADDON: Connector & Remote Sessions ===
+
+model CONConnector {
+  CONCodigo            Int               @id @default(autoincrement())
+  CONNome              String
+  CONToken             String            @unique
+  CONStatus            ConnectorStatus   @default(OFFLINE)
+  CONUltimoHeartbeat   DateTime?
+  CONVersao            String?
+  CONMetadata          Json?
+  CLICodigo            Int
+  cliente              CLICliente        @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSInstituicaoCodigo Int               @unique
+  instituicao          INSInstituicao    @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  sessoesRemotas       RMTSessaoRemota[]
+}
+
+model RMTSessaoRemota {
+  RMTCodigo            Int            @id @default(autoincrement())
+  RMTSessionId         String         @unique @default(uuid())
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  CONCodigo            Int
+  connector            CONConnector   @relation(fields: [CONCodigo], references: [CONCodigo])
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  RMTStatus            SessaoStatus   @default(ATIVA)
+  RMTExpiraEm          DateTime
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 }

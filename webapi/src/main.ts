@@ -15,6 +15,7 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
   app.enableCors(); // Enable CORS for all origins (for development)
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+
   await app.listen(process.env.PORT ?? 3000);
 }
 bootstrap();

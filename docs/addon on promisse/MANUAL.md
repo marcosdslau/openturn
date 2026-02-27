@@ -40,13 +40,25 @@ O **Connector** é um pequeno aplicativo Node.js que você instala em um computa
 
 ## 3. Instalação
 
-### Opção A — npm global (recomendado)
+### Opção A — Instalador Wizard (Windows)
+
+Baixe o instalador `openturn-connector-setup.exe` na página de releases. O assistente irá guiá-lo pelo processo de instalação e configuração do pareamento.
+
+### Opção B — Script de Instalação (Linux)
+
+Execute o comando abaixo no terminal:
+
+```bash
+curl -sSL https://openturn.com.br/install-connector.sh | sudo bash
+```
+
+### Opção C — npm global (avançado)
 
 ```bash
 npm install -g @openturn/connector
 ```
 
-### Opção B — Download direto
+### Opção D — Download direto
 
 Baixe o executável na [página de releases](https://github.com/openturn/connector/releases) e extraia.
 

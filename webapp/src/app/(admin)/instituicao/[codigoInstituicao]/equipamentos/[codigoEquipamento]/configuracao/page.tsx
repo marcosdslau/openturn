@@ -15,6 +15,7 @@ interface Equipamento {
     EQPModelo: string | null;
     EQPEnderecoIp: string | null;
     EQPAtivo: boolean;
+    EQPUsaAddon: boolean;
     EQPConfig?: any;
 }
 
@@ -31,9 +32,12 @@ export default function ControlIDConfigPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [activeTab, setActiveTab] = useState<'geral' | 'horarios' | 'departamentos'>('geral');
+    const [connectorOnline, setConnectorOnline] = useState(false);
+    const [creatingSession, setCreatingSession] = useState(false);
 
     // General Form State
     const [form, setForm] = useState<any>({});
+    const [usaAddon, setUsaAddon] = useState(false);
 
     const loadEquipment = useCallback(async () => {
         try {
@@ -64,6 +68,15 @@ export default function ControlIDConfigPage() {
             const res = await apiGet<Equipamento>(`/instituicao/${codigoInstituicao}/equipamento/${codigoEquipamento}`);
             setEquipment(res);
             setForm(res.EQPConfig || {});
+            setUsaAddon(res.EQPUsaAddon || false);
+
+            // Check connector status
+            if (res.EQPUsaAddon) {
+                try {
+                    const connStatus = await apiGet<{ status: string }>(`/instituicao/${codigoInstituicao}/connector/status`);
+                    setConnectorOnline(connStatus?.status === 'ONLINE');
+                } catch { setConnectorOnline(false); }
+            }
 
         } catch (error: any) {
             showToast("error", "Erro ao carregar", "Não foi possível carregar os dados do equipamento.");
@@ -85,9 +98,11 @@ export default function ControlIDConfigPage() {
         try {
             // We only update the config payload
             await apiPatch(`/instituicao/${codigoInstituicao}/equipamento/${equipment.EQPCodigo}`, {
-                EQPConfig: form
+                EQPConfig: form,
+                EQPUsaAddon: usaAddon
             });
             showToast("success", "Configuração salva", "As configurações foram atualizadas com sucesso.");
+            loadEquipment(); // Refresh to update button visibility
         } catch (error: any) {
             showToast("error", "Erro ao salvar", "Ocorreu um erro ao salvar as configurações.");
         } finally {
@@ -105,7 +120,7 @@ export default function ControlIDConfigPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 flex-1">
                 <Button variant="outline" size="sm" onClick={() => router.back()}>
                     <ChevronLeftIcon className="w-5 h-5" />
                 </Button>
@@ -118,6 +133,28 @@ export default function ControlIDConfigPage() {
                     </p>
                 </div>
             </div>
+            {equipment.EQPUsaAddon && connectorOnline && (
+                <Button
+                    size="sm"
+                    disabled={creatingSession}
+                    onClick={async () => {
+                        setCreatingSession(true);
+                        try {
+                            const session = await apiPost(
+                                `/instituicao/${codigoInstituicao}/equipamento/${equipment.EQPCodigo}/remoto/sessoes`,
+                                {},
+                            );
+                            window.open(session.url, '_blank');
+                        } catch (err: any) {
+                            showToast('error', 'Erro', err.message || 'Falha ao criar sessão remota');
+                        } finally {
+                            setCreatingSession(false);
+                        }
+                    }}
+                >
+                    {creatingSession ? 'Abrindo...' : '🖥️ Gerenciar Remotamente'}
+                </Button>
+            )}
 
             {/* Tabs */}
             <div className="border-b border-gray-200 dark:border-gray-700">
@@ -147,7 +184,19 @@ export default function ControlIDConfigPage() {
             <div className="mt-6">
                 {activeTab === 'geral' && (
                     <div className="max-w-2xl space-y-6 bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
-                        <h3 className="text-lg font-medium text-gray-900 dark:text-white">Configurações Gerais</h3>
+                        <div className="flex justify-between items-center">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">Configurações Gerais</h3>
+                            <div className="flex items-center gap-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer" htmlFor="usa-addon">Usa Addon</label>
+                                <input
+                                    id="usa-addon"
+                                    type="checkbox"
+                                    checked={usaAddon}
+                                    onChange={(e) => setUsaAddon(e.target.checked)}
+                                    className="w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600"
+                                />
+                            </div>
+                        </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div className="space-y-2">

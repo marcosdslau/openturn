@@ -17,6 +17,7 @@ import { ControlidModule } from './controlid/controlid.module';
 import { UsuarioModule } from './usuario/usuario.module';
 import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
 import { RotinaModule } from './rotina/rotina.module';
+import { ConnectorModule } from './connector/connector.module';
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { RotinaModule } from './rotina/rotina.module';
     UsuarioModule,
     AdminUsuarioModule,
     RotinaModule,
+    ConnectorModule,
   ],
   controllers: [AppController],
   providers: [

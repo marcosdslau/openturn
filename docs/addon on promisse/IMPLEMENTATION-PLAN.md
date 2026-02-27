@@ -231,6 +231,38 @@ graph LR
 
 ---
 
+## Sprint 13 — Installers & Wizards (Windows & Linux)
+
+**Duração:** 2 semanas  
+**Objetivo:** Facilitar a distribuição e instalação do Connector para usuários não técnicos e garantir persistência em ambientes de produção.
+
+### User Stories
+
+| # | User Story | Prioridade | AC |
+|---|-----------|------------|-----|
+| 13.1 | Como técnico Windows, quero instalar o Connector via um instalador Wizard (.exe/.msi) | MUST | Instalador funcional, solicita paramentros de config durante o wizard |
+| 13.2 | Como técnico Linux, quero instalar o Connector via um script automatizado que configura o systemd | MUST | Script instala dependências, cria usuário e inicia serviço |
+| 13.3 | Como sistema, o instalador Windows deve registrar o Connector como um serviço automático | MUST | Connector inicia com o SO sem intervenção |
+| 13.4 | Como sistema, o instalador deve validar se o Node.js está presente ou embutir uma versão mínima | SHOULD | Garante runtime adequado |
+
+### Entregáveis
+
+- [ ] Script de build do Instalador Windows (Inno Setup / NSIS)
+- [ ] Script de Instalação Linux (`install.sh`) com suporte a systemd
+- [ ] Pacote MSI/EXE assinado (se possível em prod)
+- [ ] Documentação de instalação passo-a-passo no `MANUAL.md`
+
+### Tarefas Técnicas
+
+| Task | Agent | Dependência |
+|------|-------|-------------|
+| 13.1.1 Configurar build de binário standalone via `pkg` ou `nexe` | `backend-specialist` | Sprint 10 |
+| 13.1.2 Desenvolver script Inno Setup para Windows Wizard | `devops-engineer` | 13.1.1 |
+| 13.1.3 Desenvolver script de instalação Bash para Linux | `devops-engineer` | 13.1.1 |
+| 13.1.4 Integrar configuração de pareamento no fluxo do instalador | `backend-specialist` | 13.1.2 |
+
+---
+
 ## Verificação Final
 
 ### Criterios de Aceite Globais

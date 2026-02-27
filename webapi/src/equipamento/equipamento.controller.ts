@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { EquipamentoService } from './equipamento.service';
 import { CreateEquipamentoDto, UpdateEquipamentoDto } from './dto/equipamento.dto';
+import { ProxyHttpDto } from '../connector/dto/connector.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -52,5 +53,22 @@ export class EquipamentoController {
         @Param('id', ParseIntPipe) id: number
     ) {
         return this.service.remove(instituicaoCodigo, id);
+    }
+
+    @Post(':id/proxy-http')
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR, GrupoAcesso.OPERACAO)
+    proxyHttp(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Body() dto: ProxyHttpDto,
+    ) {
+        return this.service.proxyHttp(
+            instituicaoCodigo,
+            id,
+            dto.method,
+            dto.path,
+            dto.headers,
+            dto.body,
+        );
     }
 }

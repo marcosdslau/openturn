@@ -1,0 +1,45 @@
+{
+    "name": "@openturn/connector",
+    "version": "1.0.0",
+    "description": "OpenTurn Addon Connector for on-premise equipment bridge",
+    "main": "./dist/index.js",
+    "module": "./dist/index.mjs",
+    "types": "./dist/index.d.ts",
+    "bin": {
+        "openturn-connector": "./dist/index.js"
+    },
+    "scripts": {
+        "build": "tsup",
+        "dev": "tsup --watch",
+        "start": "node dist/index.js",
+        "lint": "eslint src --ext .ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "keywords": [
+        "openturn",
+        "connector",
+        "controlid",
+        "on-premise"
+    ],
+    "author": "OpenTurn Team",
+    "license": "MIT",
+    "dependencies": {
+        "commander": "^12.0.0",
+        "ws": "^8.16.0",
+        "undici": "^6.10.2",
+        "pino": "^8.19.0",
+        "pino-pretty": "^10.3.1",
+        "fastify": "^4.26.2",
+        "enquirer": "^2.4.1",
+        "zod": "^3.22.4",
+        "jsonwebtoken": "^9.0.2",
+        "dotenv": "^16.4.5"
+    },
+    "devDependencies": {
+        "@types/node": "^20.11.24",
+        "@types/ws": "^8.5.10",
+        "@types/jsonwebtoken": "^9.0.6",
+        "tsup": "^8.0.2",
+        "typescript": "^5.3.3"
+    }
+}

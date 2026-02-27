@@ -1,11 +1,17 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateEquipamentoDto, UpdateEquipamentoDto } from './dto/equipamento.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
+import { WsRelayGateway } from '../connector/ws-relay.gateway';
+import { ConnectorService } from '../connector/connector.service';
 
 @Injectable()
 export class EquipamentoService {
-    constructor(private prisma: PrismaService) { }
+    constructor(
+        private prisma: PrismaService,
+        private wsRelay: WsRelayGateway,
+        private connectorService: ConnectorService,
+    ) { }
 
     async create(instituicaoCodigo: number, dto: CreateEquipamentoDto) {
         return this.prisma.rls.eQPEquipamento.create({
@@ -59,5 +65,47 @@ export class EquipamentoService {
         return this.prisma.rls.eQPEquipamento.delete({
             where: { EQPCodigo: id }
         });
+    }
+
+    async proxyHttp(
+        instituicaoCodigo: number,
+        equipId: number,
+        method: string,
+        path: string,
+        headers: Record<string, string> = {},
+        body: any = null,
+    ) {
+        const equip = await this.findOne(instituicaoCodigo, equipId);
+
+        if (!equip.EQPUsaAddon) {
+            throw new BadRequestException(
+                'Este equipamento não usa Addon. Use acesso direto ao IP.',
+            );
+        }
+
+        const connector = await this.connectorService.findByInstituicao(instituicaoCodigo);
+
+        if (!this.wsRelay.isConnectorOnline(connector.CONCodigo)) {
+            throw new BadRequestException('Connector está offline.');
+        }
+
+        const config = (equip.EQPConfig as any) || {};
+        const baseUrl = config.localBaseUrl || `http://${equip.EQPEnderecoIp}`;
+
+        const response = await this.wsRelay.sendHttpRequest(
+            connector.CONCodigo,
+            equipId,
+            baseUrl,
+            method,
+            path,
+            headers,
+            body ? JSON.stringify(body) : null,
+        );
+
+        return {
+            statusCode: response.statusCode,
+            headers: response.headers,
+            body: response.body.toString('base64'),
+        };
     }
 }

@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { apiGet, apiPut } from "@/lib/api";
+import { apiGet, apiPut, apiPost, apiDelete } from "@/lib/api";
 import Breadcrumb from "@/components/ui/breadcrumb/Breadcrumb";
 import ComponentCard from "@/components/common/ComponentCard";
 import Label from "@/components/form/Label";
@@ -11,6 +11,15 @@ import Select from "@/components/form/Select";
 import Button from "@/components/ui/button/Button";
 import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
+
+interface ConnectorStatus {
+    paired: boolean;
+    connectorId?: number;
+    nome?: string;
+    status?: string;
+    versao?: string;
+    ultimoHeartbeat?: string;
+}
 
 interface Instituicao {
     INSCodigo: number;
@@ -67,13 +76,21 @@ export default function InstitutionERPPage() {
     const [monitorPort, setMonitorPort] = useState(80);
     const [monitorPath, setMonitorPath] = useState("");
 
+    // Connector On-Premise
+    const [connector, setConnector] = useState<ConnectorStatus | null>(null);
+    const [pairName, setPairName] = useState("");
+    const [showPairModal, setShowPairModal] = useState(false);
+    const [pairResult, setPairResult] = useState<{ token: string; wsUrl: string } | null>(null);
+
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [instRes, configRes] = await Promise.all([
+            const [instRes, configRes, connStatus] = await Promise.all([
                 apiGet<Instituicao & { INSLogsAutoExcluir: boolean, INSLogsDiasRetencao: number }>(`/instituicoes/${id}`),
                 apiGet<ERPConfig | null>(`/instituicoes/${id}/erp-config`),
+                apiGet<ConnectorStatus>(`/instituicao/${id}/connector/status`).catch(() => ({ paired: false })),
             ]);
+            setConnector(connStatus);
 
             setInstituicao(instRes);
             setAutoExcluirLogs(instRes.INSLogsAutoExcluir ?? true);
@@ -202,6 +219,128 @@ export default function InstitutionERPPage() {
             {success && <Alert variant="success" title="Sucesso" message="Configurações salvas com sucesso." />}
 
             <form onSubmit={handleSave} className="space-y-6">
+
+                {/* Connector On-Premise */}
+                <ComponentCard
+                    title="Connector On-Premise (Addon)"
+                    desc="Ponte segura entre o OpenTurn SaaS e equipamentos na rede local da instituição."
+                >
+                    {connector?.paired ? (
+                        <div className="space-y-4">
+                            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                                <div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">Status</span>
+                                    <div className="flex items-center gap-2 mt-1">
+                                        <span className={`inline-block h-2.5 w-2.5 rounded-full ${connector.status === 'ONLINE' ? 'bg-green-500' : connector.status === 'PAIRING' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`} />
+                                        <span className="text-sm font-medium text-gray-800 dark:text-white">{connector.status}</span>
+                                    </div>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">Nome</span>
+                                    <p className="text-sm font-medium text-gray-800 dark:text-white mt-1">{connector.nome}</p>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">Versão</span>
+                                    <p className="text-sm font-medium text-gray-800 dark:text-white mt-1">{connector.versao || '—'}</p>
+                                </div>
+                                <div>
+                                    <span className="text-xs text-gray-500 dark:text-gray-400">Último Heartbeat</span>
+                                    <p className="text-sm font-medium text-gray-800 dark:text-white mt-1">
+                                        {connector.ultimoHeartbeat ? new Date(connector.ultimoHeartbeat).toLocaleTimeString() : '—'}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 pt-2 border-t border-gray-200 dark:border-gray-700">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                        try {
+                                            const res = await apiPost(`/instituicao/${id}/connector/token`, {});
+                                            alert(`Novo Token:\n${res.token}`);
+                                            loadData();
+                                        } catch (e: any) { alert(e.message); }
+                                    }}
+                                >
+                                    🔑 Renovar Token
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={async () => {
+                                        if (!confirm('Tem certeza que deseja desparear o Connector?')) return;
+                                        try {
+                                            await apiDelete(`/instituicao/${id}/connector/unpair`);
+                                            loadData();
+                                        } catch (e: any) { alert(e.message); }
+                                    }}
+                                    className="text-red-500 hover:text-red-700"
+                                >
+                                    ✕ Desparear
+                                </Button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4">
+                            <p className="text-sm text-gray-500 dark:text-gray-400">
+                                Nenhum Connector pareado. Para conectar equipamentos em rede local sem IP público, pareie um Connector.
+                            </p>
+                            {showPairModal ? (
+                                <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-200 dark:border-gray-600">
+                                    {pairResult ? (
+                                        <div className="space-y-3">
+                                            <p className="text-sm font-medium text-green-600 dark:text-green-400">✅ Connector pareado com sucesso!</p>
+                                            <div>
+                                                <Label>Comando para instalar:</Label>
+                                                <code className="block mt-1 p-3 bg-gray-900 text-green-400 rounded text-xs font-mono overflow-x-auto">
+                                                    openturn-connector pair
+                                                </code>
+                                            </div>
+                                            <div>
+                                                <Label>Token (cole no wizard):</Label>
+                                                <code className="block mt-1 p-3 bg-gray-900 text-yellow-400 rounded text-xs font-mono overflow-x-auto break-all">
+                                                    {pairResult.token}
+                                                </code>
+                                            </div>
+                                            <Button variant="outline" size="sm" onClick={() => { setShowPairModal(false); setPairResult(null); loadData(); }}>Fechar</Button>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <div>
+                                                <Label>Nome do Connector</Label>
+                                                <InputField
+                                                    type="text"
+                                                    placeholder="Ex: Servidor Portaria"
+                                                    value={pairName}
+                                                    onChange={(e: any) => setPairName(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    size="sm"
+                                                    disabled={!pairName}
+                                                    onClick={async () => {
+                                                        try {
+                                                            const res = await apiPost(`/instituicao/${id}/connector/pair`, { CONNome: pairName });
+                                                            setPairResult(res);
+                                                        } catch (e: any) { alert(e.message); }
+                                                    }}
+                                                >
+                                                    Parear
+                                                </Button>
+                                                <Button variant="outline" size="sm" onClick={() => setShowPairModal(false)}>Cancelar</Button>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+                            ) : (
+                                <Button size="sm" onClick={() => setShowPairModal(true)}>
+                                    + Parear Connector
+                                </Button>
+                            )}
+                        </div>
+                    )}
+                </ComponentCard>
 
                 {/* Hardware Monitor Config */}
                 <ComponentCard
