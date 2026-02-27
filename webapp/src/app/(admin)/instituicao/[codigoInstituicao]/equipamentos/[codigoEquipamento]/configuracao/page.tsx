@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useTenant } from "@/context/TenantContext";
-import { apiGet, apiPatch, apiPost } from "@/lib/api";
+import { apiGet, apiPatch, apiPost, apiDelete } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import Button from "@/components/ui/button/Button";
 import { ChevronLeftIcon } from "@/icons";
@@ -38,6 +38,17 @@ export default function ControlIDConfigPage() {
     // General Form State
     const [form, setForm] = useState<any>({});
     const [usaAddon, setUsaAddon] = useState(false);
+    const [sessions, setSessions] = useState<any[]>([]);
+    const [loadingSessions, setLoadingSessions] = useState(false);
+
+    const loadSessions = useCallback(async () => {
+        if (!codigoEquipamento) return;
+        setLoadingSessions(true);
+        try {
+            const res = await apiGet<any[]>(`/instituicao/${codigoInstituicao}/equipamento/${codigoEquipamento}/remoto/sessoes`);
+            setSessions(res || []);
+        } catch { } finally { setLoadingSessions(false); }
+    }, [codigoInstituicao, codigoEquipamento]);
 
     const loadEquipment = useCallback(async () => {
         try {
@@ -69,6 +80,7 @@ export default function ControlIDConfigPage() {
             setEquipment(res);
             setForm(res.EQPConfig || {});
             setUsaAddon(res.EQPUsaAddon || false);
+            loadSessions();
 
             // Check connector status
             if (res.EQPUsaAddon) {
@@ -84,7 +96,7 @@ export default function ControlIDConfigPage() {
         } finally {
             setLoading(false);
         }
-    }, [codigoInstituicao, codigoEquipamento, router, showToast]);
+    }, [codigoInstituicao, codigoEquipamento, router, showToast, loadSessions]);
 
     useEffect(() => {
         if (codigoEquipamento) {
@@ -107,6 +119,16 @@ export default function ControlIDConfigPage() {
             showToast("error", "Erro ao salvar", "Ocorreu um erro ao salvar as configurações.");
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleCloseSession = async (sessionId: string) => {
+        try {
+            await apiDelete(`/instituicao/${codigoInstituicao}/equipamento/${codigoEquipamento}/remoto/sessoes/${sessionId}`);
+            showToast("success", "Sessão encerrada", "A sessão remota foi encerrada com sucesso.");
+            loadSessions();
+        } catch (error: any) {
+            showToast("error", "Erro", "Não foi possível encerrar a sessão.");
         }
     };
 
@@ -277,11 +299,67 @@ export default function ControlIDConfigPage() {
                             </div>
                         )}
 
-                        <div className="flex justify-end pt-4">
-                            <Button onClick={handleSaveGeneral} disabled={saving}>
+                        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <Button variant="outline" onClick={() => router.back()}>Cancelar</Button>
+                            <Button disabled={saving} onClick={handleSaveGeneral}>
                                 {saving ? "Salvando..." : "Salvar Configurações"}
                             </Button>
                         </div>
+
+                        {/* Active Sessions Section */}
+                        {usaAddon && (
+                            <div className="mt-12 pt-8 border-t border-gray-200 dark:border-gray-700 space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Sessões Remotas Ativas</h3>
+                                    <Button size="sm" variant="outline" onClick={loadSessions} disabled={loadingSessions}>
+                                        {loadingSessions ? "Atualizando..." : "🔄 Atualizar"}
+                                    </Button>
+                                </div>
+
+                                {sessions.length === 0 ? (
+                                    <div className="text-center py-6 bg-gray-50 dark:bg-gray-900/50 rounded-lg border border-dashed border-gray-300 dark:border-gray-700">
+                                        <p className="text-sm text-gray-500">Nenhuma sessão remota ativa no momento.</p>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                            <thead className="bg-gray-50 dark:bg-gray-900/50">
+                                                <tr>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Usuário</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Início</th>
+                                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Expira</th>
+                                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Ações</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                                {sessions.map((s) => (
+                                                    <tr key={s.RMTSessionId}>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900 dark:text-white">
+                                                            <div>{s.usuario?.USRNome}</div>
+                                                            <div className="text-xs text-gray-500">{s.usuario?.USREmail}</div>
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                                            {new Date(s.createdAt).toLocaleTimeString()}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                                                            {new Date(s.RMTExpiraEm).toLocaleTimeString()}
+                                                        </td>
+                                                        <td className="px-4 py-3 whitespace-nowrap text-right text-sm">
+                                                            <button
+                                                                onClick={() => handleCloseSession(s.RMTSessionId)}
+                                                                className="text-red-600 hover:text-red-900 dark:text-red-400 dark:hover:text-red-300 font-medium"
+                                                            >
+                                                                Encerrar
+                                                            </button>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 

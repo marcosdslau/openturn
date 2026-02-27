@@ -1,5 +1,6 @@
 import {
     Controller,
+    Get,
     Post,
     Delete,
     Param,
@@ -17,6 +18,20 @@ import { GrupoAcesso } from '@prisma/client';
 @Controller('instituicao/:instituicaoCodigo/equipamento/:equipId/remoto/sessoes')
 export class RemoteSessionController {
     constructor(private service: RemoteSessionService) { }
+
+    @Get()
+    @Roles(
+        GrupoAcesso.SUPER_ROOT,
+        GrupoAcesso.SUPER_ADMIN,
+        GrupoAcesso.ADMIN,
+        GrupoAcesso.GESTOR,
+    )
+    listSessions(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('equipId', ParseIntPipe) equipId: number,
+    ) {
+        return this.service.listSessions(instituicaoCodigo, equipId);
+    }
 
     @Post()
     @Roles(

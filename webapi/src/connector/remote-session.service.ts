@@ -18,6 +18,27 @@ export class RemoteSessionService {
         private wsRelay: WsRelayGateway,
     ) { }
 
+    async listSessions(instituicaoCodigo: number, equipId: number) {
+        return this.prisma.rls.rMTSessaoRemota.findMany({
+            where: {
+                EQPCodigo: equipId,
+                INSInstituicaoCodigo: instituicaoCodigo,
+                RMTStatus: 'ATIVA',
+                RMTExpiraEm: { gt: new Date() },
+            },
+            include: {
+                usuario: {
+                    select: {
+                        USRCodigo: true,
+                        USRNome: true,
+                        USREmail: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+        });
+    }
+
     async createSession(
         instituicaoCodigo: number,
         equipId: number,
