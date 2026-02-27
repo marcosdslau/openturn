@@ -16,13 +16,21 @@ export class HardwareService {
             // Parse config safely
             const config = equipment.EQPConfig as unknown as ControlIDConfig;
 
-            if (!config || !config.host) {
-                throw new Error(`Invalid configuration for equipment ${equipment.EQPCodigo}`);
+            // Determine effective host with fallbacks
+            const host = overrideHost
+                || config?.host
+                || config?.ip_entry
+                || config?.ip_exit
+                || equipment.EQPEnderecoIp;
+
+            if (!host) {
+                throw new Error(`Invalid configuration for equipment ${equipment.EQPCodigo}: No valid host/IP found.`);
             }
 
-            // Create a config copy if overriding host
-            const effectiveConfig = {
-                ...(overrideHost ? { ...config, host: overrideHost } : config),
+            // Create a config copy with the effective host
+            const effectiveConfig: ControlIDConfig = {
+                ...(config || {} as ControlIDConfig),
+                host,
                 model: equipment.EQPModelo || undefined // Inject model from equipment
             };
 
@@ -81,8 +89,9 @@ export class HardwareService {
             const config = device.EQPConfig as unknown as ControlIDConfig;
             const allowedIps = [
                 device.EQPEnderecoIp,
-                config.ip_entry,
-                config.ip_exit
+                config?.host,
+                config?.ip_entry,
+                config?.ip_exit
             ].filter(ip => !!ip); // filter undefined/null/empty
 
             if (!allowedIps.includes(targetIp)) {

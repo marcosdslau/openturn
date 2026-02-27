@@ -331,6 +331,7 @@ model RMTSessaoRemota {
   connector            CONConnector   @relation(fields: [CONCodigo], references: [CONCodigo])
   USRCodigo            Int
   usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  RMTTargetIp          String?
   RMTStatus            SessaoStatus   @default(ATIVA)
   RMTExpiraEm          DateTime
   INSInstituicaoCodigo Int

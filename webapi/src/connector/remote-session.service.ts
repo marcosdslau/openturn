@@ -43,6 +43,7 @@ export class RemoteSessionService {
         instituicaoCodigo: number,
         equipId: number,
         userId: number,
+        targetIp?: string,
     ) {
         const equip = await this.prisma.rls.eQPEquipamento.findFirst({
             where: {
@@ -79,6 +80,7 @@ export class RemoteSessionService {
                 connector: { connect: { CONCodigo: connector.CONCodigo } },
                 usuario: { connect: { USRCodigo: userId } },
                 instituicao: { connect: { INSCodigo: instituicaoCodigo } },
+                RMTTargetIp: targetIp || null,
                 RMTStatus: 'ATIVA',
                 RMTExpiraEm: expiraEm,
             },

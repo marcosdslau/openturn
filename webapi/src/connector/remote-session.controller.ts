@@ -7,6 +7,7 @@ import {
     ParseIntPipe,
     UseGuards,
     Req,
+    Body,
 } from '@nestjs/common';
 import { RemoteSessionService } from './remote-session.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -43,10 +44,11 @@ export class RemoteSessionController {
     createSession(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
         @Param('equipId', ParseIntPipe) equipId: number,
+        @Body() body: { targetIp?: string },
         @Req() req: any,
     ) {
         const userId = req.user?.userId;
-        return this.service.createSession(instituicaoCodigo, equipId, userId);
+        return this.service.createSession(instituicaoCodigo, equipId, userId, body.targetIp);
     }
 
     @Delete(':sessionId')

@@ -1,8 +1,14 @@
 
-import { Controller, Post, Param, ParseIntPipe, Logger, Body } from '@nestjs/common';
+import { Controller, Post, Param, ParseIntPipe, Logger, Body, UseGuards } from '@nestjs/common';
 import { HardwareService } from '../hardware.service';
+import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../auth/roles.guard';
+import { Roles } from '../../auth/roles.decorator';
+import { GrupoAcesso } from '@prisma/client';
 
-@Controller('api/instituicao/:codigoInstituicao/hardware')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN, GrupoAcesso.ADMIN, GrupoAcesso.GESTOR)
+@Controller('instituicao/:codigoInstituicao/hardware')
 export class HardwareController {
     private readonly logger = new Logger(HardwareController.name);
 

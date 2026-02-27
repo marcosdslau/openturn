@@ -103,7 +103,25 @@ export class RelayBridge {
 
         const requestId = crypto.randomUUID();
         const config = session.equipamento.EQPConfig || {};
-        const baseUrl = (config as any).localBaseUrl || `http://${session.equipamento.EQPEnderecoIp}`;
+
+        // Resolve base URL: Priority 1: session explicit targetIp, then fallbacks
+        let rawHost = session.targetIp
+            || (config as any).host
+            || (config as any).ip_entry
+            || (config as any).ip_exit
+            || session.equipamento.EQPEnderecoIp;
+
+        if (!rawHost) {
+            throw new Error('No target IP or fallback IP found for this equipment.');
+        }
+
+        // Ensure protocol prefix
+        let baseUrl = rawHost;
+        if (!baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+            baseUrl = `http://${baseUrl}`;
+        }
+
+        console.log(`[RelayBridge] [${requestId}] Resolved baseUrl: ${baseUrl} for session ${session.sessionId}`);
 
         const request: WsMessage = {
             type: 'HTTP_REQUEST',

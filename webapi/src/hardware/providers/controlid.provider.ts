@@ -9,13 +9,30 @@ export class ControlIDProvider implements IHardwareProvider {
     private session: string | null = null;
 
     constructor(private readonly config: ControlIDConfig) {
+        let host = this.config.host;
+        let protocol = 'http';
+
+        // Check if host already contains a protocol
+        if (host.includes('://')) {
+            const parts = host.split('://');
+            protocol = parts[0];
+            host = parts[1];
+        }
+
+        // Check if host already contains a port
+        let baseURL = `${protocol}://${host}`;
+        if (!host.includes(':')) {
+            baseURL += `:${this.config.port || 80}`;
+        }
+
         this.client = axios.create({
-            baseURL: `http://${this.config.host}:${this.config.port || 80}`,
+            baseURL,
             timeout: 5000,
         });
     }
 
     private getErrorDetails(error: any): string {
+        if (error.message) return error.message;
         if (error.code) return error.code;
         if (error.response?.data?.error_msg) return error.response.data.error_msg;
         return error.message || 'Unknown error';

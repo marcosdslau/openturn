@@ -1,0 +1,30 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node-terminal",
+      "name": "Start Nest (start:debug via cmd + npm.cmd)",
+      "request": "launch",
+      "command": "cmd.exe /c npm.cmd run start:debug",
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "pwa-node",
+      "name": "Attach Nest (9229)",
+      "request": "attach",
+      "address": "127.0.0.1",
+      "port": 9229,
+      "restart": true,
+      "timeout": 60000,
+      "sourceMaps": true,
+      "skipFiles": ["<node_internals>/**", "**/node_modules/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Debug Nest (Start + Attach)",
+      "configurations": ["Start Nest (start:debug via cmd + npm.cmd)", "Attach Nest (9229)"],
+      "stopAll": true
+    }
+  ]
+}

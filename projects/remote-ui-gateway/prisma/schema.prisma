@@ -1,1 +1,341 @@
-../../../webapi/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum GrupoAcesso {
+  SUPER_ROOT
+  SUPER_ADMIN
+  ADMIN
+  GESTOR
+  OPERACAO
+}
+
+enum AcaoPassagem {
+  ENTRADA
+  SAIDA
+}
+
+// === ADDON ON-PREMISE CONNECTOR ===
+
+enum ConnectorStatus {
+  ONLINE
+  OFFLINE
+  PAIRING
+}
+
+enum SessaoStatus {
+  ATIVA
+  EXPIRADA
+  ENCERRADA
+}
+
+model CLICliente {
+  CLICodigo     Int              @id @default(autoincrement())
+  CLINome       String
+  CLIDocumento  String?          @unique
+  CLIAtivo      Boolean          @default(true)
+  createdAt     DateTime         @default(now())
+  instituicoes  INSInstituicao[]
+  acessos       USRAcesso[]
+  conconnectors CONConnector[]
+}
+
+model INSInstituicao {
+  INSCodigo           Int                   @id @default(autoincrement())
+  CLICodigo           Int
+  cliente             CLICliente            @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSNome             String
+  INSCodigoExterno    String?
+  INSAtivo            Boolean               @default(true)
+  INSLogsAutoExcluir  Boolean               @default(true)
+  INSLogsDiasRetencao Int                   @default(90)
+  INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
+  createdAt           DateTime              @default(now())
+  pessoas             PESPessoa[]
+  matriculas          MATMatricula[]
+  equipamentos        EQPEquipamento[]
+  erpConfig           ERPConfiguracao[]
+  acessos             USRAcesso[]
+  passagens           REGRegistroPassagem[]
+  cmdcomandoFilas     CMDComandoFila[]
+  rotrotinas          ROTRotina[]
+  rotexecucaoLogs     ROTExecucaoLog[]
+  connector           CONConnector?
+  sessoesRemotas      RMTSessaoRemota[]
+}
+
+model PESPessoa {
+  PESCodigo            Int                   @id @default(autoincrement())
+  PESIdExterno         String?
+  PESNome              String
+  PESNomeSocial        String?
+  PESDocumento         String?               @unique
+  PESEmail             String?
+  PESTelefone          String?
+  PESCelular           String?
+  PESFotoBase64        String?
+  PESFotoExtensao      String?
+  PESGrupo             String?
+  PESCartaoTag         String?
+  PESTemplates         Json?
+  PESAtivo             Boolean               @default(true)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  deletedAt            DateTime?
+  matriculas           MATMatricula[]
+  passagens            REGRegistroPassagem[]
+}
+
+model MATMatricula {
+  MATCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  MATNumero            String
+  MATCurso             String?
+  MATSerie             String?
+  MATTurma             String?
+  MATAtivo             Boolean        @default(true)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model EQPEquipamento {
+  EQPCodigo            Int                   @id @default(autoincrement())
+  EQPDescricao         String?
+  EQPMarca             String?
+  EQPModelo            String?
+  EQPEnderecoIp        String?
+  EQPConfig            Json?
+  EQPUltimoSincronismo DateTime?
+  EQPUsaAddon          Boolean               @default(false)
+  EQPAtivo             Boolean               @default(true)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime              @default(now())
+  passagens            REGRegistroPassagem[]
+  cmdcomandoFilas      CMDComandoFila[]
+  sessoesRemotas       RMTSessaoRemota[]
+}
+
+model ERPConfiguracao {
+  ERPCodigo            Int            @id @default(autoincrement())
+  ERPSistema           String
+  ERPUrlBase           String?
+  ERPToken             String?
+  ERPConfigJson        Json?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model USRUsuario {
+  USRCodigo Int     @id @default(autoincrement())
+  USRNome   String
+  USREmail  String  @unique
+  USRSenha  String
+  USRAtivo  Boolean @default(true)
+
+  // Profile fields
+  USRTelefone String?
+  USRBio      String?
+  USRFotoUrl  String?
+
+  // Social links
+  USRFacebook  String?
+  USRTwitter   String?
+  USRLinkedin  String?
+  USRInstagram String?
+
+  // Address information
+  USRPais   String?
+  USRCidade String?
+  USREstado String?
+  USRCep    String?
+  USRTaxId  String?
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  acessos             USRAcesso[]
+  rotrotinas          ROTRotina[]
+  rothistoricoVersaos ROTHistoricoVersao[]
+  sessoesRemotas      RMTSessaoRemota[]
+}
+
+model USRAcesso {
+  UACCodigo            Int             @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario      @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  grupo                GrupoAcesso
+  CLICodigo            Int?
+  cliente              CLICliente?     @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSInstituicaoCodigo Int?
+  instituicao          INSInstituicao? @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime        @default(now())
+
+  @@unique([USRCodigo, grupo, CLICodigo, INSInstituicaoCodigo])
+}
+
+model REGRegistroPassagem {
+  REGCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  REGAcao              AcaoPassagem
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  REGTimestamp         BigInt
+  REGDataHora          DateTime
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+enum StatusComando {
+  PENDENTE
+  ENVIADO
+  EXECUTADO
+  ERRO
+}
+
+model CMDComandoFila {
+  CMDCodigo            Int            @id @default(autoincrement())
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  CMDVerb              String         @default("POST")
+  CMDEndpoint          String
+  CMDBody              Json?
+  CMDContentType       String         @default("application/json")
+  CMDStatus            StatusComando  @default(PENDENTE)
+  CMDResultado         Json?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+}
+
+// === EXECUTION ENGINE: Rotinas Dinâmicas ===
+
+enum TipoRotina {
+  SCHEDULE
+  WEBHOOK
+}
+
+enum WebhookTokenSource {
+  HEADER
+  QUERY
+}
+
+enum HttpMetodo {
+  GET
+  POST
+  PUT
+  PATCH
+}
+
+enum StatusExecucao {
+  SUCESSO
+  ERRO
+  TIMEOUT
+}
+
+model ROTRotina {
+  ROTCodigo             Int                  @id @default(autoincrement())
+  ROTNome               String
+  ROTDescricao          String?
+  ROTTipo               TipoRotina
+  ROTCronExpressao      String?
+  ROTWebhookPath        String?
+  ROTWebhookMetodo      HttpMetodo?
+  ROTWebhookAguardar    Boolean              @default(false)
+  ROTWebhookSeguro      Boolean              @default(true)
+  ROTWebhookTokenSource WebhookTokenSource?  @default(HEADER)
+  ROTWebhookTokenKey    String?              @default("x-webhook-token")
+  ROTWebhookToken       String?
+  ROTCodigoJS           String
+  ROTAtivo              Boolean              @default(true)
+  ROTTimeoutSeconds     Int                  @default(30)
+  ROTUltimaExecucao     DateTime?
+  INSInstituicaoCodigo  Int
+  instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  createdBy             Int
+  criador               USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
+  execucoes             ROTExecucaoLog[]
+  versoes               ROTHistoricoVersao[]
+}
+
+model ROTExecucaoLog {
+  EXECodigo            Int            @id @default(autoincrement())
+  ROTCodigo            Int
+  rotina               ROTRotina      @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  EXEStatus            StatusExecucao
+  EXEInicio            DateTime
+  EXEFim               DateTime?
+  EXEDuracaoMs         Int?
+  EXEResultado         Json?
+  EXEErro              String?
+  EXELogs              Json?
+  EXETrigger           String
+  EXERequestBody       Json?
+  EXERequestParams     Json?
+  EXERequestPath       String?
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+model ROTHistoricoVersao {
+  HVICodigo     Int        @id @default(autoincrement())
+  ROTCodigo     Int
+  rotina        ROTRotina  @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  HVICodigoJS   String
+  HVIObservacao String?
+  createdBy     Int
+  criador       USRUsuario @relation(fields: [createdBy], references: [USRCodigo])
+  createdAt     DateTime   @default(now())
+}
+
+// === ADDON: Connector & Remote Sessions ===
+
+model CONConnector {
+  CONCodigo            Int               @id @default(autoincrement())
+  CONNome              String
+  CONToken             String            @unique
+  CONStatus            ConnectorStatus   @default(OFFLINE)
+  CONUltimoHeartbeat   DateTime?
+  CONVersao            String?
+  CONMetadata          Json?
+  CLICodigo            Int
+  cliente              CLICliente        @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSInstituicaoCodigo Int               @unique
+  instituicao          INSInstituicao    @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  sessoesRemotas       RMTSessaoRemota[]
+}
+
+model RMTSessaoRemota {
+  RMTCodigo            Int            @id @default(autoincrement())
+  RMTSessionId         String         @unique @default(uuid())
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
+  CONCodigo            Int
+  connector            CONConnector   @relation(fields: [CONCodigo], references: [CONCodigo])
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  RMTTargetIp          String?
+  RMTStatus            SessaoStatus   @default(ATIVA)
+  RMTExpiraEm          DateTime
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+}

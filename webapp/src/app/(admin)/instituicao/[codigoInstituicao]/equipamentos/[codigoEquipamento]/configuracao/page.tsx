@@ -34,6 +34,7 @@ export default function ControlIDConfigPage() {
     const [activeTab, setActiveTab] = useState<'geral' | 'horarios' | 'departamentos'>('geral');
     const [connectorOnline, setConnectorOnline] = useState(false);
     const [creatingSession, setCreatingSession] = useState(false);
+    const [remoteTargetIp, setRemoteTargetIp] = useState<string>("");
 
     // General Form State
     const [form, setForm] = useState<any>({});
@@ -80,6 +81,7 @@ export default function ControlIDConfigPage() {
             setEquipment(res);
             setForm(res.EQPConfig || {});
             setUsaAddon(res.EQPUsaAddon || false);
+            setRemoteTargetIp(res.EQPEnderecoIp || "");
             loadSessions();
 
             // Check connector status
@@ -156,26 +158,41 @@ export default function ControlIDConfigPage() {
                 </div>
             </div>
             {equipment.EQPUsaAddon && connectorOnline && (
-                <Button
-                    size="sm"
-                    disabled={creatingSession}
-                    onClick={async () => {
-                        setCreatingSession(true);
-                        try {
-                            const session = await apiPost(
-                                `/instituicao/${codigoInstituicao}/equipamento/${equipment.EQPCodigo}/remoto/sessoes`,
-                                {},
-                            );
-                            window.open(session.url, '_blank');
-                        } catch (err: any) {
-                            showToast('error', 'Erro', err.message || 'Falha ao criar sessão remota');
-                        } finally {
-                            setCreatingSession(false);
-                        }
-                    }}
-                >
-                    {creatingSession ? 'Abrindo...' : '🖥️ Gerenciar Remotamente'}
-                </Button>
+                <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800/30">
+                    <div className="flex flex-col gap-1">
+                        <label className="text-[10px] uppercase font-bold text-blue-600 dark:text-blue-400 ml-1">IP Alvo para Gerenciamento</label>
+                        <select
+                            value={remoteTargetIp}
+                            onChange={(e) => setRemoteTargetIp(e.target.value)}
+                            className="text-xs bg-white dark:bg-gray-800 border-blue-200 dark:border-blue-700 rounded px-2 py-1 focus:ring-1 focus:ring-blue-500 outline-none min-w-[150px]"
+                        >
+                            <option value={equipment.EQPEnderecoIp || ""}>Principal ({equipment.EQPEnderecoIp || "N/A"})</option>
+                            {equipment.EQPConfig?.ip_entry && <option value={equipment.EQPConfig.ip_entry}>Entrada Face ({equipment.EQPConfig.ip_entry})</option>}
+                            {equipment.EQPConfig?.ip_exit && <option value={equipment.EQPConfig.ip_exit}>Saída Face ({equipment.EQPConfig.ip_exit})</option>}
+                        </select>
+                    </div>
+                    <Button
+                        size="sm"
+                        disabled={creatingSession}
+                        className="mt-4"
+                        onClick={async () => {
+                            setCreatingSession(true);
+                            try {
+                                const session = await apiPost(
+                                    `/instituicao/${codigoInstituicao}/equipamento/${equipment.EQPCodigo}/remoto/sessoes`,
+                                    { targetIp: remoteTargetIp },
+                                );
+                                window.open(session.url, '_blank');
+                            } catch (err: any) {
+                                showToast('error', 'Erro', err.message || 'Falha ao criar sessão remota');
+                            } finally {
+                                setCreatingSession(false);
+                            }
+                        }}
+                    >
+                        {creatingSession ? 'Abrindo...' : '🖥️ Gerenciar Remotamente'}
+                    </Button>
+                </div>
             )}
 
             {/* Tabs */}
@@ -535,10 +552,10 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
         try {
             const res = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
                 command: 'load_objects',
-                params: { object: 'departments' },
+                params: { object: 'groups' },
                 targetIp: selectedIp
             });
-            setDepartments(res.departments || []);
+            setDepartments(res.groups || []);
         } catch (e) {
             console.error(e);
             showToast("error", "Erro", "Falha ao carregar departamentos.");

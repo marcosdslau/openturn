@@ -21,6 +21,7 @@ export interface ValidatedSession {
     connector: {
         CONCodigo: number;
     };
+    targetIp: string | null;
 }
 
 /**
@@ -67,6 +68,7 @@ export async function sessionValidator(
             sessionId,
             equipamento: sessao.equipamento,
             connector: sessao.connector,
+            targetIp: sessao.RMTTargetIp,
         };
 
         next();

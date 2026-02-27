@@ -2,7 +2,7 @@
 import { Controller, Post, Body, Query, Headers, Param, Logger, ParseIntPipe } from '@nestjs/common';
 import { HardwareService } from '../hardware.service';
 
-@Controller('api/instituicao/:codigoInstituicao/monitor/controlid')
+@Controller('instituicao/:codigoInstituicao/monitor/controlid')
 export class MonitorController {
     private readonly logger = new Logger(MonitorController.name);
 

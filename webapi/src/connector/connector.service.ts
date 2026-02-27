@@ -101,6 +101,11 @@ export class ConnectorService {
     async unpair(instituicaoCodigo: number) {
         const connector = await this.findByInstituicao(instituicaoCodigo);
 
+        // Delete associated remote sessions first to avoid FK constraint error (P2003)
+        await this.prisma.rls.rMTSessaoRemota.deleteMany({
+            where: { CONCodigo: connector.CONCodigo },
+        });
+
         await this.prisma.rls.cONConnector.delete({
             where: { CONCodigo: connector.CONCodigo },
         });
@@ -146,7 +151,7 @@ export class ConnectorService {
         instituicaoCodigo: number,
         clienteCodigo: number,
     ): string {
-        const secret = process.env.JWT_SECRET || 'openturn-connector-secret';
+        const secret = process.env.JWT_SECRET || 'openturn_super_secret_key';
         return sign(
             {
                 sub: `connector:${connectorId}`,

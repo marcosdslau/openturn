@@ -104,7 +104,7 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
             }
 
             const token = authHeader.slice(7);
-            const secret = process.env.JWT_SECRET || 'openturn-connector-secret';
+            const secret = process.env.JWT_SECRET || 'openturn_super_secret_key';
             const payload = verify(token, secret) as any;
 
             if (payload.type !== 'connector') {
@@ -142,9 +142,9 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
             client.on('close', () => {
                 this.handleDisconnect(client);
             });
-        } catch (err) {
+        } catch (err: any) {
             this.logger.warn(`Connection rejected: ${err.message}`);
-            client.close(4004, 'Authentication failed');
+            client.close(4004, `Authentication failed: ${err.message}`);
         }
     }
 

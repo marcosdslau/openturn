@@ -3,7 +3,7 @@ import { Controller, Post, Body, Param, Logger, ParseIntPipe, Query } from '@nes
 import { HardwareService } from '../hardware.service';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
-@Controller('api/instituicao/:codigoInstituicao/hardware/controlid')
+@Controller('instituicao/:codigoInstituicao/hardware/controlid')
 export class ControlIDController {
     private readonly logger = new Logger(ControlIDController.name);
 
