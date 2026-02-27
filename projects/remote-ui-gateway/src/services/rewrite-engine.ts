@@ -123,10 +123,36 @@ export function rewriteHtml(
                 return originalOpen.apply(this, args);
             };
             
-            // Note: We intentionally do NOT override document.createElement or use MutationObserver
-            // because overriding native property descriptors (src, href) via Object.defineProperty
-            // breaks jQuery's internal element handling and prevents Bootstrap modals from working.
-            // The server-side regex rewrite + Referer middleware handle static/dynamic content URLs.
+            // Note: We do NOT override document.createElement because using
+            // Object.defineProperty to override native src/href property descriptors
+            // breaks jQuery's internal element handling and prevents Bootstrap modals.
+            
+            // MutationObserver to rewrite src/href on dynamically added elements
+            // This is safe because enforcePrefix already skips #, javascript:, and prefixed URLs
+            var observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    mutation.addedNodes.forEach(function(node) {
+                        if (node.nodeType !== 1) return;
+                        var el = node;
+                        // Rewrite src on images and scripts
+                        if (el.hasAttribute && el.hasAttribute('src')) {
+                            var newSrc = enforcePrefix(el.getAttribute('src'));
+                            if (newSrc !== el.getAttribute('src')) el.setAttribute('src', newSrc);
+                        }
+                        // Also check children of the added node
+                        if (el.querySelectorAll) {
+                            el.querySelectorAll('[src]').forEach(function(child) {
+                                var newSrc = enforcePrefix(child.getAttribute('src'));
+                                if (newSrc !== child.getAttribute('src')) child.setAttribute('src', newSrc);
+                            });
+                        }
+                    });
+                });
+            });
+            
+            document.addEventListener("DOMContentLoaded", function() {
+                if (document.body) observer.observe(document.body, { childList: true, subtree: true });
+            });
 
             console.log("[RemoteUI] Client interceptors active for prefix:", prefix);
         })();
