@@ -10,9 +10,9 @@
     },
     "scripts": {
         "build": "tsup",
+        "build:exe": "npm run build && ./scripts/download-node.sh",
         "dev": "tsup --watch",
         "start": "node dist/index.js",
-        "lint": "eslint src --ext .ts",
         "typecheck": "tsc --noEmit"
     },
     "keywords": [
@@ -25,20 +25,21 @@
     "license": "MIT",
     "dependencies": {
         "commander": "^12.0.0",
-        "ws": "^8.16.0",
-        "undici": "^6.10.2",
+        "dotenv": "^16.4.5",
+        "enquirer": "^2.4.1",
+        "fastify": "^4.26.2",
+        "jsonwebtoken": "^9.0.2",
         "pino": "^8.19.0",
         "pino-pretty": "^10.3.1",
-        "fastify": "^4.26.2",
-        "enquirer": "^2.4.1",
-        "zod": "^3.22.4",
-        "jsonwebtoken": "^9.0.2",
-        "dotenv": "^16.4.5"
+        "undici": "^6.10.2",
+        "ws": "^8.16.0",
+        "zod": "^3.22.4"
     },
     "devDependencies": {
+        "@types/jsonwebtoken": "^9.0.6",
         "@types/node": "^20.11.24",
         "@types/ws": "^8.5.10",
-        "@types/jsonwebtoken": "^9.0.6",
+        "pkg": "^5.8.1",
         "tsup": "^8.0.2",
         "typescript": "^5.3.3"
     }

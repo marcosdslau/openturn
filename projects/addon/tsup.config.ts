@@ -2,10 +2,11 @@ import { defineConfig } from 'tsup';
 
 export default defineConfig({
     entry: ['src/index.ts'],
-    format: ['cjs', 'esm'],
-    dts: true,
+    format: ['cjs'],
+    dts: false,
     splitting: false,
-    sourcemap: true,
+    sourcemap: false,
     clean: true,
-    minify: false,
+    minify: true,
+    noExternal: [/(.*)/], // Bundle all dependencies into one file
 });

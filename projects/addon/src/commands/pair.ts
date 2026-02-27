@@ -1,8 +1,18 @@
-import { Form } from 'enquirer';
+const { Form } = require('enquirer');
 import { logger } from '../utils/logger';
 import { configService } from '../services/config-service';
 
-export const pair = async () => {
+export const pair = async (options?: { token?: string, url?: string }) => {
+    // Non-interactive mode if parameters are provided
+    if (options?.token && options?.url) {
+        configService.save({
+            relayUrl: options.url,
+            token: options.token,
+        });
+        logger.info('Pairing successful (non-interactive)! Configuration saved.');
+        return;
+    }
+
     logger.info('Starting Pairing Wizard...');
 
     const prompt = new Form({

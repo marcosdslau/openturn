@@ -14,6 +14,8 @@ program
 program
     .command('pair')
     .description('Pair the connector with OpenTurn SaaS')
+    .option('-t, --token <token>', 'Pairing token (JWT)')
+    .option('-u, --url <url>', 'Relay WebSocket URL', 'ws://localhost:8001/ws/connectors')
     .action(pair);
 
 program
