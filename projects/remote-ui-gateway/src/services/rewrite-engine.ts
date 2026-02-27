@@ -32,12 +32,13 @@ export function rewriteSetCookiePath(
     setCookie: string,
     sessionPrefix: string,
 ): string {
-    // Replace Path=/ (exact, at end of string or followed by ; or space) with Path=/remote/s/{sessionId}/
-    // Do NOT replace Path=/something (e.g., Path=/pt_BR)
-    return setCookie.replace(
-        /Path=\/(?=[;\s]|$)/gi,
-        `Path=${sessionPrefix}`,
-    );
+    // Prefix any Path=/... attribute with the session prefix
+    // e.g. Path=/pt_BR -> Path=/remote/s/ID/pt_BR
+    return setCookie.replace(/Path=(\/[^;]*)/gi, (match, path) => {
+        const cleanPrefix = sessionPrefix.endsWith('/') ? sessionPrefix.slice(0, -1) : sessionPrefix;
+        const cleanPath = path.startsWith('/') ? path : '/' + path;
+        return `Path=${cleanPrefix}${cleanPath}`;
+    });
 }
 
 /**
@@ -54,14 +55,13 @@ export function rewriteHtml(
     // Use word boundary checks to avoid matching <header> as <head>
     const isDocument = /<html[\s>]/i.test(html) || /<body[\s>]/i.test(html) || /<!DOCTYPE/i.test(html);
 
-    // Calculate the directory of the current request to set the base tag
-    // e.g. /pt_BR/html/index.html -> /remote/s/SESSAO/pt_BR/html/
-    const pathParts = downstreamPath.split('/').filter(Boolean);
-    if (!downstreamPath.endsWith('/')) {
-        pathParts.pop(); // remove filename if current path doesn't end with slash
-    }
-    const currentDir = pathParts.length > 0 ? pathParts.join('/') + '/' : '';
-    const baseHref = `${sessionPrefix}${currentDir}`;
+    // Set base href to the FULL file path (not just directory)
+    // This is critical because fragment-only links like href="#" or href="#modal"
+    // resolve RELATIVE TO THE BASE. If base is a directory (/path/to/), then
+    // href="#" navigates to /path/to/# which is a different URL → full reload.
+    // If base is the file (/path/to/page.html), href="#" stays on the same page.
+    const cleanPath = downstreamPath.startsWith('/') ? downstreamPath.slice(1) : downstreamPath;
+    const baseHref = `${sessionPrefix}${cleanPath}`;
     const baseTag = `<base href="${baseHref}">`;
 
     // Client-side interceptor to force session prefix on all navigations
@@ -123,44 +123,10 @@ export function rewriteHtml(
                 return originalOpen.apply(this, args);
             };
             
-            // Intercept dynamic element creation
-            var originalCreateElement = document.createElement;
-            document.createElement = function(tagName) {
-                var el = originalCreateElement.call(document, tagName);
-                var tag = tagName.toLowerCase();
-                if (tag === 'script' || tag === 'img') {
-                    var originalSet = Object.getOwnPropertyDescriptor(Element.prototype, tag === 'script' ? 'src' : 'src')?.set;
-                    Object.defineProperty(el, 'src', {
-                        set: function(val) { el.setAttribute('src', enforcePrefix(val)); },
-                        get: function() { return el.getAttribute('src'); }
-                    });
-                }
-                if (tag === 'link' || tag === 'a') {
-                    Object.defineProperty(el, 'href', {
-                        set: function(val) { el.setAttribute('href', enforcePrefix(val)); },
-                        get: function() { return el.getAttribute('href'); }
-                    });
-                }
-                return el;
-            };
-            
-            // MutationObserver to try and catch any elements added to the DOM with bad paths
-            var observer = new MutationObserver(function(mutations) {
-                mutations.forEach(function(mutation) {
-                    mutation.addedNodes.forEach(function(node) {
-                        if (node.nodeType === 1) { // ELEMENT_NODE
-                            var el = node;
-                            if (el.hasAttribute('href')) el.setAttribute('href', enforcePrefix(el.getAttribute('href')));
-                            if (el.hasAttribute('src')) el.setAttribute('src', enforcePrefix(el.getAttribute('src')));
-                            if (el.hasAttribute('action')) el.setAttribute('action', enforcePrefix(el.getAttribute('action')));
-                        }
-                    });
-                });
-            });
-            
-            document.addEventListener("DOMContentLoaded", function() {
-                if (document.body) observer.observe(document.body, { childList: true, subtree: true });
-            });
+            // Note: We intentionally do NOT override document.createElement or use MutationObserver
+            // because overriding native property descriptors (src, href) via Object.defineProperty
+            // breaks jQuery's internal element handling and prevents Bootstrap modals from working.
+            // The server-side regex rewrite + Referer middleware handle static/dynamic content URLs.
 
             console.log("[RemoteUI] Client interceptors active for prefix:", prefix);
         })();
