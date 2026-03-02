@@ -86,7 +86,21 @@ export class RemoteSessionService {
             },
         });
 
-        const gatewayUrl = process.env.REMOTE_GATEWAY_URL || 'http://localhost:8002';
+        let gatewayUrl = process.env.REMOTE_GATEWAY_URL || 'http://localhost:8002';
+
+        // Certificar que a URL tem o protocolo
+        if (!/^https?:\/\//i.test(gatewayUrl)) {
+            gatewayUrl = `https://${gatewayUrl}`;
+        }
+
+        // Remover barra no final, se houver
+        gatewayUrl = gatewayUrl.replace(/\/$/, '');
+
+        // Remover sufixo /remote caso a variável de ambiente tenha sido configurada equivocadamente
+        if (gatewayUrl.endsWith('/remote')) {
+            gatewayUrl = gatewayUrl.substring(0, gatewayUrl.length - 7);
+        }
+
         const absoluteUrl = `${gatewayUrl}/remote/s/${sessao.RMTSessionId}/`;
 
         return {

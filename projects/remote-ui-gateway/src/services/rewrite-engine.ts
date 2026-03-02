@@ -10,18 +10,25 @@ export function rewriteLocationHeader(
     location: string,
     sessionPrefix: string,
 ): string {
-    // Absolute URLs to external hosts are left untouched
-    if (/^https?:\/\//i.test(location)) {
-        return location;
+    let target = location;
+
+    // If it's an absolute URL (from the device), extract just the path
+    if (/^https?:\/\//i.test(target)) {
+        try {
+            const parsed = new URL(target);
+            target = parsed.pathname + parsed.search + parsed.hash;
+        } catch {
+            return location; // Can't parse, leave untouched
+        }
     }
 
     // Already prefixed
-    if (location.startsWith(sessionPrefix)) {
-        return location;
+    if (target.startsWith(sessionPrefix)) {
+        return target;
     }
 
     // Ensure leading slash
-    const path = location.startsWith('/') ? location : '/' + location;
+    const path = target.startsWith('/') ? target : '/' + target;
     return sessionPrefix + path.slice(1);
 }
 
@@ -66,7 +73,7 @@ export function rewriteHtml(
 
     // Client-side interceptor to force session prefix on all navigations
     const interceptorScript = `
-    <script>
+    <script data-openturn-proxy="true">
         (function() {
             var prefix = "${sessionPrefix}";
             
@@ -122,30 +129,39 @@ export function rewriteHtml(
                 }
                 return originalOpen.apply(this, args);
             };
+
+            // Safe assignment wrappers exposed globally for rewritten JS logic
+            window.__assignLocation = function(url) {
+                window.location.assign(enforcePrefix(url));
+            };
+            window.__replaceLocation = function(url) {
+                window.location.replace(enforcePrefix(url));
+            };
             
             // Note: We do NOT override document.createElement because using
             // Object.defineProperty to override native src/href property descriptors
             // breaks jQuery's internal element handling and prevents Bootstrap modals.
             
-            // MutationObserver to rewrite src/href on dynamically added elements
-            // This is safe because enforcePrefix already skips #, javascript:, and prefixed URLs
+            // MutationObserver to rewrite src/href/action on dynamically added elements
             var observer = new MutationObserver(function(mutations) {
+                var attrsToWatch = ['src', 'href', 'action'];
                 mutations.forEach(function(mutation) {
                     mutation.addedNodes.forEach(function(node) {
                         if (node.nodeType !== 1) return;
                         var el = node;
-                        // Rewrite src on images and scripts
-                        if (el.hasAttribute && el.hasAttribute('src')) {
-                            var newSrc = enforcePrefix(el.getAttribute('src'));
-                            if (newSrc !== el.getAttribute('src')) el.setAttribute('src', newSrc);
-                        }
-                        // Also check children of the added node
-                        if (el.querySelectorAll) {
-                            el.querySelectorAll('[src]').forEach(function(child) {
-                                var newSrc = enforcePrefix(child.getAttribute('src'));
-                                if (newSrc !== child.getAttribute('src')) child.setAttribute('src', newSrc);
-                            });
-                        }
+
+                        attrsToWatch.forEach(function(attr) {
+                            if (el.hasAttribute && el.hasAttribute(attr)) {
+                                var newAttr = enforcePrefix(el.getAttribute(attr));
+                                if (newAttr !== el.getAttribute(attr)) el.setAttribute(attr, newAttr);
+                            }
+                            if (el.querySelectorAll) {
+                                el.querySelectorAll('[' + attr + ']').forEach(function(child) {
+                                    var newChildAttr = enforcePrefix(child.getAttribute(attr));
+                                    if (newChildAttr !== child.getAttribute(attr)) child.setAttribute(attr, newChildAttr);
+                                });
+                            }
+                        });
                     });
                 });
             });
@@ -185,6 +201,24 @@ export function rewriteHtml(
         }
     );
 
+    // Rewrite <meta http-equiv="refresh" content="0;url=/...">
+    processedHtml = processedHtml.replace(
+        /(<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["']\s*\d+\s*;\s*url=)(['"]?)\/([^"'>]+)\2/gi,
+        (match, metaStart, quote, path) => {
+            if (path.startsWith('remote/s/')) return match;
+            return `${metaStart}${quote}${sessionPrefix}${path}${quote}`;
+        }
+    );
+
+    // Rewrite <meta http-equiv="refresh" content="0;url=/...">
+    processedHtml = processedHtml.replace(
+        /(<meta[^>]+http-equiv=["']?refresh["']?[^>]+content=["']\s*\d+\s*;\s*url=)(['"]?)\/([^"'>]+)\2/gi,
+        (match, metaStart, quote, path) => {
+            if (path.startsWith('remote/s/')) return match;
+            return `${metaStart}${quote}${sessionPrefix}${path}${quote}`;
+        }
+    );
+
     // Also handle root-relative paths starting with ./
     processedHtml = processedHtml.replace(
         /(src|href|action)=(["'])\.\/([^"']*)\2/gi,
@@ -194,5 +228,100 @@ export function rewriteHtml(
         }
     );
 
+    // Rewrite Javascript logic inside <script> blocks to catch explicit location.href assignments
+    processedHtml = processedHtml.replace(
+        /(<script[^>]*>)([\s\S]*?)(<\/script>)/gi,
+        (match, openTag, content, closeTag) => {
+            // Skip empty scripts or our own injected proxy script
+            if (!content.trim() || openTag.includes('data-openturn-proxy')) return match;
+            const rewrittenJs = rewriteJs(content, sessionPrefix);
+            return `${openTag}${rewrittenJs}${closeTag}`;
+        }
+    );
+
     return processedHtml;
+}
+
+/**
+ * Parse JSON and rewrite top-level paths for known redirect/url keys.
+ */
+export function rewriteJson(
+    jsonString: string,
+    sessionPrefix: string
+): string {
+    if (!jsonString || typeof jsonString !== 'string') return jsonString;
+
+    try {
+        const parsed = JSON.parse(jsonString);
+        let modified = false;
+
+        // Common keys that might contain a redirect path
+        const keysToCheck = ['redirect', 'url', 'path', 'location'];
+
+        const traverse = (obj: any) => {
+            if (obj && typeof obj === 'object') {
+                for (const key of Object.keys(obj)) {
+                    if (keysToCheck.includes(key.toLowerCase()) && typeof obj[key] === 'string') {
+                        const val = obj[key] as string;
+                        // If it's an absolute path but not a full URI or already prefixed
+                        if (val.startsWith('/') && !val.startsWith('//') && !val.startsWith(sessionPrefix)) {
+                            obj[key] = sessionPrefix + val.substring(1);
+                            modified = true;
+                        } else if (val.startsWith('./')) {
+                            obj[key] = sessionPrefix + val.substring(2);
+                            modified = true;
+                        }
+                    } else if (typeof obj[key] === 'object') {
+                        traverse(obj[key]);
+                    }
+                }
+            }
+        };
+
+        traverse(parsed);
+
+        if (modified) {
+            return JSON.stringify(parsed);
+        }
+    } catch (e) {
+        // Ignorar se não for JSON válido
+    }
+
+    return jsonString;
+}
+
+/**
+ * Rewrite Javascript files and inline scripts.
+ * Replaces string literals representing absolute paths with prefixed paths.
+ * Replaces window.location assignments with our safe wrapper.
+ */
+export function rewriteJs(js: string, sessionPrefix: string): string {
+    let processed = js;
+
+    // We MUST NOT replace string literals `"/path"` directly.
+    // If Katraca JS does `"/" + lang + url`, rewriting string literals yields `"/pt_BR/remote/s/.../url"`.
+    // The interceptor `window.__assignLocation` handles dynamic inputs correctly natively.
+
+    // Replace JS assignments ONLY when assigned to a string literal (safest approach)
+    // Matches: location.href = "/..." or window.location = "/..."
+    processed = processed.replace(
+        /\b(?:window\.)?location(?:\.href)?\s*=\s*(["'][^"']+["'])/gi,
+        (match, expr) => {
+            return `(window.__assignLocation ? window.__assignLocation(${expr}) : window.location.assign(${expr}))`;
+        }
+    );
+
+    // Replace JS method calls SAFELY by substituting the function reference,
+    // avoiding the need to parse nested arguments and parenthesis which causes SyntaxErrors.
+    // window.location.replace("...") becomes (window.__replaceLocation || window.location.replace)("...")
+    processed = processed.replace(
+        /\b(?:window\.)?location\.(replace|assign)\b/gi,
+        (match, method) => {
+            const isReplace = method.toLowerCase() === 'replace';
+            const wrapper = isReplace ? '__replaceLocation' : '__assignLocation';
+            return `(window.${wrapper} || window.location.${method})`;
+        }
+    );
+
+    return processed;
 }

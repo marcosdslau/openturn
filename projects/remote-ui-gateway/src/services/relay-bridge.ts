@@ -3,6 +3,8 @@ import {
     rewriteLocationHeader,
     rewriteSetCookiePath,
     rewriteHtml,
+    rewriteJson,
+    rewriteJs,
 } from './rewrite-engine';
 import { buildToolbarHtml } from './toolbar';
 import { ValidatedSession } from '../middleware/session-validator';
@@ -200,7 +202,11 @@ export function applyRewrites(
     sessionId: string,
     downstreamPath: string,
 ): { statusCode: number; headers: Record<string, string>; body: Buffer } {
-    const rewrittenHeaders = { ...headers };
+    // Normalize all header keys to lowercase for reliable matching
+    const rewrittenHeaders: Record<string, string> = {};
+    for (const [key, value] of Object.entries(headers)) {
+        rewrittenHeaders[key.toLowerCase()] = value;
+    }
 
     // Rewrite Location header
     if (rewrittenHeaders['location']) {
@@ -230,6 +236,20 @@ export function applyRewrites(
 
         // Update content-length after rewrite
         rewrittenHeaders['content-length'] = String(rewrittenBody.length);
+    } else if (contentType.includes('application/json')) {
+        const jsonString = body.toString('utf-8');
+        const rewrittenJson = rewriteJson(jsonString, sessionPrefix);
+        if (jsonString !== rewrittenJson) {
+            rewrittenBody = Buffer.from(rewrittenJson, 'utf-8');
+            rewrittenHeaders['content-length'] = String(rewrittenBody.length);
+        }
+    } else if (contentType.includes('javascript')) {
+        const jsString = body.toString('utf-8');
+        const rewrittenJs = rewriteJs(jsString, sessionPrefix);
+        if (jsString !== rewrittenJs) {
+            rewrittenBody = Buffer.from(rewrittenJs, 'utf-8');
+            rewrittenHeaders['content-length'] = String(rewrittenBody.length);
+        }
     }
 
     // Remove content-encoding to avoid issues (we're rewriting the body)
