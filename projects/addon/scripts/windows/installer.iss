@@ -1,8 +1,8 @@
 [Setup]
-AppName=OpenTurn Connector
+AppName=SchoolGuard
 AppVersion=1.0.0
-DefaultDirName={pf}\OpenTurn Connector
-DefaultGroupName=OpenTurn Connector
+DefaultDirName={pf}\SchoolGuard
+DefaultGroupName=SchoolGuard
 UninstallDisplayIcon={app}\connector-win.exe
 Compression=lzma
 SolidCompression=no
@@ -24,15 +24,15 @@ var
 procedure InitializeWizard;
 begin
   TokenPage := CreateInputQueryPage(wpSelectDir,
-    'Configuração do OpenTurn Connector',
-    'Insira os dados de pareamento gerados no painel do OpenTurn SaaS.',
+    'Configuração do SchoolGuard',
+    'Insira os dados de pareamento gerados no painel do SchoolGuard SaaS.',
     'Estes dados são necessários para conectar os equipamentos locais à nuvem.');
 
   TokenPage.Add('Token JWT de Pareamento:', False);
   TokenPage.Add('Relay WebSocket URL:', False);
   
   // Set default URL
-  TokenPage.Values[1] := 'wss://api.sua-empresa.com/ws/connectors';
+  TokenPage.Values[1] := 'wss://admin.schoolguard.com.br/ws/connectors';
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -59,20 +59,23 @@ end;
 ; Run the pairing command using the provided inputs
 Filename: "{app}\node.exe"; Parameters: """{app}\index.js"" pair --token ""{code:GetTokenValue}"" --url ""{code:GetUrlValue}"""; Flags: runhidden waituntilterminated
 
-; Install the service using NSSM
-Filename: "{app}\nssm.exe"; Parameters: "install OpenTurnConnector ""{app}\node.exe"" ""{app}\index.js"" start"; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set OpenTurnConnector AppDirectory ""{app}"""; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set OpenTurnConnector DisplayName ""OpenTurn Connector API Bridge"""; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set OpenTurnConnector Description ""Ponte segura entre equipamentos ControlID locais e o OpenTurn SaaS."""; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "set OpenTurnConnector Start SERVICE_AUTO_START"; Flags: runhidden waituntilterminated
+; Create a runner batch script so NSSM bypasses Windows Quotes escaping issues
+Filename: "{cmd}"; Parameters: "/c echo ""{app}\node.exe"" ""{app}\index.js"" start > ""{app}\service-run.bat"""; Flags: runhidden waituntilterminated
+
+; Install the service using NSSM pointing to the Bat file
+Filename: "{app}\nssm.exe"; Parameters: "install SchoolGuard ""{app}\service-run.bat"""; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "set SchoolGuard AppDirectory ""{app}"""; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "set SchoolGuard DisplayName ""SchoolGuard API Bridge"""; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "set SchoolGuard Description ""Ponte segura entre equipamentos locais e o SchoolGuard SaaS."""; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "set SchoolGuard Start SERVICE_AUTO_START"; Flags: runhidden waituntilterminated
 
 ; Start the service
-Filename: "{app}\nssm.exe"; Parameters: "start OpenTurnConnector"; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "start SchoolGuard"; Flags: runhidden waituntilterminated
 
 [UninstallRun]
 ; Stop and remove the service using NSSM
-Filename: "{app}\nssm.exe"; Parameters: "stop OpenTurnConnector"; Flags: runhidden waituntilterminated
-Filename: "{app}\nssm.exe"; Parameters: "remove OpenTurnConnector confirm"; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "stop SchoolGuard"; Flags: runhidden waituntilterminated
+Filename: "{app}\nssm.exe"; Parameters: "remove SchoolGuard confirm"; Flags: runhidden waituntilterminated
 
 [Code]
 // Helper functions to retrieve the inputs for the [Run] section
