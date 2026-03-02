@@ -1,0 +1,446 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+    <base href="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/pt_BR/html/index.html">
+
+    <script data-openturn-proxy="true">
+        (function() {
+            var prefix = "/remote/s/7821745e-2f64-4116-a127-059e546e8f45/";
+            
+            function enforcePrefix(url) {
+                if (!url || typeof url !== 'string') return url;
+                if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('data:') || url.startsWith('#') || url.startsWith('javascript:')) return url;
+                if (url.startsWith(prefix)) return url;
+                // Guard: if the path already contains /remote/s/ somewhere, don't prefix it again
+                if (url.indexOf('/remote/s/') !== -1) return url;
+                
+                // Handle absolute paths (/path) and relative paths (path or ./path)
+                var cleanUrl = url.startsWith('/') ? url.slice(1) : url;
+                if (cleanUrl.startsWith('./')) cleanUrl = cleanUrl.slice(2);
+                
+                return prefix + cleanUrl;
+            }
+
+            // Intercept History API
+            var originalPushState = history.pushState;
+            history.pushState = function(state, title, url) {
+                return originalPushState.apply(this, [state, title, enforcePrefix(url)]);
+            };
+            var originalReplaceState = history.replaceState;
+            history.replaceState = function(state, title, url) {
+                return originalReplaceState.apply(this, [state, title, enforcePrefix(url)]);
+            };
+
+            // Intercept window.location assignments
+            var originalAssign = window.location.assign;
+            window.location.assign = function(url) {
+                originalAssign.call(window.location, enforcePrefix(url));
+            };
+            var originalReplace = window.location.replace;
+            window.location.replace = function(url) {
+                originalReplace.call(window.location, enforcePrefix(url));
+            };
+
+            // Intercept fetch
+            var originalFetch = window.fetch;
+            window.fetch = function() {
+                if (arguments[0] && typeof arguments[0] === 'string') {
+                    arguments[0] = enforcePrefix(arguments[0]);
+                }
+                return originalFetch.apply(this, arguments);
+            };
+
+            // Intercept XMLHttpRequest
+            var originalOpen = XMLHttpRequest.prototype.open;
+            XMLHttpRequest.prototype.open = function(method, url) {
+                var args = Array.prototype.slice.call(arguments);
+                if (typeof url === 'string') {
+                    args[1] = enforcePrefix(url);
+                }
+                return originalOpen.apply(this, args);
+            };
+
+            // Safe assignment wrappers exposed globally for rewritten JS logic
+            window.__assignLocation = function(url) {
+                window.location.assign(enforcePrefix(url));
+            };
+            window.__replaceLocation = function(url) {
+                window.location.replace(enforcePrefix(url));
+            };
+            
+            // Note: We do NOT override document.createElement, but we CAN override
+            // setAttribute and specific property endpoints safely.
+            var originalSetAttribute = Element.prototype.setAttribute;
+            Element.prototype.setAttribute = function(name, value) {
+                if ((name === 'src' || name === 'href' || name === 'action') && typeof value === 'string') {
+                    return originalSetAttribute.call(this, name, enforcePrefix(value));
+                }
+                return originalSetAttribute.apply(this, arguments);
+            };
+
+            // Safely intercept HTMLImageElement.src setter to prevent eager network requests on img.src = ...
+            try {
+                var imgDescriptor = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'src');
+                if (imgDescriptor && imgDescriptor.set) {
+                    var originalImgSet = imgDescriptor.set;
+                    Object.defineProperty(HTMLImageElement.prototype, 'src', {
+                        configurable: true,
+                        enumerable: true,
+                        get: imgDescriptor.get,
+                        set: function(val) {
+                            return originalImgSet.call(this, typeof val === 'string' ? enforcePrefix(val) : val);
+                        }
+                    });
+                }
+            } catch (e) { console.error("[RemoteUI] Failed to hook Image.src", e); }
+            
+            // MutationObserver to rewrite src/href/action on dynamically added elements or attribute changes
+            var observer = new MutationObserver(function(mutations) {
+                var attrsToWatch = ['src', 'href', 'action'];
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'attributes') {
+                        var el = mutation.target;
+                        if (el.nodeType === 1 && attrsToWatch.indexOf(mutation.attributeName) !== -1) {
+                            var newAttr = enforcePrefix(el.getAttribute(mutation.attributeName));
+                            if (newAttr !== el.getAttribute(mutation.attributeName)) {
+                                el.setAttribute(mutation.attributeName, newAttr);
+                            }
+                        }
+                    } else if (mutation.type === 'childList') {
+                        mutation.addedNodes.forEach(function(node) {
+                            if (node.nodeType !== 1) return;
+                            var el = node;
+
+                            attrsToWatch.forEach(function(attr) {
+                                if (el.hasAttribute && el.hasAttribute(attr)) {
+                                    var newAttr = enforcePrefix(el.getAttribute(attr));
+                                    if (newAttr !== el.getAttribute(attr)) el.setAttribute(attr, newAttr);
+                                }
+                                if (el.querySelectorAll) {
+                                    el.querySelectorAll('[' + attr + ']').forEach(function(child) {
+                                        var newChildAttr = enforcePrefix(child.getAttribute(attr));
+                                        if (newChildAttr !== child.getAttribute(attr)) child.setAttribute(attr, newChildAttr);
+                                    });
+                                }
+                            });
+                        });
+                    }
+                });
+            });
+            
+            document.addEventListener("DOMContentLoaded", function() {
+                if (document.body) {
+                    observer.observe(document.body, { 
+                        childList: true, 
+                        subtree: true,
+                        attributes: true,
+                        attributeFilter: ['src', 'href', 'action']
+                    });
+                }
+            });
+
+            console.log("[RemoteUI] Client interceptors active for prefix:", prefix);
+        })();
+    </script>
+	<link rel="shortcut icon" href="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/images/favicon.ico" />
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+
+
+
+	<meta content="width=device-width, initial-scale=1.0" name="viewport" />
+	<meta content="width=device-width, initial-scale=1.0" name="viewport" />
+	<meta content="" name="description" />
+	<meta content="" name="author" />
+
+
+</head>
+<body style="background-color: rgb(61, 61, 61);" class="page-header-fixed">
+
+<!-- OpenTurn Remote UI Toolbar -->
+<div id="openturn-remote-toolbar" style="
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 999999;
+    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+    color: #e0e0e0;
+    padding: 8px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+">
+    <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-weight: 600; color: #4fc3f7;">â¡ OpenTurn Remote</span>
+        <span style="opacity: 0.6; font-size: 11px;">SessÃ£o: 7821745e...</span>
+    </div>
+    <div style="display: flex; gap: 8px;">
+        <button onclick="window.history.back()" style="
+            background: rgba(255,255,255,0.1);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: #e0e0e0;
+            padding: 5px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        " onmouseover="this.style.background='rgba(255,255,255,0.2)'"
+          onmouseout="this.style.background='rgba(255,255,255,0.1)'">
+            â Voltar
+        </button>
+        <button onclick="fetch('/remote/s/7821745e-2f64-4116-a127-059e546e8f45/__close', {method:'POST'}).then(()=>window.close())" style="
+            background: rgba(239,83,80,0.2);
+            border: 1px solid rgba(239,83,80,0.4);
+            color: #ef5350;
+            padding: 5px 14px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        " onmouseover="this.style.background='rgba(239,83,80,0.35)'"
+          onmouseout="this.style.background='rgba(239,83,80,0.2)'">
+            â Encerrar SessÃ£o
+        </button>
+    </div>
+</div>
+<div style="height: 40px;"></div>
+<!-- /OpenTurn Remote UI Toolbar -->
+
+	<!-- BEGIN CONTAINER -->
+	<div id="MasterConteudo"  style="display: none;" class="page-container row-fluid">
+	<div id="BREADCRUMB" class="hide" cat="ini"></div>
+	<!-- BEGIN PAGE -->
+		<div class="page-content idface">
+			<!-- BEGIN PAGE CONTAINER-->
+			<div class="container-fluid">
+
+
+				<div class="span12"></div>
+				<!-- END PAGE HEADER-->
+				<!-- BEGIN PAGE CONTENT-->
+					<div class="row-fluid">
+						<div class="span8" id="content">
+							<div class="row-fluid">
+								<div class="span3 responsive">
+									<div class="dashboard-stat bg-grey">
+										<div class="visual">
+											<i class="icon-group"></i>
+										</div>
+										<div class="details">
+											<div class="number"><span id="total_users" class="font-100" /></div>
+											<div class="desc font-15">UsuÃ¡rios<br />Cadastrados</div>
+										</div>
+										<a class="more bg-red font-5" href="users.html">
+											Veja mais <i class="m-icon-swapright m-icon-white"></i>
+										</a>
+									</div>
+								</div>
+								<div class="span3 responsive hide_idface">
+									<div class="dashboard-stat bg-grey">
+										<div class="visual">
+											<i class="icon-hand-up"></i>
+										</div>
+										<div class="details">
+											<div class="number"><span id="total_dig" class="font-100" /></div>
+											<div class="desc font-15">Digitais<br />Cadastradas</div>
+										</div>
+										<a class="more bg-red font-5" href="users.html">
+											Veja mais <i class="m-icon-swapright m-icon-white"></i>
+										</a>
+									</div>
+								</div>
+
+								<div class="span3 responsive idface">
+									<div class="dashboard-stat bg-grey">
+										<div class="visual">
+											<i class="icon-smile"></i>
+										</div>
+										<div class="details idface">
+											<div class="number"><span id="total_faces" class="font-100" /></div>
+											<div class="desc font-15">Faces<br />Cadastradas</div>
+										</div>
+										<a class="more bg-red font-5" href="users.html">
+											Veja mais <i class="m-icon-swapright m-icon-white"></i>
+										</a>
+									</div>
+								</div>
+
+								<div class="span3 responsive">
+									<div class="dashboard-stat bg-grey">
+										<div class="visual">
+											<i class="icon-time"></i>
+										</div>
+										<div class="details">
+											<div class="number"><span id="total_timespan" class="font-100" /></div>
+											<div class="desc font-15">HorÃ¡rios<br />Cadastrados</div>
+										</div>
+										<a class="more bg-red font-5" href="timespan.html">
+											Veja mais <i class="m-icon-swapright m-icon-white"></i>
+										</a>
+									</div>
+								</div>
+								<div class="span3 responsive">
+									<div class="dashboard-stat bg-grey">
+										<div class="visual">
+											<i class="icon-unlock"></i>
+										</div>
+										<div class="details">
+											<div class="number "><span id="total_access" class="font-100" /></div>
+											<div class="desc font-15">Acessos<br />Registrados</div>
+										</div>
+										<a class="more bg-red font-5" href="reportcustomview.html?report=1">
+											Veja mais <i class="m-icon-swapright m-icon-white"></i>
+										</a>
+									</div>
+								</div>
+							</div>
+
+							<div class="row-fluid" id="contentPortals">
+							</div>
+
+
+							<div class="row-fluid">
+								<div class="span12">
+									<div class="span12">
+										<div class="portlet box bg-grey responsive">
+											<div class="portlet-title">
+												<div class="caption font-20"><i class="icon-bar-chart"></i>Acessos por hora nos Ãºltimos 3 dias</div>
+											</div>
+											<div class="portlet-body">
+												<div id="site_statistics_loading" style="display: none;">
+													<img src="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/assets/img/loading.gif" alt="loading">
+												</div>
+												<div id="site_statistics_content" class="hide" style="display: block;" >
+													<div id="site_statistics" class="chart"></div>
+												</div>
+											</div>
+										</div>
+									</div>
+									<!--div class="span6">
+										<div class="portlet box bg-grey">
+											<div class="portlet-title">
+												<div class="caption font-20"><i class="icon-bar-chart font-30"></i>Acessos por portal</div>
+											</div>
+											<div class="portlet-body">
+												<div id="timezone_user_loading" style="display: none;">
+													<img src="../assets/img/loading.gif" alt="loading">
+												</div>
+												<div id="timezone_user_content" class="hide" style="display: block;" >
+													<div id="timezone_user" class="chart"></div>
+												</div>
+											</div>
+										</div>
+									</div-->
+								</div>
+							</div>
+						</div>
+						<div class="span4" ><!--style="height: 560px; overflow: auto;">-->
+							<ul id="timeline"></ul>
+						</div>
+					</div>
+			</div>
+
+		<!-- END PAGE CONTAINER-->
+		</div>
+	</div>
+	<!-- END CONTAINER -->
+	<!--
+	<div  class="loading">
+		<div id="header">
+			<div id="Titulo">InÃ­cio</div>
+		</div>
+
+		<table>
+			<tr>
+				<td>
+					Data<br />
+					<span id="sys_date" />teste
+				</td>
+				<td>
+					Hora<br />
+					<span id="sys_time" />
+				</td>
+				<td>
+					Tempo Ligado<br />
+					<span id="sys_uptime" />
+				</td>
+			</tr>
+			<tr>
+				<td>
+					Memoria RAM Livre<br />
+					<span id="sys_free_ram" />
+				</td>
+				<td>
+					Memoria RAM Total<br />
+					<span id="sys_total_ram" />
+				</td>
+				<td>
+					Memoria em disco Livre<br />
+					<span id="sys_free_disk" />
+				</td>
+			</tr>
+			<tr>
+				<td>
+					Memoria em disco Total<br />
+					<span id="sys_total_disk" />
+				</td>
+				<td>
+					NÃºmero de usuÃ¡rios<br />
+					<span id="total_users" />
+				</td>
+				<td>
+					NÃºmero de Digitais<br />
+					<span id="total_templates" />
+				</td>
+			</tr>
+			<tr>
+				<td colspan="3">
+					NÃºmero de CartÃµes<br />
+					<span id="total_cards" />
+				</td>
+
+			</tr>
+			<tr>
+				<td>
+					<button type="button" id="export_users_but" onclick="export_users()">
+						Exportar UsuÃ¡rios
+					</button>
+				</td>
+				<td></td>
+				<td>
+					<button type="button" id="reboot_but" onclick="reboot(3)">Reiniciar</button>
+				</td>
+			</tr>
+			<form id="import_form">
+				<tr>
+					<td colspan="2">
+						<label for="users_file"> Importar UsuÃ¡rios</label><br>
+						<input id="users_file" type="file" name="users_file">
+					</td>
+					<td>
+						<input type="submit" value="Upload Files">
+					</td>
+				</tr>
+			</form>
+			<tr>
+				<td colspan="3">
+					<span id="import_msg" />
+				</td>
+			</tr>
+		</table>
+
+		<div id="mask_loading"></div>
+	</div>
+	-->
+	<script src="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/assets/plugins/jquery-1.11.2.min.js"></script>
+	<script src="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/pt_BR/js/main.js"></script>
+	<script src="/remote/s/7821745e-2f64-4116-a127-059e546e8f45/pt_BR/js/pages/index.js"></script>
+
+	<!-- END JAVASCRIPTS -->
+</body>
+</html>
+
