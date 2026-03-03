@@ -139,3 +139,7 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 /projects/bin
 /projects/addon/bin
+projects/remote-ui-gateway/ecosystem.config.cjs
+webapi/ecosystem.config.cjs
+start.bat
+stop.bat

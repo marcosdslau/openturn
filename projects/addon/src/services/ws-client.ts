@@ -8,7 +8,8 @@ export type OnMessageCallback = (message: WsMessage) => void;
 export class WssClient {
     private ws: WebSocket | null = null;
     private reconnectAttempts = 0;
-    private maxReconnectAttempts = 50;
+    // Removido maxReconnectAttempts para permitir reconexão infinita
+
     private onMessageCallback: OnMessageCallback | null = null;
     private heartbeatInterval: NodeJS.Timeout | null = null;
 
@@ -69,15 +70,12 @@ export class WssClient {
     }
 
     private reconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            logger.error('Max reconnect attempts reached. Stopping.');
-            return;
-        }
+        // Tentativas infinitas: removemos a verificação de limite.
 
         const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
         this.reconnectAttempts++;
 
-        logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+        logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})...`);
         setTimeout(() => this.connect(), delay);
     }
 
