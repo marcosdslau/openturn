@@ -48,7 +48,7 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
     constructor(private connectorService: ConnectorService) { }
 
     onModuleInit() {
-        this.server = new Server({ port: 8001, path: '/ws/connectors' });
+        this.server = new Server({ port: process.env.PORTWS || 8001, path: '/ws/connectors' });
 
         this.server.on('connection', (client, request) => {
             this.handleConnection(client, request);
