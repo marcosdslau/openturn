@@ -143,3 +143,4 @@ projects/remote-ui-gateway/ecosystem.config.cjs
 webapi/ecosystem.config.cjs
 start.bat
 stop.bat
+webapp/ecosystem.config.cjs
