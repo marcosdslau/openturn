@@ -26,6 +26,7 @@ export class HttpExecutor {
                 body: target.body,
                 headersTimeout: timeoutMs,
                 bodyTimeout: timeoutMs,
+                maxRedirections: 0, // Let the gateway handle redirects
             });
 
             // Send Response Start

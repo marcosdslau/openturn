@@ -9,7 +9,9 @@ export interface ConnectorConfig {
     token?: string;
 }
 
-const CONFIG_DIR = path.join(os.homedir(), '.openturn-connector');
+const CONFIG_DIR = process.platform === 'win32'
+    ? path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'SchoolGuard')
+    : path.join(os.homedir(), '.openturn-connector');
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
 
 export class ConfigService {

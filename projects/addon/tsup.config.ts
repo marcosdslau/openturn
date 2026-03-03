@@ -9,7 +9,4 @@ export default defineConfig({
     clean: true,
     minify: false,
     noExternal: [/(.*)/], // Bundle all dependencies into one file
-    banner: {
-        js: '#!/usr/bin/env node',
-    },
 });
