@@ -165,23 +165,23 @@ export class HardwareService {
             throw new Error(`Failed to get session from device ${device.EQPCodigo} via relay`);
         }
 
-        // Step 2: Build the .fcgi command
+        // Step 2: Build the .fcgi command — forward all params to the device verbatim
         const fcgiMap: Record<string, { endpoint: string; body: any }> = {
             load_objects: {
                 endpoint: `/load_objects.fcgi?session=${session}`,
-                body: { object: params?.object },
+                body: { ...params },
             },
             create_objects: {
                 endpoint: `/create_objects.fcgi?session=${session}`,
-                body: { object: params?.object, values: params?.values },
+                body: { ...params },
             },
             modify_objects: {
                 endpoint: `/modify_objects.fcgi?session=${session}`,
-                body: { object: params?.object, values: params?.values, where: params?.where },
+                body: { ...params },
             },
             destroy_objects: {
                 endpoint: `/destroy_objects.fcgi?session=${session}`,
-                body: { object: params?.object, where: params?.where },
+                body: { ...params },
             },
         };
 

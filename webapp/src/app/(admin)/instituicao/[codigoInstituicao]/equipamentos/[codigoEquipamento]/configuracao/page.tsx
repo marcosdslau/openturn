@@ -421,26 +421,72 @@ function useIpSelection(config: any, mainIp: string | null) {
     return { ips, selectedIp, setSelectedIp };
 }
 
+interface TimeSpan {
+    id?: number;
+    time_zone_id?: number;
+    start: number; // in seconds
+    end: number; // in seconds
+    sun: number; mon: number; tue: number; wed: number;
+    thu: number; fri: number; sat: number;
+    hol1: number; hol2: number; hol3: number;
+}
+interface TimeZone {
+    id: number;
+    name: string;
+    spans?: TimeSpan[];
+}
+
 function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) {
     const { showToast } = useToast();
     const { ips, selectedIp, setSelectedIp } = useIpSelection(config, mainIp);
-    const [schedules, setSchedules] = useState<any[]>([]);
+    const [schedules, setSchedules] = useState<TimeZone[]>([]);
     const [loading, setLoading] = useState(false);
-    const [newName, setNewName] = useState("");
+
+    // Modal state for Horário
+    const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
+    const [editingScheduleId, setEditingScheduleId] = useState<number | null>(null);
+    const [editingScheduleName, setEditingScheduleName] = useState("");
+    const [editingSpans, setEditingSpans] = useState<TimeSpan[]>([]);
+
+    // Sub-modal state for Faixa de Horário
+    const [isSpanModalOpen, setIsSpanModalOpen] = useState(false);
+    const [editingSpanIndex, setEditingSpanIndex] = useState<number | null>(null);
+    const [currentSpan, setCurrentSpan] = useState<TimeSpan | null>(null);
 
     const loadSchedules = useCallback(async () => {
         if (!selectedIp) return;
         setLoading(true);
         try {
-            const res = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+            // Fetch time_zones
+            const tzRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
                 command: 'load_objects',
                 params: { object: 'time_zones' },
                 targetIp: selectedIp
             });
-            setSchedules(res.time_zones || []);
+            const timeZones: TimeZone[] = tzRes.time_zones || [];
+
+            // Fetch time_spans (bulk)
+            const tsRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                command: 'load_objects',
+                params: {
+                    object: 'time_spans',
+                    where: [],
+                    limit: 1000
+                },
+                targetIp: selectedIp
+            });
+            const timeSpans: TimeSpan[] = tsRes.time_spans || [];
+
+            // Group spans by time_zone_id
+            const grouped = timeZones.map(tz => ({
+                ...tz,
+                spans: timeSpans.filter((span: TimeSpan) => span.time_zone_id === tz.id)
+            }));
+
+            setSchedules(grouped);
         } catch (e) {
             console.error(e);
-            showToast("error", "Erro", "Falha ao carregar horários.");
+            showToast("error", "Erro", "Falha ao carregar horários e faixas.");
             setSchedules([]);
         } finally {
             setLoading(false);
@@ -449,29 +495,129 @@ function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) 
 
     useEffect(() => { loadSchedules(); }, [loadSchedules]);
 
-    const handleAdd = async () => {
-        if (!newName || !selectedIp) return;
+    const handleSaveSchedule = async () => {
+        if (!editingScheduleName || !selectedIp) return;
+        setLoading(true);
         try {
-            await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
-                command: 'create_objects',
-                params: {
-                    object: 'time_zones',
-                    values: [{ name: newName }]
-                },
-                targetIp: selectedIp
-            });
-            showToast("success", "Sucesso", "Horário criado.");
-            setNewName("");
+            if (editingScheduleId) {
+                // EDIT MODE
+                const originalTz = schedules.find(s => s.id === editingScheduleId);
+
+                // 1. Update name if changed
+                if (originalTz && originalTz.name !== editingScheduleName) {
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'modify_objects',
+                        params: {
+                            object: 'time_zones',
+                            values: { name: editingScheduleName },
+                            where: { time_zones: { id: editingScheduleId } }
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+
+                const originalSpans = originalTz?.spans || [];
+
+                // 2. Delete removed spans
+                const toDelete = originalSpans.filter(orig => !editingSpans.some(es => es.id === orig.id));
+                for (const span of toDelete) {
+                    if (span.id) {
+                        await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                            command: 'destroy_objects',
+                            params: {
+                                object: 'time_spans',
+                                where: { time_spans: { id: span.id } }
+                            },
+                            targetIp: selectedIp
+                        });
+                    }
+                }
+
+                // 3. Add new spans
+                const toAdd = editingSpans.filter(es => !es.id).map(s => ({ ...s, time_zone_id: editingScheduleId }));
+                if (toAdd.length) {
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'create_objects',
+                        params: {
+                            object: 'time_spans',
+                            values: toAdd
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+
+                // 4. Modify existing spans
+                const toModify = editingSpans.filter(es => es.id);
+                for (const span of toModify) {
+                    const { id, time_zone_id, ...valuesToUpdate } = span;
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'modify_objects',
+                        params: {
+                            object: 'time_spans',
+                            values: valuesToUpdate,
+                            where: { time_spans: { id: span.id } }
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+
+                showToast("success", "Sucesso", "Horário atualizado.");
+            } else {
+                // CREATE MODE
+                // 1. Create Time Zone
+                const tzRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                    command: 'create_objects',
+                    params: {
+                        object: 'time_zones',
+                        values: [{ name: editingScheduleName }]
+                    },
+                    targetIp: selectedIp
+                });
+                const newTzId = tzRes.ids?.[0];
+
+                // 2. Create Time Spans if any
+                if (newTzId && editingSpans.length > 0) {
+                    const spanValues = editingSpans.map(span => ({ ...span, time_zone_id: newTzId }));
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'create_objects',
+                        params: {
+                            object: 'time_spans',
+                            values: spanValues
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+                showToast("success", "Sucesso", "Horário criado.");
+            }
+
+            setIsScheduleModalOpen(false);
+            setEditingScheduleId(null);
+            setEditingScheduleName("");
+            setEditingSpans([]);
             loadSchedules();
         } catch (e) {
-            showToast("error", "Erro", "Falha ao criar horário.");
+            showToast("error", "Erro", "Falha ao salvar horário.");
+        } finally {
+            setLoading(false);
         }
     };
 
     const handleDelete = async (id: number) => {
         if (!selectedIp) return;
-        if (!confirm("Tem certeza?")) return;
+        if (!confirm("Tem certeza que deseja remover este Horário e todas as suas faixas?")) return;
+
         try {
+            // First destroy related time_spans
+            await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                command: 'destroy_objects',
+                params: {
+                    object: 'time_spans',
+                    where: { time_zones: { id } }
+                },
+                targetIp: selectedIp
+            });
+
+            // Then destroy time_zone
             await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
                 command: 'destroy_objects',
                 params: {
@@ -480,6 +626,7 @@ function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) 
                 },
                 targetIp: selectedIp
             });
+
             showToast("success", "Sucesso", "Horário removido.");
             loadSchedules();
         } catch (e) {
@@ -487,8 +634,116 @@ function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) 
         }
     };
 
+    // Helper: format seconds to HH:mm
+    const formatTime = (seconds: number) => {
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+    };
+
+    // Helper: parse HH:mm to seconds. Add 59 seconds to end times to cover the full minute.
+    const parseTime = (timeStr: string, isEnd = false) => {
+        const [h, m] = timeStr.split(':').map(Number);
+        let seconds = (h * 3600) + (m * 60);
+        if (isEnd) seconds += 59;
+        return seconds;
+    };
+
+    const formatDays = (span: TimeSpan) => {
+        const days = [];
+        if (span.sun) days.push("Dom");
+        if (span.mon) days.push("Seg");
+        if (span.tue) days.push("Ter");
+        if (span.wed) days.push("Qua");
+        if (span.thu) days.push("Qui");
+        if (span.fri) days.push("Sex");
+        if (span.sat) days.push("Sáb");
+        if (span.hol1) days.push("Fer1");
+        if (span.hol2) days.push("Fer2");
+        if (span.hol3) days.push("Fer3");
+        return days.join(", ");
+    };
+
+    const openNewScheduleModal = () => {
+        setEditingScheduleId(null);
+        setEditingScheduleName("");
+        setEditingSpans([]);
+        setIsScheduleModalOpen(true);
+    };
+
+    const openEditScheduleModal = (tz: TimeZone) => {
+        setEditingScheduleId(tz.id);
+        setEditingScheduleName(tz.name);
+        setEditingSpans(tz.spans ? [...tz.spans] : []);
+        setIsScheduleModalOpen(true);
+    };
+
+    const openNewSpanModal = () => {
+        setCurrentSpan({
+            start: 28800, // 08:00
+            end: 53999, // 14:59:59 (approx 14:59 in UI)
+            sun: 1, mon: 1, tue: 1, wed: 1, thu: 1, fri: 1, sat: 1,
+            hol1: 1, hol2: 1, hol3: 1
+        });
+        setEditingSpanIndex(null);
+        setIsSpanModalOpen(true);
+    };
+
+    const openEditSpanModal = (span: TimeSpan, index: number) => {
+        setCurrentSpan({ ...span });
+        setEditingSpanIndex(index);
+        setIsSpanModalOpen(true);
+    };
+
+    const saveSpan = () => {
+        if (!currentSpan) return;
+        if (editingSpanIndex !== null) {
+            const up = [...editingSpans];
+            up[editingSpanIndex] = currentSpan;
+            setEditingSpans(up);
+        } else {
+            setEditingSpans([...editingSpans, currentSpan]);
+        }
+        setIsSpanModalOpen(false);
+    };
+
+    const removeSpan = (idx: number) => {
+        setEditingSpans(editingSpans.filter((_, i) => i !== idx));
+    };
+
+    const toggleSpanDay = (day: keyof TimeSpan) => {
+        if (currentSpan) {
+            setCurrentSpan({ ...currentSpan, [day]: currentSpan[day] ? 0 : 1 });
+        }
+    };
+
+    const DayToggle = ({ label, day }: { label: string, day: keyof TimeSpan }) => {
+        if (!currentSpan) return null;
+        const active = !!currentSpan[day];
+        return (
+            <div className="flex flex-col gap-1">
+                <span className="text-sm text-gray-700 dark:text-gray-300">{label}</span>
+                <div
+                    onClick={() => toggleSpanDay(day)}
+                    className="flex w-20 h-8 rounded border dark:border-gray-600 overflow-hidden cursor-pointer"
+                >
+                    <div className={`flex-1 flex items-center justify-center ${active ? 'bg-green-500 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}>
+                        {active && (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                        )}
+                    </div>
+                    <div className={`flex-1 flex items-center justify-center ${!active ? 'bg-red-500 text-white' : 'bg-gray-100 dark:bg-gray-800'}`}>
+                        {!active && (
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
+                        )}
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
     return (
-        <div className="flex gap-6">
+        <div className="flex gap-6 relative">
             {/* Vertical Tabs */}
             <div className="w-1/4 space-y-1">
                 {ips.map(item => (
@@ -511,40 +766,224 @@ function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) 
             <div className="flex-1 space-y-6 bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
                 <div className="flex justify-between items-center">
                     <h3 className="text-lg font-medium text-gray-900 dark:text-white">Gerenciar Horários</h3>
-                </div>
-
-                <div className="flex gap-2">
-                    <input
-                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
-                        placeholder="Nome do novo horário"
-                        value={newName}
-                        onChange={e => setNewName(e.target.value)}
-                    />
-                    <Button onClick={handleAdd} disabled={!newName || loading}>Adicionar</Button>
+                    <Button onClick={openNewScheduleModal}>Novo Horário</Button>
                 </div>
 
                 {loading ? <p>Carregando...</p> : (
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700 border rounded-lg">
-                        {schedules.map(s => (
-                            <div key={s.id} className="p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">{s.name} (ID: {s.id})</span>
-                                <Button variant="outline" size="sm" onClick={() => handleDelete(s.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-none shadow-none">Excluir</Button>
-                            </div>
-                        ))}
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700 border rounded-lg overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900/50">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nome</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Faixas Configuradas</th>
+                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {schedules.map(s => (
+                                    <tr key={s.id}>
+                                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{s.id}</td>
+                                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{s.name}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-500">
+                                            {s.spans && s.spans.length > 0 ? (
+                                                <div className="space-y-1">
+                                                    {s.spans.map((span, idx) => (
+                                                        <div key={idx} className="text-xs bg-gray-100 dark:bg-gray-700 rounded px-2 py-1 inline-block mr-2 mb-1 border border-gray-200 dark:border-gray-600">
+                                                            <strong className="text-gray-700 dark:text-gray-300">{formatTime(span.start)} - {formatTime(span.end)}</strong><br />
+                                                            <span className="opacity-80 mt-1 block">{formatDays(span)}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <span className="italic">Nenhuma faixa</span>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3 text-right text-sm align-top">
+                                            <div className="flex gap-2 justify-end">
+                                                <Button variant="outline" size="sm" onClick={() => openEditScheduleModal(s)} className="text-blue-600 hover:text-blue-800 hover:bg-blue-50 border-gray-200 dark:border-gray-700 mt-1">Editar</Button>
+                                                <Button variant="outline" size="sm" onClick={() => handleDelete(s.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-gray-200 dark:border-gray-700 mt-1">Remover</Button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                         {schedules.length === 0 && <p className="p-4 text-center text-gray-500 text-sm">Nenhum horário cadastrado.</p>}
                     </div>
                 )}
             </div>
+
+            {/* Schedule Modal */}
+            {isScheduleModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-4xl overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{editingScheduleId ? 'Editar Horário' : 'Adicionar Horário'}</h3>
+                            <button onClick={() => setIsScheduleModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome do Horário</label>
+                                <input
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                    value={editingScheduleName}
+                                    placeholder="Ex: Comercial"
+                                    onChange={e => setEditingScheduleName(e.target.value)}
+                                />
+                            </div>
+
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden flex flex-col">
+                                <div className="bg-gray-50 dark:bg-gray-900/50 p-3 flex border-b dark:border-gray-700 gap-2 items-center justify-between">
+                                    <h4 className="font-medium text-gray-700 dark:text-white">Faixas de Horário</h4>
+                                    <Button size="sm" onClick={openNewSpanModal} className="bg-green-600 hover:bg-green-700 text-white border-none shrink-0 shadow-sm leading-none flex items-center gap-1">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg> Adicionar
+                                    </Button>
+                                </div>
+                                <div className="overflow-x-auto">
+                                    <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                                        <thead className="bg-white dark:bg-gray-800 text-xs text-gray-500 font-medium">
+                                            <tr>
+                                                <th className="px-3 py-3 text-left uppercase">Início</th>
+                                                <th className="px-3 py-3 text-left uppercase">Fim</th>
+                                                <th className="px-2 py-3 text-center">Dom</th>
+                                                <th className="px-2 py-3 text-center">Seg</th>
+                                                <th className="px-2 py-3 text-center">Ter</th>
+                                                <th className="px-2 py-3 text-center">Qua</th>
+                                                <th className="px-2 py-3 text-center">Qui</th>
+                                                <th className="px-2 py-3 text-center">Sex</th>
+                                                <th className="px-2 py-3 text-center">Sáb</th>
+                                                <th className="px-2 py-3 text-center">Fer 1</th>
+                                                <th className="px-2 py-3 text-center">Fer 2</th>
+                                                <th className="px-2 py-3 text-center">Fer 3</th>
+                                                <th className="px-3 py-3 text-center uppercase">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-gray-200 dark:divide-gray-700 text-sm dark:text-white text-center bg-gray-50 dark:bg-gray-900/20">
+                                            {editingSpans.length === 0 && (
+                                                <tr><td colSpan={13} className="py-8 text-gray-500 italic">Nenhuma faixa adicionada. Clique em Adicionar.</td></tr>
+                                            )}
+                                            {editingSpans.map((span, idx) => (
+                                                <tr key={idx} className="hover:bg-white dark:hover:bg-gray-800 transition-colors">
+                                                    <td className="px-3 py-3 text-left font-medium">{formatTime(span.start)}</td>
+                                                    <td className="px-3 py-3 text-left font-medium">{formatTime(span.end)}</td>
+                                                    <td className="px-2 py-3">{span.sun ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.mon ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.tue ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.wed ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.thu ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.fri ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.sat ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.hol1 ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.hol2 ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-2 py-3">{span.hol3 ? '✅' : <span className="text-gray-300 dark:text-gray-600">✖</span>}</td>
+                                                    <td className="px-3 py-3 flex gap-2 justify-center">
+                                                        <button type="button" onClick={() => openEditSpanModal(span, idx)} className="text-blue-500 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-500/10 dark:hover:bg-blue-500/20 p-1.5 rounded transition-colors" title="Editar">
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" /></svg>
+                                                        </button>
+                                                        <button type="button" onClick={() => removeSpan(idx)} className="text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 dark:bg-red-500/10 dark:hover:bg-red-500/20 p-1.5 rounded transition-colors" title="Remover">
+                                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-5 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+                            <Button variant="outline" onClick={() => setIsScheduleModalOpen(false)}>Cancelar</Button>
+                            <Button onClick={handleSaveSchedule} className="bg-blue-600 hover:bg-blue-700 text-white border-none shadow-md" disabled={!editingScheduleName || editingSpans.length === 0 || loading}>
+                                {loading ? 'Ocupado...' : 'Salvar Horário Completo'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Time Span Sub-Modal */}
+            {isSpanModalOpen && currentSpan && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col border border-gray-200 dark:border-gray-700">
+                        <div className="p-5 border-b dark:border-gray-700 flex justify-between items-center">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">{editingSpanIndex !== null ? 'Editar Faixa de Horário' : 'Adicionar Faixa de Horário'}</h3>
+                            <button onClick={() => setIsSpanModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto space-y-8">
+                            <div className="flex gap-6">
+                                <div className="flex-1">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Hora de Início</label>
+                                    <div className="relative">
+                                        <input
+                                            type="time"
+                                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            value={formatTime(currentSpan.start)}
+                                            onChange={e => setCurrentSpan({ ...currentSpan, start: parseTime(e.target.value) })}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="flex-1">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Hora de Fim (inclusive)</label>
+                                    <div className="relative">
+                                        <input
+                                            type="time"
+                                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-base dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            value={formatTime(currentSpan.end)}
+                                            onChange={e => setCurrentSpan({ ...currentSpan, end: parseTime(e.target.value, true) })}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3 block border-b pb-2 dark:border-gray-700">Dias Válidos</h4>
+                                <div className="grid grid-cols-2 gap-y-4 gap-x-8">
+                                    <DayToggle label="Domingo" day="sun" />
+                                    <DayToggle label="Segunda" day="mon" />
+                                    <DayToggle label="Terça" day="tue" />
+                                    <DayToggle label="Quarta" day="wed" />
+                                    <DayToggle label="Quinta" day="thu" />
+                                    <DayToggle label="Sexta" day="fri" />
+                                    <DayToggle label="Sábado" day="sat" />
+                                    <DayToggle label="Feriados 1" day="hol1" />
+                                    <DayToggle label="Feriados 2" day="hol2" />
+                                    <DayToggle label="Feriados 3" day="hol3" />
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-5 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+                            <Button variant="outline" onClick={() => setIsSpanModalOpen(false)}>Descartar</Button>
+                            <Button onClick={saveSpan} className="bg-blue-600 hover:bg-blue-700 text-white border-none shadow-md px-6">Salvar Faixa</Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
 
+
 function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps) {
     const { showToast } = useToast();
     const { ips, selectedIp, setSelectedIp } = useIpSelection(config, mainIp);
+
     const [departments, setDepartments] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
     const [newName, setNewName] = useState("");
+
+    // Binding Modal State
+    const [isBindingModalOpen, setIsBindingModalOpen] = useState(false);
+    const [selectedDepartment, setSelectedDepartment] = useState<any | null>(null);
+    const [availableTimeZones, setAvailableTimeZones] = useState<TimeZone[]>([]);
+    const [mappedTimeZoneIds, setMappedTimeZoneIds] = useState<number[]>([]);
+
+    // ControlID Relational state for the active Department
+    const [activeAccessRuleId, setActiveAccessRuleId] = useState<number | null>(null);
 
     const loadDepartments = useCallback(async () => {
         if (!selectedIp) return;
@@ -605,8 +1044,204 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
         }
     };
 
+    // --- Time Zone Binding Logic ---
+    const openBindingModal = async (department: any) => {
+        if (!selectedIp) return;
+        setSelectedDepartment(department);
+        setLoading(true);
+
+        try {
+            // 1. Load all available Time Zones
+            const tzRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                command: 'load_objects',
+                params: { object: 'time_zones' },
+                targetIp: selectedIp
+            });
+            setAvailableTimeZones(tzRes.time_zones || []);
+
+            // 2. Map existing Time Zones directly via ControlID relation query
+            const mapRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                command: 'load_objects',
+                params: {
+                    object: 'time_zones',
+                    join: 'LEFT',
+                    where: [{
+                        object: 'groups',
+                        field: 'id',
+                        value: department.id,
+                        connector: ") AND ("
+                    }],
+                    limit: 1000
+                },
+                targetIp: selectedIp
+            });
+            const mappedIds = (mapRes.time_zones || []).map((tz: any) => tz.id);
+            setMappedTimeZoneIds(mappedIds);
+
+            // 3. Load access rule linked to this department internally for saving deltas later
+            const arRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                command: 'load_objects',
+                params: {
+                    object: 'access_rules',
+                    join: 'LEFT',
+                    where: [{
+                        object: 'groups',
+                        field: 'id',
+                        value: department.id,
+                        connector: ") AND ("
+                    }]
+                },
+                targetIp: selectedIp
+            });
+
+            if (arRes.access_rules && arRes.access_rules.length > 0) {
+                setActiveAccessRuleId(arRes.access_rules[0].id);
+            } else {
+                setActiveAccessRuleId(null);
+            }
+
+            setIsBindingModalOpen(true);
+        } catch (e) {
+            showToast("error", "Erro", "Falha ao carregar horários do departamento.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const toggleTimeZoneBinding = (tzId: number) => {
+        setMappedTimeZoneIds(prev =>
+            prev.includes(tzId)
+                ? prev.filter(id => id !== tzId)
+                : [...prev, tzId]
+        );
+    };
+
+    const handleSaveBindings = async () => {
+        if (!selectedDepartment || !selectedIp) return;
+        setLoading(true);
+        let currentRuleId = activeAccessRuleId;
+
+        try {
+            // 1. If we have mappings but no access rule, create the whole structure
+            if (!currentRuleId && mappedTimeZoneIds.length > 0) {
+                // Create Access Rule
+                const newRuleRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                    command: 'create_objects',
+                    params: {
+                        object: 'access_rules',
+                        values: [{
+                            name: `(access_rules automatically created for groups ${selectedDepartment.id})`,
+                            type: 1,
+                            priority: 0
+                        }]
+                    },
+                    targetIp: selectedIp
+                });
+                currentRuleId = newRuleRes.ids?.[0];
+                setActiveAccessRuleId(currentRuleId);
+
+                if (currentRuleId) {
+                    // Fetch Portals to bind (required for the access rule to be valid on the device)
+                    // We assume it returns the active portals for the device we're talking to.
+                    const portalRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'load_objects',
+                        params: {
+                            object: 'portals',
+                            limit: 1000
+                        },
+                        targetIp: selectedIp
+                    });
+
+                    const portals = portalRes.portals || [];
+
+                    // Bind Portals to Access Rule
+                    for (const portal of portals) {
+                        try {
+                            await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                                command: 'create_objects',
+                                params: {
+                                    object: 'portal_access_rules',
+                                    values: [{ portal_id: portal.id, access_rule_id: currentRuleId }]
+                                },
+                                targetIp: selectedIp
+                            });
+                        } catch (e) { /* ignore if already exists */ }
+                    }
+
+                    // Bind Group directly to Access Rule
+                    try {
+                        await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                            command: 'create_objects',
+                            params: {
+                                object: 'group_access_rules',
+                                values: [{ group_id: selectedDepartment.id, access_rule_id: currentRuleId }]
+                            },
+                            targetIp: selectedIp
+                        });
+                    } catch (e) { /* ignore if exists */ }
+                }
+            }
+
+            if (currentRuleId) {
+                // 2. We have a rule ID. Now reconcile the time_zones mapping
+                // First, load current mappings directly to know what to delete/add
+                const currentMapRes = await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                    command: 'load_objects',
+                    params: {
+                        object: 'access_rule_time_zones',
+                        where: [{
+                            object: 'access_rule_time_zones',
+                            field: 'access_rule_id',
+                            value: currentRuleId
+                        }]
+                    },
+                    targetIp: selectedIp
+                });
+
+                const currentMappings: any[] = currentMapRes.access_rule_time_zones || [];
+                const currentMappedTzIds = currentMappings.map(m => m.time_zone_id);
+
+                // Determine what to delete (exists in device but not in state)
+                const toDelete = currentMappings.filter(m => !mappedTimeZoneIds.includes(m.time_zone_id));
+                for (const mapping of toDelete) {
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'destroy_objects',
+                        params: {
+                            object: 'access_rule_time_zones',
+                            where: { access_rule_time_zones: { id: mapping.id } }
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+
+                // Determine what to add (exists in state but not in device)
+                const toAddIds = mappedTimeZoneIds.filter(id => !currentMappedTzIds.includes(id));
+                if (toAddIds.length > 0) {
+                    const valuesToAdd = toAddIds.map(tzId => ({ access_rule_id: currentRuleId, time_zone_id: tzId }));
+                    await apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+                        command: 'create_objects',
+                        params: {
+                            object: 'access_rule_time_zones',
+                            values: valuesToAdd
+                        },
+                        targetIp: selectedIp
+                    });
+                }
+            }
+
+            showToast("success", "Sucesso", "Horários atualizados para o departamento.");
+            setIsBindingModalOpen(false);
+        } catch (e) {
+            console.error(e);
+            showToast("error", "Erro", "Falha ao salvar horários.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+
     return (
-        <div className="flex gap-6">
+        <div className="flex gap-6 relative">
             {/* Vertical Tabs */}
             <div className="w-1/4 space-y-1">
                 {ips.map(item => (
@@ -630,7 +1265,7 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
 
                 <div className="flex gap-2">
                     <input
-                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white"
+                        className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
                         placeholder="Nome do novo departamento"
                         value={newName}
                         onChange={e => setNewName(e.target.value)}
@@ -639,13 +1274,13 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
                 </div>
 
                 {loading ? <p>Carregando...</p> : (
-                    <div className="divide-y divide-gray-200 dark:divide-gray-700 border rounded-lg">
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700 border rounded-lg overflow-hidden">
                         {departments.map(d => (
-                            <div key={d.id} className="p-3 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">{d.name} (ID: {d.id})</span>
+                            <div key={d.id} className="p-4 flex justify-between items-center hover:bg-gray-50 dark:hover:bg-gray-700/50">
+                                <span className="text-sm text-gray-700 dark:text-gray-300 font-medium">{d.name} <span className="text-gray-400 font-normal">(ID: {d.id})</span></span>
                                 <div className="flex gap-2">
-                                    <Button variant="outline" size="sm" onClick={() => alert("Feature em breve: Vincular horários")}>Horários</Button>
-                                    <Button variant="outline" size="sm" onClick={() => handleDelete(d.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-none shadow-none">Excluir</Button>
+                                    <Button variant="outline" size="sm" onClick={() => openBindingModal(d)} className="text-brand-600 hover:text-brand-800 hover:bg-brand-50 border-gray-200 dark:border-gray-700">Horários</Button>
+                                    <Button variant="outline" size="sm" onClick={() => handleDelete(d.id)} className="text-red-500 hover:text-red-700 hover:bg-red-50 border-gray-200 dark:border-gray-700">Excluir</Button>
                                 </div>
                             </div>
                         ))}
@@ -653,6 +1288,55 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
                     </div>
                 )}
             </div>
+
+            {/* Department Bindings Modal */}
+            {isBindingModalOpen && selectedDepartment && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+                            <div>
+                                <h3 className="text-lg font-medium text-gray-900 dark:text-white">Horários de Acesso</h3>
+                                <p className="text-sm text-gray-500">{selectedDepartment.name}</p>
+                            </div>
+                            <button onClick={() => setIsBindingModalOpen(false)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-2">
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto space-y-4">
+                            <p className="text-sm text-gray-700 dark:text-gray-300 mb-4">
+                                Selecione quais horários de acesso são permitidos para os usuários deste departamento.
+                            </p>
+                            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
+                                {availableTimeZones.map(tz => (
+                                    <label key={tz.id} className="flex items-center gap-3 p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer">
+                                        <div className="flex items-center h-5">
+                                            <input
+                                                type="checkbox"
+                                                checked={mappedTimeZoneIds.includes(tz.id)}
+                                                onChange={() => toggleTimeZoneBinding(tz.id)}
+                                                className="w-5 h-5 text-brand-600 rounded border-gray-300 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-700 dark:focus:ring-brand-500 dark:focus:ring-offset-gray-800"
+                                            />
+                                        </div>
+                                        <div className="flex flex-col">
+                                            <span className="text-sm font-medium text-gray-900 dark:text-white">{tz.name}</span>
+                                            <span className="text-xs text-gray-500">ID: {tz.id}</span>
+                                        </div>
+                                    </label>
+                                ))}
+                                {availableTimeZones.length === 0 && (
+                                    <p className="p-6 text-center text-sm text-gray-500 italic">Nenhum horário cadastrado no equipamento. Crie um na aba "Horários" primeiro.</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="p-5 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+                            <Button variant="outline" onClick={() => setIsBindingModalOpen(false)}>Cancelar</Button>
+                            <Button onClick={handleSaveBindings} className="bg-blue-600 hover:bg-blue-700 text-white border-none shadow-md" disabled={loading}>
+                                {loading ? 'Salvando...' : 'Salvar Vínculos'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -250,26 +250,22 @@ export class ControlIDProvider implements IHardwareProvider {
         switch (cmd) {
             case 'load_objects':
                 return (await this.client.post(`/load_objects.fcgi?session=${this.session}`, {
-                    object: params.object
+                    ...params
                 })).data;
 
             case 'create_objects':
                 return (await this.client.post(`/create_objects.fcgi?session=${this.session}`, {
-                    object: params.object,
-                    values: params.values
+                    ...params
                 })).data;
 
             case 'modify_objects':
                 return (await this.client.post(`/modify_objects.fcgi?session=${this.session}`, {
-                    object: params.object,
-                    values: params.values,
-                    where: params.where
+                    ...params
                 })).data;
 
             case 'destroy_objects':
                 return (await this.client.post(`/destroy_objects.fcgi?session=${this.session}`, {
-                    object: params.object,
-                    where: params.where
+                    ...params
                 })).data;
 
             default:
