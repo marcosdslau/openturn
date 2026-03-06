@@ -4,12 +4,18 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { EQPEquipamento } from '@prisma/client';
 import { IHardwareProvider, ControlIDConfig, HardwareBrand } from './interfaces/hardware.types';
 import { ControlIDProvider } from './providers/controlid.provider';
+import { WsRelayGateway } from '../connector/ws-relay.gateway';
+import { ConnectorService } from '../connector/connector.service';
 
 @Injectable()
 export class HardwareService {
     private readonly logger = new Logger(HardwareService.name);
 
-    constructor(private readonly prisma: PrismaService) { }
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly wsRelay: WsRelayGateway,
+        private readonly connectorService: ConnectorService,
+    ) { }
 
     instantiate(equipment: EQPEquipamento, overrideHost?: string): IHardwareProvider {
         if (equipment.EQPMarca === HardwareBrand.CONTROLID) {
@@ -75,6 +81,7 @@ export class HardwareService {
             }
         }
     }
+
     async executeCommand(equipmentId: number, command: string, params?: any, targetIp?: string): Promise<any> {
         const device = await this.prisma.eQPEquipamento.findUnique({
             where: { EQPCodigo: equipmentId }
@@ -99,9 +106,104 @@ export class HardwareService {
             }
         }
 
+        // Route through WS relay for addon equipment
+        if (device.EQPUsaAddon) {
+            return this.executeCommandViaRelay(device, command, params, targetIp);
+        }
+
         const provider = this.instantiate(device, targetIp);
         return await provider.customCommand(command, params);
     }
+
+    /**
+     * Execute a ControlID command via the WS relay (Connector → Device).
+     * Handles login + session management transparently.
+     */
+    private async executeCommandViaRelay(
+        device: EQPEquipamento,
+        command: string,
+        params?: any,
+        targetIp?: string,
+    ): Promise<any> {
+        const config = device.EQPConfig as unknown as ControlIDConfig;
+        const host = targetIp || config?.host || device.EQPEnderecoIp;
+
+        if (!host) {
+            throw new Error(`No valid IP for relay command on equipment ${device.EQPCodigo}`);
+        }
+
+        // Resolve the connector for the institution
+        const connector = await this.connectorService.findByInstituicao(device.INSInstituicaoCodigo);
+        const connectorId = connector.CONCodigo;
+
+        // Build the device's base URL
+        let baseUrl = host.includes('://') ? host : `http://${host}`;
+        if (!host.includes(':')) {
+            baseUrl += `:${config?.port || 80}`;
+        }
+
+        this.logger.log(`[Relay] Executing command "${command}" on device ${device.EQPCodigo} via connector ${connectorId} (${baseUrl})`);
+
+        // Step 1: Login to get session
+        const loginResult = await this.wsRelay.sendHttpRequest(
+            connectorId,
+            device.EQPCodigo,
+            baseUrl,
+            'POST',
+            '/login.fcgi',
+            { 'Content-Type': 'application/json' },
+            JSON.stringify({
+                login: config?.user || 'admin',
+                password: config?.pass || 'admin',
+            }),
+        );
+
+        const loginData = JSON.parse(loginResult.body.toString('utf-8'));
+        const session = loginData.session;
+
+        if (!session) {
+            throw new Error(`Failed to get session from device ${device.EQPCodigo} via relay`);
+        }
+
+        // Step 2: Build the .fcgi command
+        const fcgiMap: Record<string, { endpoint: string; body: any }> = {
+            load_objects: {
+                endpoint: `/load_objects.fcgi?session=${session}`,
+                body: { object: params?.object },
+            },
+            create_objects: {
+                endpoint: `/create_objects.fcgi?session=${session}`,
+                body: { object: params?.object, values: params?.values },
+            },
+            modify_objects: {
+                endpoint: `/modify_objects.fcgi?session=${session}`,
+                body: { object: params?.object, values: params?.values, where: params?.where },
+            },
+            destroy_objects: {
+                endpoint: `/destroy_objects.fcgi?session=${session}`,
+                body: { object: params?.object, where: params?.where },
+            },
+        };
+
+        const mapping = fcgiMap[command];
+        if (!mapping) {
+            throw new Error(`Unknown relay command: ${command}`);
+        }
+
+        // Step 3: Execute the command via relay
+        const result = await this.wsRelay.sendHttpRequest(
+            connectorId,
+            device.EQPCodigo,
+            baseUrl,
+            'POST',
+            mapping.endpoint,
+            { 'Content-Type': 'application/json' },
+            JSON.stringify(mapping.body),
+        );
+
+        return JSON.parse(result.body.toString('utf-8'));
+    }
+
 
     async processAccessLog(instituicaoId: number, event: any) {
         // event structure example:
