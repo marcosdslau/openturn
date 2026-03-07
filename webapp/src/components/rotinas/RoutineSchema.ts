@@ -79,5 +79,39 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
             { name: "EQPAtivo", type: "Boolean", description: "Ativo?" },
             { name: "createdAt", type: "DateTime", description: "Data Criação" },
         ]
+    },
+    {
+        name: "ERPConfiguracao",
+        alias: "ConfigERP",
+        description: "Configurações de integração com ERP Externo",
+        fields: [
+            { name: "ERPCodigo", type: "Int", pk: true, description: "ID Configuração" },
+            { name: "ERPSistema", type: "String", description: "Nome do Sistema (Ex: Totvs)" },
+            { name: "ERPUrlBase", type: "String", description: "URL Base da API" },
+            { name: "ERPToken", type: "String", description: "Token de Autenticação" },
+            { name: "ERPConfigJson", type: "Json", description: "Parâmetros extras (JSON)" },
+            { name: "INSInstituicaoCodigo", type: "Int", fk: "INSInstituicao", description: "ID Instituição" },
+        ]
+    },
+    {
+        name: "INSInstituicao",
+        alias: "Instituicao",
+        description: "Dados da Instituição (Unidade) atual",
+        fields: [
+            { name: "INSCodigo", type: "Int", pk: true, description: "ID Instituição" },
+            { name: "INSNome", type: "String", description: "Nome da Unidade" },
+            { name: "INSAtivo", type: "Boolean", description: "Ativo?" },
+            { name: "INSConfigHardware", type: "Json", description: "Configurações Globais Hardware" },
+        ]
+    },
+    {
+        name: "PESEquipamentoMapeamento",
+        alias: "MapeamentoControle",
+        description: "Mapeamento DE-PARA entre Pessoa e Equipamento",
+        fields: [
+            { name: "PESCodigo", type: "Int", pk: true, fk: "PESPessoa", description: "ID Pessoa" },
+            { name: "EQPCodigo", type: "Int", pk: true, fk: "EQPEquipamento", description: "ID Equipamento" },
+            { name: "PEQIdNoEquipamento", type: "String", description: "ID no Hardware (De-Para)" },
+        ]
     }
 ];

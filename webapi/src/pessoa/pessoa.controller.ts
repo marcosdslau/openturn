@@ -62,4 +62,12 @@ export class PessoaController {
     ) {
         return this.service.remove(instituicaoCodigo, id);
     }
+
+    @Get(':id/mappings')
+    getMappings(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.findMappings(instituicaoCodigo, id);
+    }
 }

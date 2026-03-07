@@ -27,12 +27,18 @@ process.on('message', async (message: any) => {
                 context.db = createDbProxy(dbConfig.models);
             }
 
+            // Setup Hardware Proxy
+            context.hardware = createHardwareProxy();
+
+            // Importa axios para injetar no sandbox
+            const axios = require('axios');
+
             // Cria função assíncrona com o código da rotina
             const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
-            const fn = new AsyncFunction('context', 'console', code);
+            const fn = new AsyncFunction('context', 'console', 'axios', code);
 
             // Executa a rotina
-            const result = await fn(context, console);
+            const result = await fn(context, console, axios);
 
             // Envia resultado de sucesso
             process.send?.({
@@ -90,6 +96,19 @@ function createDbProxy(models: string[]) {
     }
 
     return db;
+}
+
+/**
+ * Cria Proxy para hardware que encaminha chamadas via RPC
+ */
+function createHardwareProxy() {
+    return new Proxy({}, {
+        get: (target, prop: string) => {
+            return (equipmentId: number, ...args: any[]) => {
+                return sendRpc('hardware.exec', { equipmentId, method: prop, args });
+            };
+        }
+    });
 }
 
 /**

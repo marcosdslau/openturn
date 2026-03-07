@@ -121,11 +121,36 @@ console.log(\`Encontradas \${pessoas.length} pessoas\`);`,
 `,
     },
     {
-        label: 'Requisição HTTP (Axios)',
-        detail: 'Faz uma requisição HTTP externa',
-        code: `// Nota: Axios está disponível como 'axios' se injetado
-// const response = await axios.get('https://api.example.com/data');
-// console.log(response.data);`,
+        label: 'Requisição HTTP (Axios) - Básico',
+        detail: 'Faz uma requisição GET simples',
+        code: `const resp = await axios.get('https://api.example.com/data');
+console.log('Status:', resp.status);
+console.log('Dados:', resp.data);`,
+    },
+    {
+        label: 'Requisição HTTP (Axios) - Instância',
+        detail: 'Cria uma instância com BaseURL e Headers (Cache, Auth)',
+        code: `// Cria uma instância reutilizável para o ERP
+const api = axios.create({
+    baseURL: 'https://api.meuerp.com/v1',
+    timeout: 5000,
+    headers: {
+        'Authorization': 'Bearer SEU_TOKEN',
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+    }
+});
+
+// Faz a requisição usando a instância
+try {
+    const { data } = await api.post('/sync/pessoas', {
+        id: 1,
+        nome: 'Teste'
+    });
+    console.log('Sincronizado com sucesso:', data);
+} catch (error) {
+    console.error('Falha na integração:', error.message);
+}`,
     },
 ];
 
@@ -235,6 +260,103 @@ const estatisticas = await context.db.PESPessoa.groupBy({
     },
 ];
 
+const HARDWARE_SNIPPETS = [
+    {
+        label: 'Hardware - Sincronizar Pessoa (Completo)',
+        detail: 'Sincroniza todos os dados (Tags, Biometria, Mapping) com o equipamento',
+        code: `// Sincroniza a Pessoa 101 no Equipamento 1
+// O sistema gerencia o DE-PARA automaticamente no Banco de Dados
+await context.hardware.syncPerson(1, {
+    id: 101,
+    name: "João Silva",
+    cpf: "123.456.789-00",
+    password: "123",
+    faceExtension: "jpg",
+    tags: ["123456"],
+    faces: ["BASE64_FOTO"],
+    fingers: ["TEMPLATE_BIO"]
+});`,
+    },
+    {
+        label: 'Hardware - Criar Usuário',
+        detail: 'Cria apenas o objeto Usuário no hardware e registra Mapping',
+        code: `// cria o ID 101 (Nome, Senha, CPF, Limiar) no Equipamento 1
+await context.hardware.createPerson(1, 101, "João", "123", "123.456.789-00", 80);`,
+    },
+    {
+        label: 'Hardware - Atualizar Usuário',
+        detail: 'Atualiza dados cadastrais do usuário no hardware',
+        code: `await context.hardware.modifyPerson(1, 101, "João Novo Nome", "456", "321.654.987-00", 85);`,
+    },
+    {
+        label: 'Hardware - Excluir Usuário',
+        detail: 'Remove o usuário do hardware (Baseado no ID do Banco)',
+        code: `await context.hardware.deletePerson(101);`,
+    },
+    {
+        label: 'Hardware - Vincular Tag (Cartão)',
+        detail: 'Adiciona uma tag/cartão ao usuário no hardware',
+        code: `await context.hardware.setTag(101, "987654");`,
+    },
+    {
+        label: 'Hardware - Remover Tag (Cartão)',
+        detail: 'Desvincula a tag do hardware',
+        code: `await context.hardware.removeTag("987654");`,
+    },
+    {
+        label: 'Hardware - Vincular Face (Foto)',
+        detail: 'Envia imagem para reconhecimento facial',
+        code: `await context.hardware.setFace(101, "BASE64_DA_IMAGEM", "jpg");`,
+    },
+    {
+        label: 'Hardware - Remover Face (Foto)',
+        detail: 'Exclui biometria facial do usuário no hardware',
+        code: `await context.hardware.removeFace(101);`,
+    },
+    {
+        label: 'Hardware - Vincular Digitais',
+        detail: 'Envia templates de impressão digital para o hardware',
+        code: `await context.hardware.setFingers(101, ["TEMPLATE_1", "TEMPLATE_2"]);`,
+    },
+    {
+        label: 'Hardware - Remover Digitais',
+        detail: 'Exclui todas as digitais do usuário no hardware',
+        code: `await context.hardware.removeFingers(101);`,
+    },
+    {
+        label: 'Hardware - Definir Grupos/Departamentos',
+        detail: 'Vincula o usuário a grupos de acesso no hardware',
+        code: `await context.hardware.setGroups(101, [1, "TI", 5]);`,
+    },
+    {
+        label: 'Hardware - Remover Grupos/Departamentos',
+        detail: 'Remove o vínculo do usuário com grupos específicos',
+        code: `await context.hardware.removeGroups(101, [1, 5]);`,
+    },
+    {
+        label: 'Hardware - Executar Ação (Comando)',
+        detail: 'Envia um comando direto (Ex: Abrir porta, Liberar catraca)',
+        code: `// Ex: Abrir porta do Equipamento 1
+await context.hardware.executeAction(1, "open_door", { door: 1 });`,
+    },
+    {
+        label: 'Hardware - Modo Cadastro Remoto (Enroll)',
+        detail: 'Coloca o equipamento em modo de captura de biometria/face',
+        code: `// Enroll de face no Equipamento 1 para o Usuário 101
+await context.hardware.enroll(1, "face", 101);`,
+    },
+    {
+        label: 'Hardware - Comando Customizado (Raw)',
+        detail: 'Envia comandos específicos do fabricante (Ex: ControlID .fcgi)',
+        code: `// Ex: load_objects nativo do ControlID
+const users = await context.hardware.customCommand(1, "load_objects", {
+    object: "users",
+    limit: 10
+});
+console.log(users);`,
+    },
+];
+
 const WEBHOOK_SNIPPETS = [
     {
         label: 'Webhook - Acessar Body',
@@ -281,7 +403,65 @@ const params = context.request?.params;
     },
 ];
 
-const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...WEBHOOK_SNIPPETS, ...generateSchemaSnippets()];
+const CONFIG_SNIPPETS = [
+    {
+        label: 'Configuração - Obter Dados do ERP',
+        detail: 'Recupera URL, Token e parâmteros do ERP vinculado',
+        code: `// Busca a configuração do ERP da instituição
+const erp = await context.db.ERPConfiguracao.findFirst();
+
+if (erp) {
+    console.log(\`Integrado com: \${erp.ERPSistema}\`);
+    console.log(\`URL Base: \${erp.ERPUrlBase}\`);
+    // const token = erp.ERPToken;
+} else {
+    console.warn('Nenhuma configuração de ERP encontrada.');
+}`,
+    },
+    {
+        label: 'Configuração - Obter Dados da Instituição',
+        detail: 'Recupera o nome e parâmetros globais da Unidade',
+        code: `// Busca os dados da instituição atual (Isolado via RLS)
+const inst = await context.db.INSInstituicao.findFirst();
+
+if (inst) {
+    console.log(\`Instituição: \${inst.INSNome}\`);
+    // const hwConfig = inst.INSConfigHardware;
+} else {
+    console.error('Dados da instituição não encontrados.');
+}`,
+    },
+];
+
+const FILE_SNIPPETS = [
+    {
+        label: 'Imagens - Baixar e Converter (Base64)',
+        detail: 'Baixa imagem via URL, detecta extensão e converte para Base64',
+        code: `// URL da foto (Ex: vinda do ERP)
+const photoUrl = 'https://api.meuerp.com/photos/123.jpg';
+
+try {
+    const response = await axios.get(photoUrl, { responseType: 'arraybuffer' });
+    const base64 = Buffer.from(response.data, 'binary').toString('base64');
+    const contentType = response.headers['content-type'] || 'image/jpeg';
+    
+    let extension = 'jpg';
+    if (contentType.includes('/')) {
+        extension = contentType.split('/')[1];
+    }
+
+    console.log('Foto convertida. Extensão:', extension);
+    // console.log('Base64:', base64);
+
+    // Dica: Use no campo PESFotoBase64 e PESFotoExtensao do banco
+    // ou diretamente no hardware via context.hardware.setFace
+} catch (error) {
+    console.error('Erro ao baixar foto:', error.message);
+}`,
+    },
+];
+
+const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...HARDWARE_SNIPPETS, ...WEBHOOK_SNIPPETS, ...CONFIG_SNIPPETS, ...FILE_SNIPPETS, ...generateSchemaSnippets()];
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');
@@ -335,8 +515,12 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                     <span className="text-gray-600 dark:text-gray-400">Prisma Client (Isolado)</span>
                                 </li>
                                 <li className="flex items-start gap-2">
+                                    <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.hardware</code>
+                                    <span className="text-gray-600 dark:text-gray-400">Controle de Equipamentos (Unified)</span>
+                                </li>
+                                <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
-                                    <span className="text-gray-600 dark:text-gray-400">Adaptadores Hardware</span>
+                                    <span className="text-gray-600 dark:text-gray-400">Adaptadores Legados</span>
                                 </li>
                             </ul>
                         </div>

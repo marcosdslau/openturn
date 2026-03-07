@@ -214,6 +214,7 @@ export class RotinaService {
             instituicaoCodigo,
             'MANUAL',
             { manual: true },
+            { skipActiveCheck: true },
         );
 
         return {

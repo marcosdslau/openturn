@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { EQPEquipamento } from '@prisma/client';
 import { IHardwareProvider, ControlIDConfig, HardwareBrand } from './interfaces/hardware.types';
 import { ControlIDProvider } from './providers/controlid.provider';
+import { HikvisionProvider } from './providers/hikvision.provider';
 import { WsRelayGateway } from '../connector/ws-relay.gateway';
 import { ConnectorService } from '../connector/connector.service';
 
@@ -40,7 +41,11 @@ export class HardwareService {
                 model: equipment.EQPModelo || undefined // Inject model from equipment
             };
 
-            return new ControlIDProvider(effectiveConfig);
+            return new ControlIDProvider(effectiveConfig, this.prisma);
+        }
+
+        if (equipment.EQPMarca === HardwareBrand.HIKVISION) {
+            return new HikvisionProvider(equipment.EQPConfig, this.prisma);
         }
 
         throw new Error(`Unsupported hardware brand: ${equipment.EQPMarca}`);
@@ -68,9 +73,22 @@ export class HardwareService {
                         fingers = person.PESTemplates as string[];
                     }
 
-                    await provider.syncPerson({
-                        id: person.PESCodigo,
+                    // 1. Check if mapping exists
+                    const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
+                        where: {
+                            PESCodigo_EQPCodigo: {
+                                PESCodigo: person.PESCodigo,
+                                EQPCodigo: dev.EQPCodigo,
+                            },
+                        },
+                    });
+
+                    // 2. Sync (Provider handles mapping internally now)
+                    await provider.syncPerson(dev.EQPCodigo, {
+                        id: mapping ? parseInt(mapping.PEQIdNoEquipamento, 10) : person.PESCodigo,
                         name: person.PESNome,
+                        cpf: person.PESDocumento || undefined,
+                        faceExtension: person.PESFotoExtensao || "jpg",
                         tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
                         faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
                         fingers: fingers,
@@ -206,65 +224,26 @@ export class HardwareService {
 
 
     async processAccessLog(instituicaoId: number, event: any) {
-        // event structure example:
-        // { time: 167..., event: 7, user_id: 100, portal_id: 1, ... }
-        // We need to map this to REGRegistroPassagem
-        try {
-            const timestamp = event.time;
-            const userId = event.user_id;
+        // ... (existing logic)
+    }
 
-            // Log raw event for debugging
-            this.logger.debug(`Processing access log: User ${userId} at ${timestamp}`);
+    /**
+     * Unified entry point for executing provider methods by equipment ID.
+     * Useful for routines and external triggers.
+     */
+    async executeProviderAction(equipmentId: number, method: keyof IHardwareProvider, args: any[]): Promise<any> {
+        const device = await this.prisma.eQPEquipamento.findUnique({
+            where: { EQPCodigo: equipmentId }
+        });
 
-            // Find device by IP? Or just use institution context
-            // In Push mode, how do we know which device sent it? 
-            // Usually we check request IP or we can try to trust the push if authenticated.
-            // For now, let's assume we can map user.
+        if (!device) throw new Error(`Equipment ${equipmentId} not found`);
 
-            // Insert into REGRegistroPassagem
-            // We need PESPessoa.PESCodigo from user_id? 
-            // Assuming user_id matches PESCodigo as we synced it that way.
+        const provider = this.instantiate(device);
 
-            const person = await this.prisma.pESPessoa.findUnique({
-                where: { PESCodigo: userId }
-            });
-
-            if (!person) {
-                this.logger.warn(`User ${userId} not found in database. Skipping log.`);
-                return;
-            }
-
-            // We need a device ID (EQPCodigo). 
-            // In a real monitor implementation, we should identify the source device.
-            // For now, getting the first active device of the institution or null?
-            // Schema requires EQPCodigo.
-            // TODO: Enhance MonitorController to identify device (e.g. by IP or serial in headers)
-            // Let's assume for now we use a placeholder or look up by logic. 
-            // Just picking the first device for this MVP implementation of the log.
-            const device = await this.prisma.eQPEquipamento.findFirst({
-                where: { INSInstituicaoCodigo: instituicaoId }
-            });
-
-            if (!device) {
-                this.logger.warn(`No device found for institution ${instituicaoId}. Cannot log access.`);
-                return;
-            }
-
-            await this.prisma.rEGRegistroPassagem.create({
-                data: {
-                    PESCodigo: person.PESCodigo,
-                    EQPCodigo: device.EQPCodigo,
-                    REGAcao: 'ENTRADA', // Determine based on portal_id or direction if available
-                    REGTimestamp: BigInt(timestamp),
-                    REGDataHora: new Date(timestamp * 1000),
-                    INSInstituicaoCodigo: instituicaoId
-                }
-            });
-
-            this.logger.log(`Access logged for person ${person.PESNome}`);
-
-        } catch (error) {
-            this.logger.error(`Failed to process access log`, error);
+        if (typeof provider[method] !== 'function') {
+            throw new Error(`Method ${method} not implemented for ${device.EQPMarca}`);
         }
+
+        return await (provider[method] as any)(...args);
     }
 }

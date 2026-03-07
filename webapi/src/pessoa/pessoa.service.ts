@@ -72,4 +72,20 @@ export class PessoaService {
             data: { deletedAt: new Date(), PESAtivo: false },
         });
     }
+
+    async findMappings(instituicaoCodigo: number, id: number) {
+        await this.findOne(instituicaoCodigo, id);
+        return this.prisma.rls.pESEquipamentoMapeamento.findMany({
+            where: { PESCodigo: id },
+            include: {
+                equipamento: {
+                    select: {
+                        EQPDescricao: true,
+                        EQPMarca: true,
+                        EQPModelo: true,
+                    },
+                },
+            },
+        });
+    }
 }

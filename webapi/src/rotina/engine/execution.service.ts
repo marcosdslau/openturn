@@ -4,6 +4,8 @@ import { ProcessManager } from './process-manager';
 import { DbTenantProxy } from './db-tenant-proxy';
 import { ConsoleGateway } from '../console.gateway';
 import { StatusExecucao } from '@prisma/client';
+import { HardwareService } from '../../hardware/hardware.service';
+import { ModuleRef } from '@nestjs/core';
 
 @Injectable()
 export class ExecutionService {
@@ -13,9 +15,14 @@ export class ExecutionService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly consoleGateway: ConsoleGateway,
+        private readonly moduleRef: ModuleRef,
     ) {
         this.processManager = new ProcessManager();
         this.processManager.setConsoleGateway(consoleGateway);
+    }
+
+    private async getHardwareService(): Promise<HardwareService> {
+        return this.moduleRef.get(HardwareService, { strict: false });
     }
 
     /**
@@ -26,6 +33,7 @@ export class ExecutionService {
         instituicaoCodigo: number,
         trigger: string,
         requestData?: any,
+        options?: { skipActiveCheck?: boolean },
     ) {
         const executionId = `exec-${rotinaCodigo}-${Date.now()}`;
         const inicio = new Date();
@@ -46,7 +54,7 @@ export class ExecutionService {
                 throw new Error('Rotina não encontrada');
             }
 
-            if (!rotina.ROTAtivo) {
+            if (!rotina.ROTAtivo && !options?.skipActiveCheck) {
                 throw new Error('Rotina inativa');
             }
 
@@ -139,6 +147,9 @@ export class ExecutionService {
             'mATMatricula',
             'rEGRegistroPassagem',
             'eQPEquipamento',
+            'pESEquipamentoMapeamento',
+            'eRPConfiguracao',
+            'iNSInstituicao',
         ];
 
         // Schema definition for context info (mirrors schema.prisma minus INSInstituicaoCodigo)
@@ -200,6 +211,33 @@ export class ExecutionService {
                     { name: "EQPAtivo", type: "Boolean" },
                     { name: "createdAt", type: "DateTime" },
                 ]
+            },
+            ERPConfiguracao: {
+                alias: 'ConfigERP',
+                fields: [
+                    { name: "ERPCodigo", type: "Int", pk: true },
+                    { name: "ERPSistema", type: "String" },
+                    { name: "ERPUrlBase", type: "String" },
+                    { name: "ERPToken", type: "String" },
+                    { name: "ERPConfigJson", type: "Json" },
+                ]
+            },
+            INSInstituicao: {
+                alias: 'Instituicao',
+                fields: [
+                    { name: "INSCodigo", type: "Int", pk: true },
+                    { name: "INSNome", type: "String" },
+                    { name: "INSAtivo", type: "Boolean" },
+                    { name: "INSConfigHardware", type: "Json" },
+                ]
+            },
+            PESEquipamentoMapeamento: {
+                alias: 'MapeamentoControle',
+                fields: [
+                    { name: "PESCodigo", type: "Int", pk: true, fk: "PESPessoa" },
+                    { name: "EQPCodigo", type: "Int", pk: true, fk: "EQPEquipamento" },
+                    { name: "PEQIdNoEquipamento", type: "String" },
+                ]
             }
         };
 
@@ -225,6 +263,13 @@ export class ExecutionService {
                 // Executa no Prisma real
                 return realDb[model][dbMethod](...args);
             }
+
+            if (method === 'hardware.exec') {
+                const { equipmentId, method: providerMethod, args: providerArgs } = params;
+                const hardwareService = await this.getHardwareService();
+                return await hardwareService.executeProviderAction(equipmentId, providerMethod, providerArgs);
+            }
+
             throw new Error(`Unknown RPC method: ${method}`);
         };
 

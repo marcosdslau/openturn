@@ -69,6 +69,7 @@ export default function RoutineEditorPage() {
 
     const editorRef = useRef<any>(null);
     const saveRef = useRef<() => void>(() => { });
+    const codeRef = useRef<string>("");
 
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
@@ -76,6 +77,11 @@ export default function RoutineEditorPage() {
         // Register Cmd+S / Ctrl+S inside Monaco Editor
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveRef.current();
+        });
+
+        // Keep codeRef in sync via model content change (no React re-render)
+        editor.onDidChangeModelContent(() => {
+            codeRef.current = editor.getValue();
         });
     };
 
@@ -99,7 +105,9 @@ export default function RoutineEditorPage() {
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTAtivo: data.ROTAtivo
             });
-            setCode(data.ROTCodigoJS || "// Escreva seu código aqui...");
+            const initialCode = data.ROTCodigoJS || "// Escreva seu código aqui...";
+            codeRef.current = initialCode;
+            setCode(initialCode);
             setOriginalCode(data.ROTCodigoJS || "");
         } catch (error) {
             console.error("Erro ao carregar rotina", error);
@@ -178,14 +186,17 @@ export default function RoutineEditorPage() {
         if (!rotina) return;
         setSaving(true);
         try {
+            const currentCode = codeRef.current;
             const observacao = `${rotina.ROTNome} - ${new Date().toLocaleString('pt-BR')}`;
             await RotinaService.update(rotina.ROTCodigo, {
-                ROTCodigoJS: code,
+                ROTCodigoJS: currentCode,
                 observacao,
                 INSInstituicaoCodigo: codigoInstituicao
             });
             showToast("success", "Sucesso", "Rotina salva com sucesso!");
-            loadRotina(); // Reload to get updated timestamp etc
+            // Update local state without reloading the page
+            setOriginalCode(currentCode);
+            setRotina(prev => prev ? { ...prev, ROTCodigoJS: currentCode } : null);
         } catch (error) {
             console.error("Erro ao salvar", error);
             showToast("error", "Erro", "Erro ao salvar rotina");
@@ -220,7 +231,7 @@ export default function RoutineEditorPage() {
             // But we can offer a "Save & Execute" or just warn.
             // For now, let's just trigger execution of what is on server.
 
-            if (code !== rotina.ROTCodigoJS) {
+            if (codeRef.current !== rotina.ROTCodigoJS) {
                 if (!confirm("Existem alterações não salvas. A execução usará a última versão SALVA. Deseja continuar?")) {
                     setExecuting(false);
                     return;
@@ -242,6 +253,11 @@ export default function RoutineEditorPage() {
             await RotinaService.restoreVersion(version.HVICodigo, codigoInstituicao);
             // Update editor
             setCode(version.HVICodigoJS);
+            codeRef.current = version.HVICodigoJS;
+            // Also update the Monaco editor model directly
+            if (editorRef.current) {
+                editorRef.current.setValue(version.HVICodigoJS);
+            }
             setRotina(prev => prev ? { ...prev, ROTCodigoJS: version.HVICodigoJS } : null);
             setDiffModalOpen(false);
             showToast("success", "Restaurado", `Restaurado para versão de ${new Date(version.createdAt).toLocaleString()}`);
@@ -454,8 +470,8 @@ export default function RoutineEditorPage() {
                                 height="100%"
                                 defaultLanguage="javascript"
                                 theme="vs-dark"
-                                value={code}
-                                onChange={(value) => setCode(value || "")}
+                                defaultValue={code}
+                                onChange={(value) => { codeRef.current = value || ""; }}
                                 options={{
                                     minimap: { enabled: false },
                                     fontSize: 13,

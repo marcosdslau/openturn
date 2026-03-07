@@ -27,10 +27,13 @@ export function SchemaVisualizer() {
 
     // Table Positions
     const [positions, setPositions] = useState<Record<string, Position>>({
-        PESPessoa: { x: 50, y: 250 },
-        MATMatricula: { x: 450, y: 250 },
-        REGRegistroPassagem: { x: 450, y: 600 },
-        EQPEquipamento: { x: 50, y: 600 },
+        PESPessoa: { x: 50, y: 50 },
+        MATMatricula: { x: 450, y: 50 },
+        EQPEquipamento: { x: 50, y: 400 },
+        PESEquipamentoMapeamento: { x: 450, y: 400 },
+        REGRegistroPassagem: { x: 50, y: 750 },
+        INSInstituicao: { x: 850, y: 50 },
+        ERPConfiguracao: { x: 850, y: 400 },
     });
 
     const [dragging, setDragging] = useState<DragState | null>(null);

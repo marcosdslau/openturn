@@ -211,14 +211,18 @@ function UsersTab({ isSuperRoot }: { isSuperRoot: boolean }) {
         setSaving(true);
         setError("");
         try {
-            await apiPost("/admin-usuarios", {
+            const result = await apiPost<{ reused?: boolean }>("/admin-usuarios", {
                 nome: form.nome,
                 email: form.email,
-                senha: form.senha,
+                senha: form.senha || undefined,
                 grupo: form.grupo,
             });
             setFormModalType(null);
-            toast.show("success", "Usuário criado", `O usuário "${form.nome}" foi criado com sucesso.`);
+            if (result?.reused) {
+                toast.show("success", "Acesso adicionado", `O usuário "${form.nome}" já existia e recebeu o perfil ${GRUPO_LABELS[form.grupo] || form.grupo}.`);
+            } else {
+                toast.show("success", "Usuário criado", `O usuário "${form.nome}" foi criado com sucesso.`);
+            }
             load();
         } catch (e: any) {
             setError(e?.message || "Erro ao criar usuário");
@@ -395,7 +399,7 @@ function UsersTab({ isSuperRoot }: { isSuperRoot: boolean }) {
                 </div>
                 <div className="flex gap-3 justify-end pt-4">
                     <Button size="sm" variant="outline" onClick={() => setFormModalType(null)}>Cancelar</Button>
-                    <Button size="sm" onClick={handleCreate} disabled={saving || !form.nome || !form.email || !form.senha}>
+                    <Button size="sm" onClick={handleCreate} disabled={saving || !form.nome || !form.email}>
                         {saving ? "Salvando..." : "Criar"}
                     </Button>
                 </div>

@@ -2,13 +2,17 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios, { AxiosInstance } from 'axios';
 import { HardwareUser, IHardwareProvider, ControlIDConfig } from '../interfaces/hardware.types';
+import { PrismaService } from '../../common/prisma/prisma.service';
 
 export class ControlIDProvider implements IHardwareProvider {
     private readonly logger = new Logger(ControlIDProvider.name);
     private readonly client: AxiosInstance;
     private session: string | null = null;
 
-    constructor(private readonly config: ControlIDConfig) {
+    constructor(
+        private readonly config: ControlIDConfig,
+        private readonly prisma: PrismaService,
+    ) {
         let host = this.config.host;
         let protocol = 'http';
 
@@ -93,88 +97,199 @@ export class ControlIDProvider implements IHardwareProvider {
         }
     }
 
-    async syncPerson(person: HardwareUser): Promise<void> {
+    async syncPerson(equipmentId: number, person: HardwareUser): Promise<{ idNoEquipamento: string }> {
         return this.withRetry(async () => {
             await this.ensureSession();
 
-            switch (this.config.model) {
-                case 'iDBlock':
-                case 'iDBlock Next':
-                    // Specific logic for turnstiles if needed
-                    return this.syncPerson_Standard(person);
-                case 'iDAccess':
-                    return this.syncPerson_Standard(person);
-                default:
-                    return this.syncPerson_Standard(person);
+            // 1. Check if user exists in Hardware (DE-PARA)
+            const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
+                where: { PESCodigo_EQPCodigo: { PESCodigo: person.id, EQPCodigo: equipmentId } }
+            });
+
+            const hardwareId = mapping ? parseInt(mapping.PEQIdNoEquipamento, 10) : person.id;
+
+            // 1b. Check if user exists in Hardware Device
+            const userResponse = await this.client.post(`/load_objects.fcgi?session=${this.session}`, {
+                object: 'users',
+                where: { users: { id: hardwareId } }
+            });
+
+            const exists = userResponse.data.users && userResponse.data.users.length > 0;
+
+            if (exists) {
+                await this.modifyPerson(equipmentId, person.id, person.name, person.password, person.cpf, person.limiar);
+            } else {
+                await this.createPerson(equipmentId, person.id, person.name, person.password, person.cpf, person.limiar);
             }
+
+            // ... rest of sync logic (tags, biometrics) using resolved hardwareId
+            // 2. Sync Tags (Upsert logic)
+            if (person.tags) {
+                const tagsResponse = await this.client.post(`/load_objects.fcgi?session=${this.session}`, {
+                    object: 'cards',
+                    where: { cards: { user_id: hardwareId } }
+                });
+
+                const currentTags: any[] = tagsResponse.data.cards || [];
+                const currentTagValues = currentTags.map(t => t.value.toString());
+
+                for (const tag of person.tags) {
+                    if (!currentTagValues.includes(tag)) {
+                        await this.setTag(hardwareId, tag);
+                    }
+                }
+
+                for (const t of currentTags) {
+                    if (!person.tags.includes(t.value.toString())) {
+                        await this.removeTag(t.value.toString());
+                    }
+                }
+            }
+
+            if (person.faces && person.faces.length > 0) {
+                await this.setFace(hardwareId, person.faces[0], person.faceExtension || "jpg");
+            }
+            if (person.fingers) {
+                await this.setFingers(hardwareId, person.fingers);
+            }
+
+            return { idNoEquipamento: hardwareId.toString() };
         });
     }
 
-    private async syncPerson_Standard(person: HardwareUser): Promise<void> {
-        const session = this.session;
+    async modifyPerson(equipmentId: number, id: number, name: string, password?: string, cpf?: string, limiar?: number): Promise<void> {
+        await this.ensureSession();
 
-        try {
-            // Destroy user first to ensure clean state
-            await this.deletePersonInternal(person.id);
+        // 1. Resolve Hardware ID via Mapping (or use person.id as fallback)
+        const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
+            where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } }
+        });
 
-            // Create User
-            await this.client.post(`/create_objects.fcgi?session=${session}`, {
-                object: 'users',
-                values: [{
-                    id: person.id,
-                    name: person.name,
-                    registration: person.id.toString(),
-                }],
+        const hardwareId = mapping ? parseInt(mapping.PEQIdNoEquipamento, 10) : id;
+
+        await this.client.post(`/modify_objects.fcgi?session=${this.session}`, {
+            object: 'users',
+            values: [{
+                name,
+                registration: hardwareId.toString(),
+                password: password || undefined,
+                salt: cpf || undefined,
+            }],
+            where: { users: { id: hardwareId } }
+        });
+    }
+
+    async createPerson(equipmentId: number, id: number, name: string, password?: string, cpf?: string, limiar?: number): Promise<void> {
+        await this.ensureSession();
+
+        const hardwareId = id;
+        await this.prisma.rls.pESEquipamentoMapeamento.upsert({
+            where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } },
+            update: { PEQIdNoEquipamento: hardwareId.toString() },
+            create: { PESCodigo: id, EQPCodigo: equipmentId, PEQIdNoEquipamento: hardwareId.toString() }
+        });
+
+        await this.client.post(`/create_objects.fcgi?session=${this.session}`, {
+            object: 'users',
+            values: [{
+                id: hardwareId,
+                name,
+                registration: hardwareId.toString(),
+                password: password || undefined,
+                salt: cpf || undefined,
+            }],
+        });
+    }
+
+    async setTag(userId: number, tag: string): Promise<void> {
+        await this.ensureSession();
+        const val = parseInt(tag, 10);
+        await this.client.post(`/create_objects.fcgi?session=${this.session}`, {
+            object: 'cards',
+            values: [{ value: val, user_id: userId }],
+        });
+    }
+
+    async removeTag(tag: string): Promise<void> {
+        await this.ensureSession();
+        const val = parseInt(tag, 10);
+        await this.client.post(`/destroy_objects.fcgi?session=${this.session}`, {
+            object: 'cards',
+            where: { cards: { value: val } },
+        });
+    }
+
+    async setFace(userId: number, faceBase64: string, extension: string): Promise<void> {
+        await this.ensureSession();
+
+        // Converte base64 para Buffer (binário)
+        const buffer = Buffer.from(faceBase64, 'base64');
+        const timestamp = Math.floor(Date.now() / 1000);
+
+        // ControlID usa user_set_image.fcgi para upload binário direto
+        // O match=1 indica que deve ser usado para reconhecimento facial
+        await this.client.post(
+            `/user_set_image.fcgi?session=${this.session}&user_id=${userId}&match=1&timestamp=${timestamp}`,
+            buffer,
+            {
+                headers: {
+                    'Content-Type': 'application/octet-stream'
+                }
+            }
+        );
+    }
+
+    async removeFace(userId: number): Promise<void> {
+        await this.ensureSession();
+        await this.client.post(`/user_destroy_image.fcgi?session=${this.session}`, {
+            user_id: userId
+        });
+    }
+
+    async setFingers(userId: number, templates: string[]): Promise<void> {
+        await this.ensureSession();
+        const values = templates.map(template => ({
+            user_id: userId,
+            template,
+            timestamp: Math.floor(Date.now() / 1000)
+        }));
+        await this.client.post(`/create_objects.fcgi?session=${this.session}`, {
+            object: 'templates',
+            values
+        });
+    }
+
+    async removeFingers(userId: number): Promise<void> {
+        await this.ensureSession();
+        await this.client.post(`/destroy_objects.fcgi?session=${this.session}`, {
+            object: 'templates',
+            where: { templates: { user_id: userId } }
+        });
+    }
+
+    async setGroups(userId: number, groupIds: (number | string)[]): Promise<void> {
+        await this.ensureSession();
+        const values = groupIds.map(gid => ({
+            user_id: userId,
+            group_id: typeof gid === 'string' ? parseInt(gid, 10) : gid
+        }));
+        await this.client.post(`/create_objects.fcgi?session=${this.session}`, {
+            object: 'user_groups',
+            values
+        });
+    }
+
+    async removeGroups(userId: number, groupIds: (number | string)[]): Promise<void> {
+        await this.ensureSession();
+        for (const gid of groupIds) {
+            const id = typeof gid === 'string' ? parseInt(gid, 10) : gid;
+            await this.client.post(`/destroy_objects.fcgi?session=${this.session}`, {
+                object: 'user_groups',
+                where: { user_groups: { user_id: userId, group_id: id } }
             });
-
-            // Create Cards
-            if (person.tags && person.tags.length > 0) {
-                const cardValues = person.tags.map(tag => {
-                    const val = parseInt(tag, 10);
-                    return {
-                        value: val,
-                        user_id: person.id,
-                    };
-                });
-
-                await this.client.post(`/create_objects.fcgi?session=${session}`, {
-                    object: 'cards',
-                    values: cardValues,
-                });
-            }
-
-            // Sync Faces
-            if (person.faces && person.faces.length > 0) {
-                await this.client.post(`/user_set_image_list.fcgi?session=${session}`, {
-                    user_images: person.faces.map(face => ({
-                        user_id: person.id,
-                        image: face,
-                        timestamp: Math.floor(Date.now() / 1000)
-                    }))
-                });
-            }
-
-            // Sync Templates (Fingerprint)
-            if (person.fingers && person.fingers.length > 0) {
-                const templates = person.fingers.map(finger => ({
-                    user_id: person.id,
-                    template: finger,
-                    timestamp: Math.floor(Date.now() / 1000)
-                }));
-
-                await this.client.post(`/create_objects.fcgi?session=${session}`, {
-                    object: 'templates',
-                    values: templates
-                });
-            }
-
-            this.logger.log(`Synced person ${person.id} to ${this.config.host} (${this.config.model || 'Unknown'})`);
-
-        } catch (error: any) {
-            this.logger.error(`Error syncing person ${person.id}`, error.response?.data || error.message);
-            throw error;
         }
     }
+
 
     async deletePerson(id: number): Promise<void> {
         return this.withRetry(async () => {

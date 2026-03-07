@@ -91,6 +91,7 @@ model PESPessoa {
   deletedAt            DateTime?
   matriculas           MATMatricula[]
   passagens            REGRegistroPassagem[]
+  mapeamentos          PESEquipamentoMapeamento[]
 }
 
 model MATMatricula {
@@ -123,6 +124,7 @@ model EQPEquipamento {
   passagens            REGRegistroPassagem[]
   cmdcomandoFilas      CMDComandoFila[]
   sessoesRemotas       RMTSessaoRemota[]
+  mapeamentos          PESEquipamentoMapeamento[]
 }
 
 model ERPConfiguracao {
@@ -162,11 +164,25 @@ model USRUsuario {
   USRTaxId  String?
 
   createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  updatedAt            DateTime             @updatedAt
   acessos             USRAcesso[]
   rotrotinas          ROTRotina[]
   rothistoricoVersaos ROTHistoricoVersao[]
   sessoesRemotas      RMTSessaoRemota[]
+}
+
+model PESEquipamentoMapeamento {
+  PEQCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+  PEQIdNoEquipamento   String         // ID no hardware (ex: "100")
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([PESCodigo, EQPCodigo])
+  @@unique([EQPCodigo, PEQIdNoEquipamento])
 }
 
 model USRAcesso {
