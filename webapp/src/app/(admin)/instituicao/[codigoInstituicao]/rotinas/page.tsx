@@ -101,7 +101,11 @@ export default function RotinasPage() {
                         ) : rotinas.length === 0 ? (
                             <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhuma rotina cadastrada.</td></tr>
                         ) : rotinas.map((rotina) => (
-                            <tr key={rotina.ROTCodigo} className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                            <tr
+                                key={rotina.ROTCodigo}
+                                onClick={() => router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`)}
+                                className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                            >
                                 <td className="px-6 py-4">
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">{rotina.ROTNome}</div>
                                     {rotina.ROTDescricao && <div className="text-xs text-gray-500 dark:text-gray-400">{rotina.ROTDescricao}</div>}
@@ -133,7 +137,10 @@ export default function RotinasPage() {
                                 </td>
                                 <td className="px-6 py-4 text-right flex justify-end gap-2">
                                     <button
-                                        onClick={() => handleExecute(rotina.ROTCodigo)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleExecute(rotina.ROTCodigo);
+                                        }}
                                         disabled={executing === rotina.ROTCodigo}
                                         className="p-2 text-gray-400 hover:text-green-500 transition-colors disabled:opacity-50"
                                         title="Executar Manualmente"
@@ -141,14 +148,20 @@ export default function RotinasPage() {
                                         <ArrowRightIcon className={`w-4 h-4 ${executing === rotina.ROTCodigo ? 'animate-pulse' : ''}`} />
                                     </button>
                                     <button
-                                        onClick={() => router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`);
+                                        }}
                                         className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
                                         title="Editar"
                                     >
                                         <PencilIcon className="w-4 h-4" />
                                     </button>
                                     <button
-                                        onClick={() => handleDeleteClick(rotina)}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteClick(rotina);
+                                        }}
                                         className="p-2 text-gray-400 hover:text-red-500 transition-colors"
                                         title="Excluir"
                                     >

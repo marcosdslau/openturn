@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ExecutionService } from './engine/execution.service';
 import { SchedulerService } from './scheduler.service';
@@ -75,6 +75,22 @@ export class RotinaService {
     }
 
     async create(data: any, instituicaoCodigo: number, usuarioCodigo: number) {
+        // Validar duplicidade de webhook path + método na mesma instituição
+        if (data.ROTTipo === 'WEBHOOK' && data.ROTWebhookPath && data.ROTWebhookMetodo) {
+            const duplicate = await this.prisma.rOTRotina.findFirst({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo || data.INSInstituicaoCodigo,
+                    ROTWebhookPath: data.ROTWebhookPath,
+                    ROTWebhookMetodo: data.ROTWebhookMetodo as HttpMetodo,
+                },
+            });
+            if (duplicate) {
+                throw new ConflictException(
+                    `Já existe um webhook com o caminho "${data.ROTWebhookPath}" e método "${data.ROTWebhookMetodo}" nesta instituição (Rotina: ${duplicate.ROTNome}).`
+                );
+            }
+        }
+
         const rotina = await this.prisma.rOTRotina.create({
             data: {
                 ROTNome: data.ROTNome,
@@ -123,6 +139,27 @@ export class RotinaService {
 
         if (!existing) {
             throw new NotFoundException('Rotina não encontrada');
+        }
+
+        // Validar duplicidade de webhook path + método na mesma instituição
+        const webhookPath = data.ROTWebhookPath ?? existing.ROTWebhookPath;
+        const webhookMetodo = data.ROTWebhookMetodo ?? existing.ROTWebhookMetodo;
+        const tipo = data.ROTTipo ?? existing.ROTTipo;
+
+        if (tipo === 'WEBHOOK' && webhookPath && webhookMetodo) {
+            const duplicate = await this.prisma.rOTRotina.findFirst({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    ROTWebhookPath: webhookPath,
+                    ROTWebhookMetodo: webhookMetodo as HttpMetodo,
+                    ROTCodigo: { not: id },
+                },
+            });
+            if (duplicate) {
+                throw new ConflictException(
+                    `Já existe um webhook com o caminho "${webhookPath}" e método "${webhookMetodo}" nesta instituição (Rotina: ${duplicate.ROTNome}).`
+                );
+            }
         }
 
         // Se o código mudou, criar nova versão

@@ -433,9 +433,46 @@ if (inst) {
     },
 ];
 
+const LOGGER_SNIPPETS = [
+    {
+        label: 'Logger - Gravar Log em Arquivo',
+        detail: 'Grava mensagem com prefixo [LOG] no arquivo .txt diário',
+        code: `logger.log('Processando dados...');`,
+    },
+    {
+        label: 'Logger - Gravar Info em Arquivo',
+        detail: 'Grava mensagem com prefixo [INFO] no arquivo .txt diário',
+        code: `logger.info('Encontrados 42 registros');`,
+    },
+    {
+        label: 'Logger - Gravar Erro em Arquivo',
+        detail: 'Grava mensagem com prefixo [ERR] no arquivo .txt diário',
+        code: `logger.error('Falha ao conectar no ERP');`,
+    },
+    {
+        label: 'Logger - Exemplo Completo (Try/Catch)',
+        detail: 'Uso combinado de logger em fluxo com tratamento de erros',
+        code: `logger.info('Iniciando sincronização...');
+
+try {
+    const pessoas = await context.db.PESPessoa.findMany({ where: { PESAtivo: true } });
+    logger.log(\`Encontradas \${pessoas.length} pessoas ativas\`);
+
+    for (const p of pessoas) {
+        // ... processar
+    }
+
+    logger.info('Sincronização concluída com sucesso');
+} catch (error) {
+    logger.error(\`Erro na sincronização: \${error.message}\`);
+}`,
+    },
+];
+
 const FILE_SNIPPETS = [
     {
         label: 'Imagens - Baixar e Converter (Base64)',
+
         detail: 'Baixa imagem via URL, detecta extensão e converte para Base64',
         code: `// URL da foto (Ex: vinda do ERP)
 const photoUrl = 'https://api.meuerp.com/photos/123.jpg';
@@ -461,7 +498,7 @@ try {
     },
 ];
 
-const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...HARDWARE_SNIPPETS, ...WEBHOOK_SNIPPETS, ...CONFIG_SNIPPETS, ...FILE_SNIPPETS, ...generateSchemaSnippets()];
+const SNIPPETS = [...STATIC_SNIPPETS, ...LOGGER_SNIPPETS, ...PRISMA_SNIPPETS, ...HARDWARE_SNIPPETS, ...WEBHOOK_SNIPPETS, ...CONFIG_SNIPPETS, ...FILE_SNIPPETS, ...generateSchemaSnippets()];
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');
@@ -521,6 +558,10 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                 <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
                                     <span className="text-gray-600 dark:text-gray-400">Adaptadores Legados</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <code className="text-green-600 dark:text-green-400 font-mono text-xs bg-green-50 dark:bg-green-900/20 px-1 py-0.5 rounded">logger</code>
+                                    <span className="text-gray-600 dark:text-gray-400">Log em Arquivo (.txt diário)</span>
                                 </li>
                             </ul>
                         </div>

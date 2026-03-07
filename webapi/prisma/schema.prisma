@@ -286,6 +286,8 @@ model ROTRotina {
   criador               USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
   execucoes             ROTExecucaoLog[]
   versoes               ROTHistoricoVersao[]
+
+  @@unique([INSInstituicaoCodigo, ROTWebhookPath, ROTWebhookMetodo])
 }
 
 model ROTExecucaoLog {

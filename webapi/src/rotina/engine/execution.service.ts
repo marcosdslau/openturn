@@ -6,6 +6,7 @@ import { ConsoleGateway } from '../console.gateway';
 import { StatusExecucao } from '@prisma/client';
 import { HardwareService } from '../../hardware/hardware.service';
 import { ModuleRef } from '@nestjs/core';
+import { join } from 'path';
 
 @Injectable()
 export class ExecutionService {
@@ -276,6 +277,8 @@ export class ExecutionService {
         return {
             context: {
                 instituicao,
+                instituicaoCodigo,
+                logsDir: join(__dirname, '..', '..', '..', 'logs'),
                 adapters: {
                     equipamentos: equipamentos.map((eq) => ({
                         codigo: eq.EQPCodigo,

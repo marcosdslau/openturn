@@ -572,7 +572,7 @@ export default function RoutineEditorPage() {
                                         <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Caminho do Webhook</label>
                                         <div className="flex">
                                             <span className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg text-gray-500 text-sm flex items-center">
-                                                /api/webhooks
+                                                {`/api/instituicoes/${codigoInstituicao}/webhooks`}
                                             </span>
                                             <input
                                                 className="flex-1 px-3 py-2 border border-l-0 border-gray-300 dark:border-gray-600 rounded-r-lg dark:bg-gray-700 text-gray-900 dark:text-white"
@@ -585,12 +585,12 @@ export default function RoutineEditorPage() {
                                     {/* Display Full Webhook URL */}
                                     <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
                                         <code className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all">
-                                            {process.env.NEXT_PUBLIC_API_URL}/webhooks{settingsForm.ROTWebhookPath}
+                                            {process.env.NEXT_PUBLIC_API_URL}/instituicoes/{codigoInstituicao}/webhooks{settingsForm.ROTWebhookPath}
                                         </code>
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/webhooks${settingsForm.ROTWebhookPath}`;
+                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/instituicoes/${codigoInstituicao}/webhooks${settingsForm.ROTWebhookPath}`;
                                                 navigator.clipboard.writeText(url);
                                                 showToast("success", "Copiado", "URL copiada para a área de transferência!");
                                             }}

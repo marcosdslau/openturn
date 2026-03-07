@@ -2,7 +2,7 @@ import { Controller, All, Param, Body, Query, Headers, Req, NotFoundException, U
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ExecutionService } from './engine/execution.service';
 
-@Controller('webhooks')
+@Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
     private readonly logger = new Logger(RotinaWebhookController.name);
 
@@ -13,6 +13,7 @@ export class RotinaWebhookController {
 
     @All(':path')
     async handleWebhook(
+        @Param('instituicaoCodigo') instituicaoCodigoStr: string,
         @Param('path') path: string,
         @Body() body: any,
         @Query() query: any,
@@ -25,6 +26,8 @@ export class RotinaWebhookController {
         const rotina = await this.prisma.rOTRotina.findFirst({
             where: {
                 ROTWebhookPath: `/${path}`,
+                INSInstituicaoCodigo: parseInt(instituicaoCodigoStr, 10),
+                ROTWebhookMetodo: method,
             },
         });
 

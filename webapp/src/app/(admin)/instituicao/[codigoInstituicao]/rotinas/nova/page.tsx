@@ -29,7 +29,7 @@ export default function NovaRotinaPage() {
  * Rotina de Exemplo
  * context: { db, adapters, console }
  */
-export default async function(context, console) {
+
     console.log('Iniciando execução...');
     
     // Exemplo: Listar equipamentos
@@ -37,7 +37,7 @@ export default async function(context, console) {
     console.info(\`Equipamentos ativos: \${equipamentos.length}\`);
     
     return { message: 'Execução concluída com sucesso' };
-}`,
+`,
         ROTTimeoutSeconds: 30,
         ROTAtivo: true
     });
@@ -61,7 +61,7 @@ export default async function(context, console) {
     };
 
     return (
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="w-[90%] mx-auto space-y-6">
             <div className="flex items-center gap-3">
                 <button
                     onClick={() => router.back()}
@@ -145,7 +145,7 @@ export default async function(context, console) {
                                     <label className="block text-sm font-medium text-purple-900 dark:text-purple-300 mb-1">Caminho do Webhook</label>
                                     <div className="flex">
                                         <span className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg text-gray-500 text-sm flex items-center">
-                                            /api/webhooks
+                                            {`/api/instituicoes/${codigoInstituicao}/webhooks`}
                                         </span>
                                         <input
                                             type="text"
@@ -174,12 +174,12 @@ export default async function(context, console) {
                                 {formData.ROTWebhookPath && (
                                     <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
                                         <span className="font-mono bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded">
-                                            {process.env.NEXT_PUBLIC_API_URL}/webhooks{formData.ROTWebhookPath}
+                                            {process.env.NEXT_PUBLIC_API_URL}/instituicoes/{codigoInstituicao}/webhooks{formData.ROTWebhookPath}
                                         </span>
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/webhooks${formData.ROTWebhookPath}`;
+                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/instituicoes/${codigoInstituicao}/webhooks${formData.ROTWebhookPath}`;
                                                 navigator.clipboard.writeText(url);
                                                 // Assuming simple alert or toast if available, but NovaRotinaPage doesn't import useToast. 
                                                 // Using simple console log or visual feedback might be better if toast isn't set up.
