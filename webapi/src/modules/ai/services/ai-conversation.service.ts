@@ -66,6 +66,23 @@ export class AiConversationService {
     }
 
     /**
+     * Atualiza o título da conversa
+     */
+    async updateTitle(
+        instituicaoCodigo: number,
+        conversaCodigo: number,
+        titulo: string
+    ): Promise<void> {
+        await this.prisma.aICConversaIa.updateMany({
+            where: {
+                AICCodigo: conversaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+            data: { AICTitulo: titulo }
+        });
+    }
+
+    /**
      * Salva uma mensagem no histórico
      */
     async saveMessage(

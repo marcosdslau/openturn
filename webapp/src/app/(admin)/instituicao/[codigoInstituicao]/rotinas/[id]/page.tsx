@@ -27,7 +27,8 @@ import {
     EyeIcon,
     EyeCloseIcon,
     CopyIcon,
-    BoxIcon
+    BoxIcon,
+    AiIcon
 } from "@/icons";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
@@ -77,12 +78,27 @@ export default function RoutineEditorPage() {
     // AI Diff Review State
     const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
 
+    // Code Reference for AI Chat (CTRL+L)
+    const [codeReference, setCodeReference] = useState<string>('');
+
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
 
         // Register Cmd+S / Ctrl+S inside Monaco Editor
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveRef.current();
+        });
+
+        // Register Ctrl+L / Cmd+L — Send selected code to AI Chat
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL, () => {
+            const selection = editor.getSelection();
+            if (selection) {
+                const selectedText = editor.getModel()?.getValueInRange(selection) || '';
+                if (selectedText.trim()) {
+                    setCodeReference(selectedText);
+                    setActiveTab('ai');
+                }
+            }
         });
 
         // Keep codeRef in sync via model content change (no React re-render)
@@ -417,7 +433,7 @@ export default function RoutineEditorPage() {
                         <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-gray-500">{rotina.ROTTipo} • {rotina.ROTCronExpressao || rotina.ROTWebhookPath}</p>
                             <button onClick={() => setSettingsOpen(true)} className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1">
-                                <PencilIcon className="w-3 h-3" /> Editar Configurações
+                                <PencilIcon className="w-5 h-5" /> Editar Configurações
                             </button>
                         </div>
                     </div>
@@ -432,7 +448,7 @@ export default function RoutineEditorPage() {
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                                 }`}
                         >
-                            <InfoIcon className="w-3 h-3" /> Helper
+                            <InfoIcon className="w-6 h-6" /> Helper
                         </button>
                         <button
                             onClick={() => setActiveTab(activeTab === 'ai' ? null : 'ai')}
@@ -441,7 +457,7 @@ export default function RoutineEditorPage() {
                                 : 'text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400'
                                 }`}
                         >
-                            ✨ IA Chat
+                            <AiIcon className="w-5 h-5" /> IA Chat
                         </button>
                         <button
                             onClick={() => setActiveTab(activeTab === 'history' ? null : 'history')}
@@ -450,7 +466,7 @@ export default function RoutineEditorPage() {
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                                 }`}
                         >
-                            <TimeIcon className="w-3 h-3" /> History
+                            <TimeIcon className="w-5 h-5" /> History
                         </button>
                     </div>
 
@@ -464,12 +480,12 @@ export default function RoutineEditorPage() {
                     >
                         {rotina.ROTAtivo ? (
                             <>
-                                <PauseIcon className="w-4 h-4" />
+                                <PauseIcon className="w-6 h-6" />
                                 <span className="hidden sm:inline">Pausar</span>
                             </>
                         ) : (
                             <>
-                                <PlayIcon className="w-4 h-4" />
+                                <PlayIcon className="w-6 h-6" />
                                 <span className="hidden sm:inline">Ativar</span>
                             </>
                         )}
@@ -485,9 +501,9 @@ export default function RoutineEditorPage() {
                         className="gap-2"
                     >
                         {executing ? (
-                            <span className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
+                            <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
                         ) : (
-                            <ArrowRightIcon className="w-4 h-4" />
+                            <ArrowRightIcon className="w-5 h-5" />
                         )}
                         Execute
                     </Button>
@@ -497,7 +513,7 @@ export default function RoutineEditorPage() {
                         disabled={saving}
                         className="gap-2 bg-blue-600 hover:bg-blue-700"
                     >
-                        <CheckLineIcon className="w-4 h-4" />
+                        <CheckLineIcon className="w-5 h-5" />
                         Save Changes
                     </Button>
 
@@ -608,6 +624,8 @@ export default function RoutineEditorPage() {
                                 onApplyCode={handleInsertSnippet}
                                 onSuggestCode={handleSuggestCode}
                                 onClose={() => setActiveTab(null)}
+                                codeReference={codeReference}
+                                onClearReference={() => setCodeReference('')}
                             />
                         )}
                         {activeTab === 'helper' && (
@@ -700,7 +718,7 @@ export default function RoutineEditorPage() {
                                             className="p-1.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex items-center gap-1 shadow-sm"
                                             title="Copiar URL Completa"
                                         >
-                                            <CopyIcon className="w-3.5 h-3.5" />
+                                            <CopyIcon className="w-5 h-5" />
                                             <span className="text-xs font-medium hidden sm:inline">Copiar</span>
                                         </button>
                                     </div>
@@ -788,7 +806,7 @@ export default function RoutineEditorPage() {
                                                             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transaction-colors"
                                                             title={showToken ? "Ocultar token" : "Mostrar token"}
                                                         >
-                                                            {showToken ? <EyeCloseIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                                            {showToken ? <EyeCloseIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                                                         </button>
                                                         <button
                                                             type="button"
@@ -796,7 +814,7 @@ export default function RoutineEditorPage() {
                                                             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transaction-colors"
                                                             title="Gerar novo token aleatório (UUID)"
                                                         >
-                                                            <RefreshIcon className="w-4 h-4" />
+                                                            <RefreshIcon className="w-5 h-5" />
                                                         </button>
                                                     </div>
                                                 </div>

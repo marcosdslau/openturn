@@ -109,6 +109,16 @@ export class AiController {
                 'user',
                 lastUserMsg.content
             );
+
+            // Auto-title: if the conversation still has the default title, update with first message
+            if (conversa.AICTitulo?.startsWith('Chat Rotina #')) {
+                const title = lastUserMsg.content.replace(/\n/g, ' ').trim().substring(0, 50);
+                await this.conversationService.updateTitle(
+                    instituicaoCodigo,
+                    conversa.AICCodigo,
+                    title || 'Nova conversa'
+                );
+            }
         }
 
         // Configuração de Headers para SSE
@@ -136,11 +146,6 @@ export class AiController {
                         usage: chunk.usage
                     });
                     res.write(`data: ${payload}\n\n`);
-
-                    if (chunk.isDone) {
-                        streamEnded = true;
-                        res.end();
-                    }
                 },
                 async (assistantFullReply, usage) => {
                     if (assistantFullReply) {

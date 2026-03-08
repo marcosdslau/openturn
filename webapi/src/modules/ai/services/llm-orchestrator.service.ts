@@ -4,6 +4,7 @@ import { ILlmProviderAdapter, ChatMessageRequest } from '../providers/LlmProvide
 import { AiUsageService } from './ai-usage.service';
 import { AiPermissionService } from './ai-permission.service';
 import { PrismaService } from '../../../common/prisma/prisma.service';
+import { SYSTEM_PROMPT } from '../ai-project-rules';
 
 @Injectable()
 export class LlmOrchestratorService {
@@ -53,12 +54,12 @@ export class LlmOrchestratorService {
             throw new BadRequestException(`Provider adapter não encontrado para: ${modelDef.provedor.AIPNome}`);
         }
 
-        // 3. System Context Injection
-        // Strict scoping the AI as a Javascript coding assistant for OpenTurn.
-        const sysPrompt = `Você é o assistente de inteligência artificial embarcado no editor de rotinas de integração do sistema OpenTurn. Seu papel principal é auxiliar desenvolvedores descrevendo lógicas em Javascript (Node.js/ES6). Traga exemplos técnicos limpos. O código criado e executado não deve utilizar modules imports que não sejam built-in do node ou que demandem \`require\` inseguro, utilize exports e object returns compatíveis com o formato (module.exports = async function(ctx) { ... }). Seja conciso, responda em Português-BR.`;
+        // 3. System Context Injection — uses centralized rules from ai-project-rules.ts
+        const sysPrompt = SYSTEM_PROMPT;
 
         // 4. Stream Pipeline
         let assistantFullOutput = '';
+        let finalUsage: any = null;
         await provider.predictStream(
             modelDef.AIMProviderModelId,
             sysPrompt,
@@ -68,15 +69,13 @@ export class LlmOrchestratorService {
                     assistantFullOutput += chunk.chunkText;
                 }
 
-                onChunk(chunk);
-
-                // Usage is transmitted usually on the last chunk
+                // Capture usage when available (usually on the last chunk)
                 if (chunk.isDone && chunk.usage) {
                     // Compute estimated cost based on ledger pricing rule
                     const costUsd = (chunk.usage.inputTokens / 1000 * modelDef.AIMCustoInput1k)
                         + (chunk.usage.outputTokens / 1000 * modelDef.AIMCustoOutput1k);
-
                     chunk.usage.costUsd = costUsd;
+                    finalUsage = chunk.usage;
 
                     // Asynchronously perform Ledger persistence. Error swallowing handles transient DB drops gracefully.
                     this.usageService.logConversationUsage(
@@ -85,10 +84,15 @@ export class LlmOrchestratorService {
                         modelCodigo,
                         chunk.usage
                     ).catch(e => console.error('Error logging usage billing:', e));
-
-                    if (onFinish) onFinish(assistantFullOutput, chunk.usage);
                 }
+
+                onChunk(chunk);
             }
         );
+
+        // After stream completes, persist the assistant reply
+        if (onFinish && assistantFullOutput) {
+            await onFinish(assistantFullOutput, finalUsage);
+        }
     }
 }
