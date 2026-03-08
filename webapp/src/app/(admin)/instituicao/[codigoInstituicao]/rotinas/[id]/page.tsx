@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Editor, { OnMount } from "@monaco-editor/react";
+import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
 import { RotinaService, Rotina, RotinaVersao } from "@/services/rotina.service";
 import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { RoutineHelper } from "@/components/rotinas/RoutineHelper";
 import { VersionHistory, RoutineVersion } from "@/components/rotinas/VersionHistory";
 import { RoutineDiffModal } from "@/components/rotinas/RoutineDiffModal";
+import { AiChatSidebar } from "@/components/rotinas/AiChatSidebar";
 import { ConsolePanel } from "@/components/rotinas/ConsolePanel";
 import Button from "@/components/ui/button/Button";
 import { useTenant } from "@/context/TenantContext";
@@ -26,7 +27,8 @@ import {
     EyeIcon,
     EyeCloseIcon,
     CopyIcon,
-    BoxIcon
+    BoxIcon,
+    AiIcon
 } from "@/icons";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
@@ -49,7 +51,9 @@ export default function RoutineEditorPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [executing, setExecuting] = useState(false);
-    const [activeTab, setActiveTab] = useState<'helper' | 'history' | null>('helper');
+    const [activeTab, setActiveTab] = useState<'helper' | 'history' | 'ai' | null>('ai');
+
+    // Versioning
 
     // Versioning
     const [versions, setVersions] = useState<RoutineVersion[]>([]);
@@ -64,6 +68,11 @@ export default function RoutineEditorPage() {
     // Resizable Console State
     const [consoleHeight, setConsoleHeight] = useState(180);
     const [isResizing, setIsResizing] = useState(false);
+
+    // Resizable Sidebar State
+    const [sidebarWidth, setSidebarWidth] = useState(384); // 96 * 4 = 384px initial
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+
     // Maximize State
     const [isMaximized, setIsMaximized] = useState(false);
 
@@ -71,12 +80,30 @@ export default function RoutineEditorPage() {
     const saveRef = useRef<() => void>(() => { });
     const codeRef = useRef<string>("");
 
+    // AI Diff Review State
+    const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+
+    // Code Reference for AI Chat (CTRL+L)
+    const [codeReference, setCodeReference] = useState<string>('');
+
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
 
         // Register Cmd+S / Ctrl+S inside Monaco Editor
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
             saveRef.current();
+        });
+
+        // Register Ctrl+L / Cmd+L — Send selected code to AI Chat
+        editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL, () => {
+            const selection = editor.getSelection();
+            if (selection) {
+                const selectedText = editor.getModel()?.getValueInRange(selection) || '';
+                if (selectedText.trim()) {
+                    setCodeReference(selectedText);
+                    setActiveTab('ai');
+                }
+            }
         });
 
         // Keep codeRef in sync via model content change (no React re-render)
@@ -296,7 +323,46 @@ export default function RoutineEditorPage() {
         }
     };
 
-    // Resize Handlers
+    const handleSuggestCode = (suggestedCode: string) => {
+        setPendingSuggestion(suggestedCode);
+    };
+
+    const handleApplyDiff = async () => {
+        if (!pendingSuggestion || !rotina) return;
+        // Apply the suggested code to the editor
+        codeRef.current = pendingSuggestion;
+        setCode(pendingSuggestion);
+        if (editorRef.current) {
+            editorRef.current.setValue(pendingSuggestion);
+        }
+        setPendingSuggestion(null);
+
+        // Auto-save after applying
+        setSaving(true);
+        try {
+            const observacao = `IA Suggestion Applied - ${new Date().toLocaleString('pt-BR')}`;
+            await RotinaService.update(rotina.ROTCodigo, {
+                ROTCodigoJS: pendingSuggestion,
+                observacao,
+                INSInstituicaoCodigo: codigoInstituicao
+            });
+            setOriginalCode(pendingSuggestion);
+            setRotina(prev => prev ? { ...prev, ROTCodigoJS: pendingSuggestion! } : null);
+            showToast("success", "Aplicado", "Código da IA aplicado e salvo com sucesso!");
+        } catch (error) {
+            console.error("Erro ao salvar", error);
+            showToast("error", "Erro", "Código aplicado mas houve erro ao salvar.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleRejectDiff = () => {
+        setPendingSuggestion(null);
+        showToast("info", "Descartado", "Sugestão da IA descartada.");
+    };
+
+    // Console Resize Handlers
     const startResizing = useCallback(() => {
         setIsResizing(true);
     }, []);
@@ -326,15 +392,58 @@ export default function RoutineEditorPage() {
         } else {
             window.removeEventListener("mousemove", resize);
             window.removeEventListener("mouseup", stopResizing);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
+            if (!isResizingSidebar) {
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
         }
 
         return () => {
             window.removeEventListener("mousemove", resize);
             window.removeEventListener("mouseup", stopResizing);
         };
-    }, [isResizing, resize, stopResizing]);
+    }, [isResizing, resize, stopResizing, isResizingSidebar]);
+
+    // Sidebar Resize Handlers
+    const startResizingSidebar = useCallback(() => {
+        setIsResizingSidebar(true);
+    }, []);
+
+    const stopResizingSidebar = useCallback(() => {
+        setIsResizingSidebar(false);
+    }, []);
+
+    const resizeSidebar = useCallback((mouseMoveEvent: MouseEvent) => {
+        if (isResizingSidebar) {
+            // Calculate width from the right edge
+            const newWidth = window.innerWidth - mouseMoveEvent.clientX;
+            // Min 300px, Max 60% of window width
+            if (newWidth > 300 && newWidth < window.innerWidth * 0.6) {
+                setSidebarWidth(newWidth);
+            }
+        }
+    }, [isResizingSidebar]);
+
+    useEffect(() => {
+        if (isResizingSidebar) {
+            window.addEventListener("mousemove", resizeSidebar);
+            window.addEventListener("mouseup", stopResizingSidebar);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        } else {
+            window.removeEventListener("mousemove", resizeSidebar);
+            window.removeEventListener("mouseup", stopResizingSidebar);
+            if (!isResizing) {
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        }
+
+        return () => {
+            window.removeEventListener("mousemove", resizeSidebar);
+            window.removeEventListener("mouseup", stopResizingSidebar);
+        };
+    }, [isResizingSidebar, resizeSidebar, stopResizingSidebar, isResizing]);
 
     // Handle Escape Key
     useEffect(() => {
@@ -372,7 +481,7 @@ export default function RoutineEditorPage() {
                         <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-gray-500">{rotina.ROTTipo} • {rotina.ROTCronExpressao || rotina.ROTWebhookPath}</p>
                             <button onClick={() => setSettingsOpen(true)} className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1">
-                                <PencilIcon className="w-3 h-3" /> Editar Configurações
+                                <PencilIcon className="w-5 h-5" /> Editar Configurações
                             </button>
                         </div>
                     </div>
@@ -387,7 +496,16 @@ export default function RoutineEditorPage() {
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                                 }`}
                         >
-                            <InfoIcon className="w-3 h-3" /> Helper
+                            <InfoIcon className="w-6 h-6" /> Helper
+                        </button>
+                        <button
+                            onClick={() => setActiveTab(activeTab === 'ai' ? null : 'ai')}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${activeTab === 'ai'
+                                ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-300 shadow-sm'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400'
+                                }`}
+                        >
+                            <AiIcon className="w-5 h-5" /> IA Chat
                         </button>
                         <button
                             onClick={() => setActiveTab(activeTab === 'history' ? null : 'history')}
@@ -396,7 +514,7 @@ export default function RoutineEditorPage() {
                                 : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'
                                 }`}
                         >
-                            <TimeIcon className="w-3 h-3" /> History
+                            <TimeIcon className="w-5 h-5" /> History
                         </button>
                     </div>
 
@@ -410,12 +528,12 @@ export default function RoutineEditorPage() {
                     >
                         {rotina.ROTAtivo ? (
                             <>
-                                <PauseIcon className="w-4 h-4" />
+                                <PauseIcon className="w-6 h-6" />
                                 <span className="hidden sm:inline">Pausar</span>
                             </>
                         ) : (
                             <>
-                                <PlayIcon className="w-4 h-4" />
+                                <PlayIcon className="w-6 h-6" />
                                 <span className="hidden sm:inline">Ativar</span>
                             </>
                         )}
@@ -431,9 +549,9 @@ export default function RoutineEditorPage() {
                         className="gap-2"
                     >
                         {executing ? (
-                            <span className="animate-spin w-4 h-4 border-2 border-current border-t-transparent rounded-full" />
+                            <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
                         ) : (
-                            <ArrowRightIcon className="w-4 h-4" />
+                            <ArrowRightIcon className="w-5 h-5" />
                         )}
                         Execute
                     </Button>
@@ -443,7 +561,7 @@ export default function RoutineEditorPage() {
                         disabled={saving}
                         className="gap-2 bg-blue-600 hover:bg-blue-700"
                     >
-                        <CheckLineIcon className="w-4 h-4" />
+                        <CheckLineIcon className="w-5 h-5" />
                         Save Changes
                     </Button>
 
@@ -466,20 +584,59 @@ export default function RoutineEditorPage() {
                 <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex-1 relative overflow-hidden">
                         <div className="absolute inset-0">
-                            <Editor
-                                height="100%"
-                                defaultLanguage="javascript"
-                                theme="vs-dark"
-                                defaultValue={code}
-                                onChange={(value) => { codeRef.current = value || ""; }}
-                                options={{
-                                    minimap: { enabled: false },
-                                    fontSize: 13,
-                                    wordWrap: 'on',
-                                    automaticLayout: true,
-                                }}
-                                onMount={handleEditorDidMount}
-                            />
+                            {pendingSuggestion ? (
+                                <>
+                                    {/* Diff Action Bar */}
+                                    <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white z-10 relative">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-medium">✨ Sugestão da IA — Revise as diferenças abaixo</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleRejectDiff}
+                                                className="px-3 py-1.5 text-xs font-medium rounded-md bg-white/20 hover:bg-white/30 transition-colors"
+                                            >
+                                                ✕ Reject Changes
+                                            </button>
+                                            <button
+                                                onClick={handleApplyDiff}
+                                                className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-emerald-700 hover:bg-emerald-50 transition-colors shadow-sm"
+                                            >
+                                                ✓ Apply Changes
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <DiffEditor
+                                        height="calc(100% - 40px)"
+                                        language="javascript"
+                                        theme="vs-dark"
+                                        original={codeRef.current}
+                                        modified={pendingSuggestion}
+                                        options={{
+                                            readOnly: true,
+                                            renderSideBySide: true,
+                                            minimap: { enabled: false },
+                                            fontSize: 13,
+                                            automaticLayout: true,
+                                        }}
+                                    />
+                                </>
+                            ) : (
+                                <Editor
+                                    height="100%"
+                                    defaultLanguage="javascript"
+                                    theme="vs-dark"
+                                    defaultValue={code}
+                                    onChange={(value) => { codeRef.current = value || ""; }}
+                                    options={{
+                                        minimap: { enabled: false },
+                                        fontSize: 13,
+                                        wordWrap: 'on',
+                                        automaticLayout: true,
+                                    }}
+                                    onMount={handleEditorDidMount}
+                                />
+                            )}
                         </div>
                     </div>
                     {/* Resizer */}
@@ -506,24 +663,53 @@ export default function RoutineEditorPage() {
 
                 {/* Sidebar */}
                 {activeTab && (
-                    <div className="w-80 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
-                        {activeTab === 'helper' && (
-                            <RoutineHelper onInsertSnippet={handleInsertSnippet} />
-                        )}
-                        {activeTab === 'history' && (
-                            <VersionHistory
-                                versions={versions}
-                                loading={loadingVersions}
-                                onRefresh={loadVersions}
-                                onSelectVersion={(v) => {
-                                    setSelectedVersion(v);
-                                    setDiffModalOpen(true);
-                                }}
-                                onRestoreVersion={handleRestore}
-                                onDeleteVersions={handleDeleteVersions}
-                            />
-                        )}
-                    </div>
+                    <>
+                        {/* Vertical Resizer */}
+                        <div
+                            className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 dark:hover:bg-blue-500 cursor-col-resize transition-colors z-10 flex items-center justify-center group shrink-0"
+                            onMouseDown={startResizingSidebar}
+                        >
+                            {/* Handle visual */}
+                            <div className="h-8 w-1 bg-gray-300 dark:bg-gray-600 rounded-full group-hover:bg-white/50 hidden group-hover:block" />
+                        </div>
+
+                        <div
+                            style={{ width: sidebarWidth }}
+                            className="shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col transition-[width] ease-linear duration-0 relative"
+                        >
+                            {isResizingSidebar && (
+                                <div className="absolute inset-0 z-50 bg-transparent" />
+                            )}
+                            {activeTab === 'ai' && (
+                                <AiChatSidebar
+                                    rotinaCodigo={rotina.ROTCodigo}
+                                    instituicaoCodigo={codigoInstituicao}
+                                    currentCode={codeRef.current}
+                                    onApplyCode={handleInsertSnippet}
+                                    onSuggestCode={handleSuggestCode}
+                                    onClose={() => setActiveTab(null)}
+                                    codeReference={codeReference}
+                                    onClearReference={() => setCodeReference('')}
+                                />
+                            )}
+                            {activeTab === 'helper' && (
+                                <RoutineHelper onInsertSnippet={handleInsertSnippet} />
+                            )}
+                            {activeTab === 'history' && (
+                                <VersionHistory
+                                    versions={versions}
+                                    loading={loadingVersions}
+                                    onRefresh={loadVersions}
+                                    onSelectVersion={(v) => {
+                                        setSelectedVersion(v);
+                                        setDiffModalOpen(true);
+                                    }}
+                                    onRestoreVersion={handleRestore}
+                                    onDeleteVersions={handleDeleteVersions}
+                                />
+                            )}
+                        </div>
+                    </>
                 )}
             </div>
 
@@ -597,7 +783,7 @@ export default function RoutineEditorPage() {
                                             className="p-1.5 text-gray-500 hover:text-blue-600 dark:hover:text-blue-400 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 transition-all flex items-center gap-1 shadow-sm"
                                             title="Copiar URL Completa"
                                         >
-                                            <CopyIcon className="w-3.5 h-3.5" />
+                                            <CopyIcon className="w-5 h-5" />
                                             <span className="text-xs font-medium hidden sm:inline">Copiar</span>
                                         </button>
                                     </div>
@@ -685,7 +871,7 @@ export default function RoutineEditorPage() {
                                                             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transaction-colors"
                                                             title={showToken ? "Ocultar token" : "Mostrar token"}
                                                         >
-                                                            {showToken ? <EyeCloseIcon className="w-4 h-4" /> : <EyeIcon className="w-4 h-4" />}
+                                                            {showToken ? <EyeCloseIcon className="w-5 h-5" /> : <EyeIcon className="w-5 h-5" />}
                                                         </button>
                                                         <button
                                                             type="button"
@@ -693,7 +879,7 @@ export default function RoutineEditorPage() {
                                                             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-600 rounded text-blue-500 hover:text-blue-700 dark:hover:text-blue-300 transaction-colors"
                                                             title="Gerar novo token aleatório (UUID)"
                                                         >
-                                                            <RefreshIcon className="w-4 h-4" />
+                                                            <RefreshIcon className="w-5 h-5" />
                                                         </button>
                                                     </div>
                                                 </div>
