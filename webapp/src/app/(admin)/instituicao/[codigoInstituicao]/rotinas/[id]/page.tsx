@@ -68,6 +68,11 @@ export default function RoutineEditorPage() {
     // Resizable Console State
     const [consoleHeight, setConsoleHeight] = useState(180);
     const [isResizing, setIsResizing] = useState(false);
+
+    // Resizable Sidebar State
+    const [sidebarWidth, setSidebarWidth] = useState(384); // 96 * 4 = 384px initial
+    const [isResizingSidebar, setIsResizingSidebar] = useState(false);
+
     // Maximize State
     const [isMaximized, setIsMaximized] = useState(false);
 
@@ -357,7 +362,7 @@ export default function RoutineEditorPage() {
         showToast("info", "Descartado", "Sugestão da IA descartada.");
     };
 
-    // Resize Handlers
+    // Console Resize Handlers
     const startResizing = useCallback(() => {
         setIsResizing(true);
     }, []);
@@ -387,15 +392,58 @@ export default function RoutineEditorPage() {
         } else {
             window.removeEventListener("mousemove", resize);
             window.removeEventListener("mouseup", stopResizing);
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
+            if (!isResizingSidebar) {
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
         }
 
         return () => {
             window.removeEventListener("mousemove", resize);
             window.removeEventListener("mouseup", stopResizing);
         };
-    }, [isResizing, resize, stopResizing]);
+    }, [isResizing, resize, stopResizing, isResizingSidebar]);
+
+    // Sidebar Resize Handlers
+    const startResizingSidebar = useCallback(() => {
+        setIsResizingSidebar(true);
+    }, []);
+
+    const stopResizingSidebar = useCallback(() => {
+        setIsResizingSidebar(false);
+    }, []);
+
+    const resizeSidebar = useCallback((mouseMoveEvent: MouseEvent) => {
+        if (isResizingSidebar) {
+            // Calculate width from the right edge
+            const newWidth = window.innerWidth - mouseMoveEvent.clientX;
+            // Min 300px, Max 60% of window width
+            if (newWidth > 300 && newWidth < window.innerWidth * 0.6) {
+                setSidebarWidth(newWidth);
+            }
+        }
+    }, [isResizingSidebar]);
+
+    useEffect(() => {
+        if (isResizingSidebar) {
+            window.addEventListener("mousemove", resizeSidebar);
+            window.addEventListener("mouseup", stopResizingSidebar);
+            document.body.style.cursor = 'col-resize';
+            document.body.style.userSelect = 'none';
+        } else {
+            window.removeEventListener("mousemove", resizeSidebar);
+            window.removeEventListener("mouseup", stopResizingSidebar);
+            if (!isResizing) {
+                document.body.style.cursor = '';
+                document.body.style.userSelect = '';
+            }
+        }
+
+        return () => {
+            window.removeEventListener("mousemove", resizeSidebar);
+            window.removeEventListener("mouseup", stopResizingSidebar);
+        };
+    }, [isResizingSidebar, resizeSidebar, stopResizingSidebar, isResizing]);
 
     // Handle Escape Key
     useEffect(() => {
@@ -615,36 +663,53 @@ export default function RoutineEditorPage() {
 
                 {/* Sidebar */}
                 {activeTab && (
-                    <div className="w-96 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
-                        {activeTab === 'ai' && (
-                            <AiChatSidebar
-                                rotinaCodigo={rotina.ROTCodigo}
-                                instituicaoCodigo={codigoInstituicao}
-                                currentCode={codeRef.current}
-                                onApplyCode={handleInsertSnippet}
-                                onSuggestCode={handleSuggestCode}
-                                onClose={() => setActiveTab(null)}
-                                codeReference={codeReference}
-                                onClearReference={() => setCodeReference('')}
-                            />
-                        )}
-                        {activeTab === 'helper' && (
-                            <RoutineHelper onInsertSnippet={handleInsertSnippet} />
-                        )}
-                        {activeTab === 'history' && (
-                            <VersionHistory
-                                versions={versions}
-                                loading={loadingVersions}
-                                onRefresh={loadVersions}
-                                onSelectVersion={(v) => {
-                                    setSelectedVersion(v);
-                                    setDiffModalOpen(true);
-                                }}
-                                onRestoreVersion={handleRestore}
-                                onDeleteVersions={handleDeleteVersions}
-                            />
-                        )}
-                    </div>
+                    <>
+                        {/* Vertical Resizer */}
+                        <div
+                            className="w-1 bg-gray-200 dark:bg-gray-700 hover:bg-blue-500 dark:hover:bg-blue-500 cursor-col-resize transition-colors z-10 flex items-center justify-center group shrink-0"
+                            onMouseDown={startResizingSidebar}
+                        >
+                            {/* Handle visual */}
+                            <div className="h-8 w-1 bg-gray-300 dark:bg-gray-600 rounded-full group-hover:bg-white/50 hidden group-hover:block" />
+                        </div>
+
+                        <div
+                            style={{ width: sidebarWidth }}
+                            className="shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col transition-[width] ease-linear duration-0 relative"
+                        >
+                            {isResizingSidebar && (
+                                <div className="absolute inset-0 z-50 bg-transparent" />
+                            )}
+                            {activeTab === 'ai' && (
+                                <AiChatSidebar
+                                    rotinaCodigo={rotina.ROTCodigo}
+                                    instituicaoCodigo={codigoInstituicao}
+                                    currentCode={codeRef.current}
+                                    onApplyCode={handleInsertSnippet}
+                                    onSuggestCode={handleSuggestCode}
+                                    onClose={() => setActiveTab(null)}
+                                    codeReference={codeReference}
+                                    onClearReference={() => setCodeReference('')}
+                                />
+                            )}
+                            {activeTab === 'helper' && (
+                                <RoutineHelper onInsertSnippet={handleInsertSnippet} />
+                            )}
+                            {activeTab === 'history' && (
+                                <VersionHistory
+                                    versions={versions}
+                                    loading={loadingVersions}
+                                    onRefresh={loadVersions}
+                                    onSelectVersion={(v) => {
+                                        setSelectedVersion(v);
+                                        setDiffModalOpen(true);
+                                    }}
+                                    onRestoreVersion={handleRestore}
+                                    onDeleteVersions={handleDeleteVersions}
+                                />
+                            )}
+                        </div>
+                    </>
                 )}
             </div>
 

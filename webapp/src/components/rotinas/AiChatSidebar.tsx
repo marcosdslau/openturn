@@ -252,7 +252,7 @@ export const AiChatSidebar: React.FC<AiChatSidebarProps> = ({
     };
 
     return (
-        <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-sm w-96 flex-shrink-0">
+        <div className="flex flex-col h-full bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shadow-sm w-full flex-1">
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-800">
                 <div className="flex flex-col">
