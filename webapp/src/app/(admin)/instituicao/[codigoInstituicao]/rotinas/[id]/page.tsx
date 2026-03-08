@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import Editor, { OnMount } from "@monaco-editor/react";
+import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
 import { RotinaService, Rotina, RotinaVersao } from "@/services/rotina.service";
 import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { RoutineHelper } from "@/components/rotinas/RoutineHelper";
 import { VersionHistory, RoutineVersion } from "@/components/rotinas/VersionHistory";
 import { RoutineDiffModal } from "@/components/rotinas/RoutineDiffModal";
+import { AiChatSidebar } from "@/components/rotinas/AiChatSidebar";
 import { ConsolePanel } from "@/components/rotinas/ConsolePanel";
 import Button from "@/components/ui/button/Button";
 import { useTenant } from "@/context/TenantContext";
@@ -49,7 +50,9 @@ export default function RoutineEditorPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [executing, setExecuting] = useState(false);
-    const [activeTab, setActiveTab] = useState<'helper' | 'history' | null>('helper');
+    const [activeTab, setActiveTab] = useState<'helper' | 'history' | 'ai' | null>('ai');
+
+    // Versioning
 
     // Versioning
     const [versions, setVersions] = useState<RoutineVersion[]>([]);
@@ -70,6 +73,9 @@ export default function RoutineEditorPage() {
     const editorRef = useRef<any>(null);
     const saveRef = useRef<() => void>(() => { });
     const codeRef = useRef<string>("");
+
+    // AI Diff Review State
+    const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
 
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
@@ -296,6 +302,45 @@ export default function RoutineEditorPage() {
         }
     };
 
+    const handleSuggestCode = (suggestedCode: string) => {
+        setPendingSuggestion(suggestedCode);
+    };
+
+    const handleApplyDiff = async () => {
+        if (!pendingSuggestion || !rotina) return;
+        // Apply the suggested code to the editor
+        codeRef.current = pendingSuggestion;
+        setCode(pendingSuggestion);
+        if (editorRef.current) {
+            editorRef.current.setValue(pendingSuggestion);
+        }
+        setPendingSuggestion(null);
+
+        // Auto-save after applying
+        setSaving(true);
+        try {
+            const observacao = `IA Suggestion Applied - ${new Date().toLocaleString('pt-BR')}`;
+            await RotinaService.update(rotina.ROTCodigo, {
+                ROTCodigoJS: pendingSuggestion,
+                observacao,
+                INSInstituicaoCodigo: codigoInstituicao
+            });
+            setOriginalCode(pendingSuggestion);
+            setRotina(prev => prev ? { ...prev, ROTCodigoJS: pendingSuggestion! } : null);
+            showToast("success", "Aplicado", "Código da IA aplicado e salvo com sucesso!");
+        } catch (error) {
+            console.error("Erro ao salvar", error);
+            showToast("error", "Erro", "Código aplicado mas houve erro ao salvar.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleRejectDiff = () => {
+        setPendingSuggestion(null);
+        showToast("info", "Descartado", "Sugestão da IA descartada.");
+    };
+
     // Resize Handlers
     const startResizing = useCallback(() => {
         setIsResizing(true);
@@ -390,6 +435,15 @@ export default function RoutineEditorPage() {
                             <InfoIcon className="w-3 h-3" /> Helper
                         </button>
                         <button
+                            onClick={() => setActiveTab(activeTab === 'ai' ? null : 'ai')}
+                            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${activeTab === 'ai'
+                                ? 'bg-white dark:bg-gray-600 text-purple-600 dark:text-purple-300 shadow-sm'
+                                : 'text-gray-500 dark:text-gray-400 hover:text-purple-600 dark:hover:text-purple-400'
+                                }`}
+                        >
+                            ✨ IA Chat
+                        </button>
+                        <button
                             onClick={() => setActiveTab(activeTab === 'history' ? null : 'history')}
                             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${activeTab === 'history'
                                 ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-300 shadow-sm'
@@ -466,20 +520,59 @@ export default function RoutineEditorPage() {
                 <div className="flex-1 flex flex-col min-w-0">
                     <div className="flex-1 relative overflow-hidden">
                         <div className="absolute inset-0">
-                            <Editor
-                                height="100%"
-                                defaultLanguage="javascript"
-                                theme="vs-dark"
-                                defaultValue={code}
-                                onChange={(value) => { codeRef.current = value || ""; }}
-                                options={{
-                                    minimap: { enabled: false },
-                                    fontSize: 13,
-                                    wordWrap: 'on',
-                                    automaticLayout: true,
-                                }}
-                                onMount={handleEditorDidMount}
-                            />
+                            {pendingSuggestion ? (
+                                <>
+                                    {/* Diff Action Bar */}
+                                    <div className="flex items-center justify-between px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white z-10 relative">
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-sm font-medium">✨ Sugestão da IA — Revise as diferenças abaixo</span>
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                onClick={handleRejectDiff}
+                                                className="px-3 py-1.5 text-xs font-medium rounded-md bg-white/20 hover:bg-white/30 transition-colors"
+                                            >
+                                                ✕ Reject Changes
+                                            </button>
+                                            <button
+                                                onClick={handleApplyDiff}
+                                                className="px-3 py-1.5 text-xs font-medium rounded-md bg-white text-emerald-700 hover:bg-emerald-50 transition-colors shadow-sm"
+                                            >
+                                                ✓ Apply Changes
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <DiffEditor
+                                        height="calc(100% - 40px)"
+                                        language="javascript"
+                                        theme="vs-dark"
+                                        original={codeRef.current}
+                                        modified={pendingSuggestion}
+                                        options={{
+                                            readOnly: true,
+                                            renderSideBySide: true,
+                                            minimap: { enabled: false },
+                                            fontSize: 13,
+                                            automaticLayout: true,
+                                        }}
+                                    />
+                                </>
+                            ) : (
+                                <Editor
+                                    height="100%"
+                                    defaultLanguage="javascript"
+                                    theme="vs-dark"
+                                    defaultValue={code}
+                                    onChange={(value) => { codeRef.current = value || ""; }}
+                                    options={{
+                                        minimap: { enabled: false },
+                                        fontSize: 13,
+                                        wordWrap: 'on',
+                                        automaticLayout: true,
+                                    }}
+                                    onMount={handleEditorDidMount}
+                                />
+                            )}
                         </div>
                     </div>
                     {/* Resizer */}
@@ -506,7 +599,17 @@ export default function RoutineEditorPage() {
 
                 {/* Sidebar */}
                 {activeTab && (
-                    <div className="w-80 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
+                    <div className="w-96 shrink-0 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 overflow-hidden flex flex-col">
+                        {activeTab === 'ai' && (
+                            <AiChatSidebar
+                                rotinaCodigo={rotina.ROTCodigo}
+                                instituicaoCodigo={codigoInstituicao}
+                                currentCode={codeRef.current}
+                                onApplyCode={handleInsertSnippet}
+                                onSuggestCode={handleSuggestCode}
+                                onClose={() => setActiveTab(null)}
+                            />
+                        )}
                         {activeTab === 'helper' && (
                             <RoutineHelper onInsertSnippet={handleInsertSnippet} />
                         )}
