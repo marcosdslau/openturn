@@ -122,6 +122,7 @@ export default function RoutineEditorPage() {
                 ROTNome: data.ROTNome,
                 ROTDescricao: data.ROTDescricao,
                 ROTTipo: data.ROTTipo,
+                ROTTimeoutSeconds: data.ROTTimeoutSeconds,
                 ROTCronExpressao: data.ROTCronExpressao,
                 ROTWebhookPath: data.ROTWebhookPath,
                 ROTWebhookMetodo: data.ROTWebhookMetodo,
@@ -172,8 +173,11 @@ export default function RoutineEditorPage() {
     const handleSaveSettings = async () => {
         if (!rotina) return;
         try {
+            const timeoutRaw = settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds;
+            const ROTTimeoutSeconds = Math.min(2000, Math.max(1, Number(timeoutRaw) || 30));
             await RotinaService.update(rotina.ROTCodigo, {
                 ...settingsForm,
+                ROTTimeoutSeconds,
                 INSInstituicaoCodigo: codigoInstituicao
             });
             showToast("success", "Sucesso", "Configurações salvas!");
@@ -739,6 +743,23 @@ export default function RoutineEditorPage() {
                                     className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
                                     value={settingsForm.ROTNome || ''}
                                     onChange={e => setSettingsForm({ ...settingsForm, ROTNome: e.target.value })}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (segundos)</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={2000}
+                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                    value={settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds ?? 30}
+                                    onChange={e =>
+                                        setSettingsForm({
+                                            ...settingsForm,
+                                            ROTTimeoutSeconds: Number(e.target.value)
+                                        })
+                                    }
                                 />
                             </div>
 
