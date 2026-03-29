@@ -27,7 +27,17 @@ export type NavItem = {
 };
 
 export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin: boolean): NavItem[] => {
-    const items: NavItem[] = [
+    const items: NavItem[] = [];
+
+    if (isSuperRoot || isAdmin) {
+        items.push({
+            icon: <PieChartIcon />,
+            name: "Monitor",
+            path: `/monitor`,
+        });
+    }
+
+    items.push(
         {
             icon: <GridIcon />,
             name: "Dashboard",
@@ -62,8 +72,8 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
             icon: <PlugInIcon />,
             name: "Rotinas",
             path: `${basePath}/rotinas`,
-        },
-    ];
+        }
+    );
 
     if (isSuperRoot) {
         items.push(

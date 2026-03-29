@@ -103,4 +103,15 @@ export class RotinaQueueService {
 
         return false;
     }
+
+    async getJobCounts() {
+        return this.rotinaQueue.getJobCounts(
+            'waiting',
+            'active',
+            'completed',
+            'failed',
+            'delayed',
+            'paused',
+        );
+    }
 }
