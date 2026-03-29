@@ -112,6 +112,7 @@ export class RotinaQueueService {
             'failed',
             'delayed',
             'paused',
+            'prioritized',
         );
     }
 }

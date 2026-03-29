@@ -69,7 +69,8 @@ export class MonitorService {
                 },
                 queue: {
                     ...queueCounts,
-                    running: runningNow,
+                    running: runningNow, // Local webapi processes
+                    totalActive: (queueCounts.active || 0) + runningNow, // Workers + Local
                 },
                 timestamp: new Date().toISOString(),
             };

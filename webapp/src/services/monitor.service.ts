@@ -24,7 +24,9 @@ export interface MonitorStats {
         failed: number;
         delayed: number;
         paused: number;
+        prioritized: number;
         running: number;
+        totalActive: number;
     };
     timestamp: string;
 }

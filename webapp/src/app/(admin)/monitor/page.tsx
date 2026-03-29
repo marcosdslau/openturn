@@ -80,24 +80,26 @@ export default function MonitorPage() {
     };
 
     const queueOptions: ApexOptions = {
-        colors: ["#3b82f6", "#ef4444", "#10b981", "#6366f1"],
+        colors: ["#3b82f6", "#10b981", "#ef4444", "#6366f1", "#fbbf24"],
         chart: { type: "bar", fontFamily: "Outfit, sans-serif", toolbar: { show: false } },
         xaxis: {
-            categories: ["Waiting", "Failed", "Completed", "Delayed"],
+            categories: ["Waiting", "Active", "Failed", "Delayed", "Completed"],
         },
         plotOptions: {
-            bar: { borderRadius: 4, columnWidth: "50%" },
+            bar: { borderRadius: 4, columnWidth: "60%", distributed: true },
         },
+        legend: { show: false },
     };
 
     const queueSeries = [
         {
             name: "Jobs",
             data: [
-                stats.queue.waiting,
-                stats.queue.failed,
-                stats.queue.completed,
-                stats.queue.delayed,
+                (stats.queue.waiting || 0) + (stats.queue.prioritized || 0),
+                stats.queue.active || 0,
+                stats.queue.failed || 0,
+                stats.queue.delayed || 0,
+                stats.queue.completed || 0,
             ],
         },
     ];
@@ -122,13 +124,13 @@ export default function MonitorPage() {
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 <StatCard
                     title="Processando Agora"
-                    value={stats.queue.running}
+                    value={stats.queue.totalActive || 0}
                     icon={<BoltIcon className="text-amber-500" />}
-                    subtitle="Execuções manuais/background"
+                    subtitle={`${stats.queue.active || 0} workers + ${stats.queue.running || 0} local`}
                 />
                 <StatCard
                     title="Fila (Aguardando)"
-                    value={stats.queue.waiting}
+                    value={(stats.queue.waiting || 0) + (stats.queue.prioritized || 0)}
                     icon={<ListIcon className="text-blue-500" />}
                     subtitle="Jobs pendentes no Redis"
                 />
