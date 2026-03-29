@@ -1,15 +1,33 @@
-import { Controller, All, Param, Body, Query, Headers, Req, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
+import { Controller, All, Param, Body, Query, Headers, Req, Res, NotFoundException, UnauthorizedException, Logger, HttpCode } from '@nestjs/common';
+import type { Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { ExecutionService } from './engine/execution.service';
+import { RotinaQueueService } from './queue/rotina-queue.service';
+import { QueueEvents } from 'bullmq';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
     private readonly logger = new Logger(RotinaWebhookController.name);
+    private queueEvents: QueueEvents | null = null;
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly executionService: ExecutionService,
-    ) { }
+        private readonly rotinaQueueService: RotinaQueueService,
+    ) {
+        this.initQueueEvents();
+    }
+
+    private initQueueEvents() {
+        try {
+            this.queueEvents = new QueueEvents('rotina-execute', {
+                connection: {
+                    host: process.env.REDIS_HOST || 'localhost',
+                    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                },
+            });
+        } catch (err) {
+            this.logger.warn('QueueEvents could not be initialized (Redis may not be available)');
+        }
+    }
 
     @All(':path')
     async handleWebhook(
@@ -19,10 +37,10 @@ export class RotinaWebhookController {
         @Query() query: any,
         @Headers() headers: any,
         @Req() req: any,
+        @Res() res: Response,
     ) {
         const method = req.method;
 
-        // Busca rotina pelo path (case sensitive ou não? vamos assumir exact match)
         const rotina = await this.prisma.rOTRotina.findFirst({
             where: {
                 ROTWebhookPath: `/${path}`,
@@ -35,27 +53,22 @@ export class RotinaWebhookController {
             throw new NotFoundException('Webhook not found');
         }
 
-        // Validação Play/Stop
         if (!rotina.ROTAtivo) {
             this.logger.debug(`Webhook recebido para rotina inativa ${rotina.ROTCodigo}. Ignorando.`);
-            return { message: 'Routine is paused', status: 'skipped' };
+            return res.json({ message: 'Routine is paused', status: 'skipped' });
         }
 
-        // Validação de Método HTTP (se configurado)
         if (rotina.ROTWebhookMetodo && rotina.ROTWebhookMetodo !== method) {
             throw new NotFoundException(`Method ${method} not allowed`);
         }
 
-        // Validação de Token de Segurança (se configurado)
         if (rotina.ROTWebhookSeguro && rotina.ROTWebhookToken) {
             const tokenKey = rotina.ROTWebhookTokenKey || 'x-webhook-token';
-            // Fonte do token (padrão HEADER se nulo)
             const tokenSource = rotina.ROTWebhookTokenSource || 'HEADER';
 
             let receivedToken: string | undefined;
 
             if (tokenSource === 'HEADER') {
-                // Headers no node/express são lowercase
                 receivedToken = headers[tokenKey.toLowerCase()];
             } else if (tokenSource === 'QUERY') {
                 receivedToken = query[tokenKey];
@@ -67,54 +80,56 @@ export class RotinaWebhookController {
             }
         }
 
-        // Executa a rotina
-        // Nota: Webhooks rodam em "Fire and Forget" ou esperamos o resultado?
-        // Geralmente webhooks devem responder rápido. Vamos disparar sem awaitar o resultado final
-        // mas garantindo que o erro de start seja capturado.
+        const requestData = {
+            body,
+            query,
+            headers,
+            method,
+            path: `/${path}`,
+            params: req.params,
+        };
 
-        // Executa a rotina
+        const { exeId } = await this.rotinaQueueService.enqueue(
+            rotina.ROTCodigo,
+            rotina.INSInstituicaoCodigo,
+            'WEBHOOK',
+            requestData,
+        );
+
         if (rotina.ROTWebhookAguardar) {
             try {
-                const data = await this.executionService.execute(
-                    rotina.ROTCodigo,
-                    rotina.INSInstituicaoCodigo,
-                    'WEBHOOK',
-                    {
-                        body,
-                        query,
-                        headers,
-                        method,
-                        path: `/${path}`,
-                        params: req.params,
-                    }
-                );
-                const { result } = data;
-                return result;
-            } catch (err: any) {
-                this.logger.error(`Erro ao executar webhook síncrono ${path}:`, err);
-                // Retorna erro 500 ou 400 dependendo do erro
-                // Vamos retornar o erro para quem chamou
-                throw err;
-            }
-        } else {
-            // Fire and Forget (Async)
-            this.executionService.execute(
-                rotina.ROTCodigo,
-                rotina.INSInstituicaoCodigo,
-                'WEBHOOK',
-                {
-                    body,
-                    query,
-                    headers,
-                    method,
-                    path: `/${path}`,
-                    params: req.params,
+                if (!this.queueEvents) {
+                    this.initQueueEvents();
                 }
-            ).catch(err => {
-                this.logger.error(`Erro ao executar webhook assíncrono ${path}:`, err);
-            });
 
-            return { message: 'Webhook received', execution: 'started' };
+                const job = await (await import('bullmq')).Queue.prototype.getJob?.call(
+                    null, exeId
+                );
+
+                const { Queue } = await import('bullmq');
+                const queue = new Queue('rotina-execute', {
+                    connection: {
+                        host: process.env.REDIS_HOST || 'localhost',
+                        port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                    },
+                });
+
+                const queueJob = await queue.getJob(exeId);
+                if (queueJob && this.queueEvents) {
+                    const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
+                    const result = await queueJob.waitUntilFinished(this.queueEvents, timeoutMs);
+                    await queue.close();
+                    return res.json(result?.result ?? result);
+                }
+
+                await queue.close();
+                return res.json({ exeId, message: 'Webhook enqueued (sync fallback)' });
+            } catch (err: any) {
+                this.logger.error(`Erro ao aguardar webhook síncrono ${path}:`, err);
+                return res.status(500).json({ error: err.message, exeId });
+            }
         }
+
+        return res.status(202).json({ message: 'Webhook received', exeId, execution: 'queued' });
     }
 }

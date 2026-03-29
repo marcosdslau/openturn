@@ -17,6 +17,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: openturn-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ./webapi
@@ -26,6 +40,7 @@ services:
     environment:
       DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public
       JWT_SECRET: openturn_super_secret_key
+      REDIS_URL: redis://redis:6379
       PORT: 3000
     ports:
       - "3000:3000"
@@ -35,6 +50,25 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: openturn-worker
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public
+      REDIS_URL: redis://redis:6379
+      WORKER_CONCURRENCY: 5
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
 volumes:
   postgres_data:
+  redis_data:

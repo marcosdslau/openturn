@@ -72,7 +72,24 @@ export const RotinaService = {
     },
 
     execute: async (id: number, instituicaoCodigo: number) => {
-        return apiPost(`/instituicao/${instituicaoCodigo}/rotina/${id}/execute`, {});
+        return apiPost<{ exeId: string; success: boolean; result?: any; error?: string; duration?: number }>(`/instituicao/${instituicaoCodigo}/rotina/${id}/execute`, {});
+    },
+
+    getActiveExecution: async (id: number, instituicaoCodigo: number) => {
+        return apiGet<{ running: boolean; exeId: string | null }>(
+            `/instituicao/${instituicaoCodigo}/rotina/${id}/execucao-ativa`,
+        );
+    },
+
+    /** Rotinas com execução ativa (chave = ROTCodigo em string). */
+    getActiveExecutionsMap: async (instituicaoCodigo: number) => {
+        return apiGet<Record<string, { running: boolean; exeId: string }>>(
+            `/instituicao/${instituicaoCodigo}/rotina/execucoes-ativas/mapa`,
+        );
+    },
+
+    cancelExecution: async (id: number, exeId: string, instituicaoCodigo: number) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/rotina/${id}/execucoes/${exeId}/cancel`, {});
     },
 
     getVersions: async (id: number, instituicaoCodigo: number) => {

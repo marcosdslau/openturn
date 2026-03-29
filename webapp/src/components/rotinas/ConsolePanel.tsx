@@ -16,21 +16,26 @@ interface ConsolePanelProps {
     rotinaCodigo: number;
     instituicaoCodigo: number;
     height?: string;
+    /** Execução manual em andamento (mesmo id usado no cancelamento na API) */
+    activeExeId?: string | null;
+    onStopExecution?: () => void | Promise<void>;
+    stoppingExecution?: boolean;
 }
 
 interface LogMessage {
     level: 'log' | 'info' | 'warn' | 'error';
     message: string;
     timestamp: string;
+    exeId?: string;
 }
 
 interface ExecutionStartMessage {
-    executionId: string;
+    exeId: string;
     timestamp: string;
 }
 
 interface ExecutionEndMessage {
-    executionId: string;
+    exeId: string;
     success: boolean;
     duration: number;
     error?: string;
@@ -42,7 +47,14 @@ type ConsoleEntry =
     | { type: 'start'; data: ExecutionStartMessage; isHistorical?: boolean }
     | { type: 'end'; data: ExecutionEndMessage; isHistorical?: boolean };
 
-export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px' }: ConsolePanelProps) {
+export function ConsolePanel({
+    rotinaCodigo,
+    instituicaoCodigo,
+    height = '300px',
+    activeExeId = null,
+    onStopExecution,
+    stoppingExecution = false,
+}: ConsolePanelProps) {
     const [entries, setEntries] = useState<ConsoleEntry[]>([]);
     const [search, setSearch] = useState('');
     const [isSearching, setIsSearching] = useState(false);
@@ -88,7 +100,6 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
 
         socket.on('execution:start', (data: ExecutionStartMessage) => {
             setEntries((prev) => [...prev, { type: 'start', data }]);
-            // Also reset active filters if a new execution starts? Maybe not.
         });
 
         socket.on('execution:end', (data: ExecutionEndMessage) => {
@@ -149,7 +160,7 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
                     type: 'start',
                     isHistorical: true,
                     data: {
-                        executionId: exec.EXECodigo.toString(),
+                        exeId: exec.EXEIdExterno || exec.EXECodigo.toString(),
                         timestamp: exec.EXEInicio
                     }
                 };
@@ -171,7 +182,7 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
                     type: 'end',
                     isHistorical: true,
                     data: {
-                        executionId: exec.EXECodigo.toString(),
+                        exeId: exec.EXEIdExterno || exec.EXECodigo.toString(),
                         success: exec.EXEStatus === 'SUCESSO',
                         duration: exec.EXEDuracaoMs || 0,
                         error: exec.EXEErro,
@@ -250,11 +261,28 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
             {/* Toolbar */}
             <div className="flex items-center justify-between px-4 py-1.5 bg-[#252526] border-b border-black">
                 <div className="flex items-center gap-4 flex-1">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-shrink-0">
                         <span className="text-[10px] font-bold text-gray-500 uppercase tracking-widest select-none">Console</span>
                         <Tooltip content={connected ? 'Conectado' : 'Desconectado'} placement="bottom">
                             <div className={`w-1.5 h-1.5 rounded-full cursor-help ${connected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></div>
                         </Tooltip>
+                        {activeExeId && onStopExecution ? (
+                            <Tooltip content="Envia cancelamento à API (SIGKILL no processo local ou worker)" placement="bottom">
+                                <button
+                                    type="button"
+                                    onClick={() => void onStopExecution()}
+                                    disabled={stoppingExecution}
+                                    className="ml-1 flex items-center gap-1 rounded px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide bg-red-600/90 text-white hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                                >
+                                    {stoppingExecution ? (
+                                        <RefreshIcon className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                        <CloseIcon className="w-3 h-3" />
+                                    )}
+                                    Encerrar
+                                </button>
+                            </Tooltip>
+                        ) : null}
                     </div>
 
                     {/* Search Bar */}
@@ -424,7 +452,7 @@ export function ConsolePanel({ rotinaCodigo, instituicaoCodigo, height = '300px'
                             <div key={idx} className="text-blue-400/80 border-t border-blue-900/20 pt-2 mt-4 flex items-center gap-2">
                                 <span className="opacity-50">➤</span>
                                 <span className="font-bold">Execução iniciada</span>
-                                <span className="text-[10px] bg-blue-900/30 px-2 py-0.5 rounded text-blue-300">ID: {entry.data.executionId}</span>
+                                <span className="text-[10px] bg-blue-900/30 px-2 py-0.5 rounded text-blue-300">ID: {entry.data.exeId}</span>
                                 <span className="text-gray-600 ml-auto">{new Date(entry.data.timestamp).toLocaleString()}</span>
                             </div>
                         );

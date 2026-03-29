@@ -1,7 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
 import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
-import { ConsoleGateway } from '../console.gateway';
+import Redis from 'ioredis';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -19,14 +18,40 @@ export interface ExecutionResult {
     cancelled?: boolean;
 }
 
-@Injectable()
-export class ProcessManager {
-    private readonly logger = new Logger(ProcessManager.name);
+export class WorkerProcessManager {
     private activeProcesses = new Map<string, { child: ChildProcess; rotinaCodigo: number }>();
-    private consoleGateway: ConsoleGateway | null = null;
+    private redisPub: Redis;
 
-    setConsoleGateway(gateway: ConsoleGateway) {
-        this.consoleGateway = gateway;
+    constructor(redisUrl: string) {
+        this.redisPub = new Redis(redisUrl);
+    }
+
+    private publishLog(rotinaCodigo: number, exeId: string, log: LogEntry) {
+        this.redisPub.publish('rotina:console', JSON.stringify({
+            type: 'log',
+            rotinaCodigo,
+            exeId,
+            log,
+        }));
+    }
+
+    private publishExecutionStart(rotinaCodigo: number, exeId: string) {
+        this.redisPub.publish('rotina:console', JSON.stringify({
+            type: 'execution:start',
+            rotinaCodigo,
+            exeId,
+            timestamp: new Date().toISOString(),
+        }));
+    }
+
+    private publishExecutionEnd(rotinaCodigo: number, exeId: string, result: { success: boolean; duration: number; error?: string }) {
+        this.redisPub.publish('rotina:console', JSON.stringify({
+            type: 'execution:end',
+            rotinaCodigo,
+            exeId,
+            ...result,
+            timestamp: new Date().toISOString(),
+        }));
     }
 
     async executeInProcess(
@@ -41,9 +66,7 @@ export class ProcessManager {
         let timedOut = false;
         const logs: LogEntry[] = [];
 
-        if (this.consoleGateway) {
-            this.consoleGateway.sendExecutionStart(rotinaCodigo, exeId);
-        }
+        this.publishExecutionStart(rotinaCodigo, exeId);
 
         return new Promise((resolve) => {
             let resolved = false;
@@ -64,19 +87,13 @@ export class ProcessManager {
 
             const timeoutHandle = setTimeout(() => {
                 timedOut = true;
-                this.logger.warn(`Execution ${exeId} timed out after ${timeoutSeconds}s`);
-
                 const timeoutLog: LogEntry = {
                     level: 'error',
                     message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
                     timestamp: new Date().toISOString(),
                 };
                 logs.push(timeoutLog);
-
-                if (this.consoleGateway) {
-                    this.consoleGateway.sendLog(rotinaCodigo, timeoutLog, exeId);
-                }
-
+                this.publishLog(rotinaCodigo, exeId, timeoutLog);
                 child.kill('SIGKILL');
             }, timeoutSeconds * 1000);
 
@@ -95,10 +112,7 @@ export class ProcessManager {
                         timestamp: message.timestamp,
                     };
                     logs.push(logEntry);
-
-                    if (this.consoleGateway) {
-                        this.consoleGateway.sendLog(rotinaCodigo, logEntry, exeId);
-                    }
+                    this.publishLog(rotinaCodigo, exeId, logEntry);
                     return;
                 }
 
@@ -121,32 +135,16 @@ export class ProcessManager {
 
                 if (message.type === 'success') {
                     const executionResult: ExecutionResult = {
-                        success: true,
-                        result: message.result,
-                        duration,
-                        timedOut: false,
-                        logs,
+                        success: true, result: message.result, duration, timedOut: false, logs,
                     };
-
-                    if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, executionResult);
-                    }
-
+                    this.publishExecutionEnd(rotinaCodigo, exeId, executionResult);
                     this.cleanup(exeId);
                     safeResolve(executionResult);
                 } else if (message.type === 'error') {
                     const executionResult: ExecutionResult = {
-                        success: false,
-                        error: message.error,
-                        duration,
-                        timedOut: false,
-                        logs,
+                        success: false, error: message.error, duration, timedOut: false, logs,
                     };
-
-                    if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, executionResult);
-                    }
-
+                    this.publishExecutionEnd(rotinaCodigo, exeId, executionResult);
                     this.cleanup(exeId);
                     safeResolve(executionResult);
                 }
@@ -155,20 +153,10 @@ export class ProcessManager {
             child.on('error', (error) => {
                 clearTimeout(timeoutHandle);
                 const duration = Date.now() - startTime;
-                this.logger.error(`Process error for ${exeId}:`, error);
-
                 const result: ExecutionResult = {
-                    success: false,
-                    error: error.message,
-                    duration,
-                    timedOut,
-                    logs,
+                    success: false, error: error.message, duration, timedOut, logs,
                 };
-
-                if (this.consoleGateway) {
-                    this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
-                }
-
+                this.publishExecutionEnd(rotinaCodigo, exeId, result);
                 this.cleanup(exeId);
                 safeResolve(result);
             });
@@ -178,20 +166,10 @@ export class ProcessManager {
                 const duration = Date.now() - startTime;
 
                 if (code !== 0 && code !== null) {
-                    this.logger.warn(`Process ${exeId} exited with code ${code}`);
-
                     const result: ExecutionResult = {
-                        success: false,
-                        error: `Process exited with code ${code}`,
-                        duration,
-                        timedOut,
-                        logs,
+                        success: false, error: `Process exited with code ${code}`, duration, timedOut, logs,
                     };
-
-                    if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
-                    }
-
+                    this.publishExecutionEnd(rotinaCodigo, exeId, result);
                     this.cleanup(exeId);
                     safeResolve(result);
                 } else if (signal) {
@@ -204,11 +182,7 @@ export class ProcessManager {
                         cancelled,
                         logs,
                     };
-
-                    if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
-                    }
-
+                    this.publishExecutionEnd(rotinaCodigo, exeId, result);
                     this.cleanup(exeId);
                     safeResolve(result);
                 }
@@ -231,20 +205,6 @@ export class ProcessManager {
             return true;
         }
         return false;
-    }
-
-    isRunning(exeId: string): boolean {
-        return this.activeProcesses.has(exeId);
-    }
-
-    getActiveForRotina(rotinaCodigo: number): string[] {
-        const ids: string[] = [];
-        for (const [exeId, entry] of this.activeProcesses) {
-            if (entry.rotinaCodigo === rotinaCodigo) {
-                ids.push(exeId);
-            }
-        }
-        return ids;
     }
 
     getActiveCount(): number {

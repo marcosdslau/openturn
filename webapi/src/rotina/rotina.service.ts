@@ -1,16 +1,38 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ExecutionService } from './engine/execution.service';
+import { ProcessManager } from './engine/process-manager';
+import { RotinaQueueService } from './queue/rotina-queue.service';
 import { SchedulerService } from './scheduler.service';
-import { TipoRotina, HttpMetodo, WebhookTokenSource } from '@prisma/client';
+import { TipoRotina, HttpMetodo, WebhookTokenSource, StatusExecucao } from '@prisma/client';
+import Redis from 'ioredis';
 
 @Injectable()
 export class RotinaService {
+    private readonly logger = new Logger(RotinaService.name);
+    private redisPub: Redis | null = null;
+
     constructor(
         private readonly prisma: PrismaService,
         private readonly executionService: ExecutionService,
+        private readonly processManager: ProcessManager,
+        private readonly rotinaQueueService: RotinaQueueService,
         private readonly schedulerService: SchedulerService,
-    ) { }
+    ) {
+        try {
+            this.redisPub = new Redis({
+                host: process.env.REDIS_HOST || 'localhost',
+                port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                lazyConnect: true,
+            });
+            this.redisPub.connect().catch(() => {
+                this.logger.warn('Redis not available for cancel pub/sub');
+                this.redisPub = null;
+            });
+        } catch {
+            this.redisPub = null;
+        }
+    }
 
     async findAll(instituicaoCodigo: number) {
         return this.prisma.rOTRotina.findMany({
@@ -242,11 +264,109 @@ export class RotinaService {
         });
     }
 
+    /**
+     * Mapa rotinaCodigo → execução realmente ativa (mesma regra de getActiveExecution).
+     * Só inclui entradas com running=true.
+     */
+    async getActiveExecutionsMap(instituicaoCodigo: number) {
+        const rows = await this.prisma.rOTExecucaoLog.findMany({
+            where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+            },
+            orderBy: { EXEInicio: 'desc' },
+            select: {
+                ROTCodigo: true,
+                EXEIdExterno: true,
+                EXECodigo: true,
+                EXEInicio: true,
+            },
+        });
+
+        const seen = new Set<number>();
+        const out: Record<string, { running: boolean; exeId: string }> = {};
+
+        for (const row of rows) {
+            if (seen.has(row.ROTCodigo)) continue;
+            seen.add(row.ROTCodigo);
+
+            const resolved = await this.resolveRunningExecutionRow(row, row.ROTCodigo);
+            if (resolved.running && resolved.exeId) {
+                out[String(row.ROTCodigo)] = { running: true, exeId: resolved.exeId };
+            }
+        }
+
+        return out;
+    }
+
+    async getActiveExecution(rotinaCodigo: number, instituicaoCodigo: number) {
+        await this.findOne(rotinaCodigo, instituicaoCodigo);
+
+        const row = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                ROTCodigo: rotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+            },
+            orderBy: { EXEInicio: 'desc' },
+            select: { EXEIdExterno: true, EXECodigo: true, EXEInicio: true },
+        });
+
+        if (!row) {
+            return { running: false, exeId: null };
+        }
+
+        return this.resolveRunningExecutionRow(row, rotinaCodigo);
+    }
+
+    private async resolveRunningExecutionRow(
+        row: { EXEIdExterno: string; EXECodigo: number; EXEInicio: Date },
+        rotinaCodigo: number,
+    ): Promise<{ running: boolean; exeId: string | null }> {
+        const exeId = row.EXEIdExterno;
+        const onThisNode = this.processManager.isRunning(exeId);
+
+        let inQueue = false;
+        let queueUnreachable = false;
+        try {
+            inQueue = await this.rotinaQueueService.hasLiveJob(exeId);
+        } catch (e: any) {
+            queueUnreachable = true;
+            this.logger.warn(`Fila Bull indisponível ao checar ${exeId}: ${e?.message ?? e}`);
+        }
+
+        if (onThisNode || inQueue) {
+            return { running: true, exeId };
+        }
+
+        if (queueUnreachable) {
+            return { running: true, exeId };
+        }
+
+        const GRACE_MS = 10_000;
+        const ageMs = Date.now() - row.EXEInicio.getTime();
+        if (ageMs < GRACE_MS) {
+            return { running: true, exeId };
+        }
+
+        await this.prisma.rOTExecucaoLog.update({
+            where: { EXECodigo: row.EXECodigo },
+            data: {
+                EXEStatus: StatusExecucao.ERRO,
+                EXEFim: new Date(),
+                EXEDuracaoMs: ageMs,
+                EXEErro: 'Estado inconsistente: sem processo nem job ativo (corrigido automaticamente)',
+            },
+        });
+        this.logger.warn(`Execução órfã corrigida: ${exeId} (rotina ${rotinaCodigo})`);
+
+        return { running: false, exeId: null };
+    }
+
     async executeManual(id: number, instituicaoCodigo: number) {
         const rotina = await this.findOne(id, instituicaoCodigo);
 
-        // Executa rotina via ExecutionService
-        const result = await this.executionService.execute(
+        const exeId = await this.executionService.startExecution(
             rotina.ROTCodigo,
             instituicaoCodigo,
             'MANUAL',
@@ -255,11 +375,71 @@ export class RotinaService {
         );
 
         return {
-            message: 'Execução concluída',
+            message: 'Execução iniciada',
+            exeId,
             rotinaCodigo: rotina.ROTCodigo,
             rotinaName: rotina.ROTNome,
-            ...result,
         };
+    }
+
+    async cancelExecution(exeId: string, rotinaCodigo: number, instituicaoCodigo: number) {
+        const execLog = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                EXEIdExterno: exeId,
+                ROTCodigo: rotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+        });
+
+        if (!execLog) {
+            throw new NotFoundException('Execução não encontrada');
+        }
+
+        if (execLog.EXEStatus !== StatusExecucao.EM_EXECUCAO) {
+            throw new ConflictException('Execução não está em andamento');
+        }
+
+        // 1) Tenta kill local (MANUAL executions run in webapi)
+        const killedLocal = this.processManager.killProcess(exeId);
+
+        if (!killedLocal) {
+            // 2) Tenta remover da fila (waiting/delayed)
+            const removedFromQueue = await this.rotinaQueueService.cancelJob(exeId);
+
+            if (!removedFromQueue) {
+                // 3) Publica cancel via Redis para workers remotos
+                if (this.redisPub) {
+                    await this.redisPub.publish('rotina:cancel', JSON.stringify({ exeId }));
+                } else {
+                    await this.prisma.rOTExecucaoLog.update({
+                        where: { EXECodigo: execLog.EXECodigo },
+                        data: {
+                            EXEStatus: StatusExecucao.CANCELADO,
+                            EXEFim: new Date(),
+                            EXEDuracaoMs: Date.now() - execLog.EXEInicio.getTime(),
+                            EXEErro: 'Execução cancelada (processo remoto)',
+                        },
+                    });
+                }
+            }
+        }
+
+        return { message: 'Execução cancelada', exeId };
+    }
+
+    async getExecution(exeId: string, instituicaoCodigo: number) {
+        const execLog = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                EXEIdExterno: exeId,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+        });
+
+        if (!execLog) {
+            throw new NotFoundException('Execução não encontrada');
+        }
+
+        return execLog;
     }
 
     private async createVersion(

@@ -4,40 +4,40 @@ overview: Pré-produção — execução linear do plano completo (sem rollout g
 todos:
   - id: bloco-a-T001-T002
     content: "T-001 T-002: Prisma enum + EXEIdExterno + migrate; ajustar tipos StatusExecucao no webapi"
-    status: pending
+    status: completed
   - id: bloco-b-T003-T005
     content: "T-003 T-004 T-005: ProcessManager provider; guard promise única; mapa por EXEIdExterno"
-    status: pending
+    status: completed
   - id: bloco-c-T006-T007
     content: "T-006 T-007: log EM_EXECUCAO→final no ExecutionService; executeManual retorna exeId"
-    status: pending
+    status: completed
   - id: bloco-d-T008-T009
     content: "T-008 T-009: POST cancel MANUAL; GET execução por exeId opcional"
-    status: pending
+    status: completed
   - id: bloco-e-T010-T011
     content: "T-010 T-011: mutex uma rotina ativa; semáforo ROTINA_MAX_CONCURRENT_MANUAL"
-    status: pending
+    status: completed
   - id: bloco-f-T012
     content: "T-012: console.gateway payloads com exeId"
-    status: pending
+    status: completed
   - id: bloco-g-T013-T016
     content: "T-013 T-014 T-015 T-016: Redis compose; BullMQ module; DTO fila; RotinaQueueService"
-    status: pending
+    status: completed
   - id: bloco-h-T017-T021
     content: "T-017–T-021: scaffold worker/; Prisma RLS; ProcessManager+bridge; consumer; cancel worker"
-    status: pending
+    status: completed
   - id: bloco-i-T022-T025
     content: "T-022 T-023 T-024 T-025: Scheduler enqueue; webhook async/sync waitUntilFinished; cancel unificado"
-    status: pending
+    status: completed
   - id: bloco-j-T026-T027
     content: "T-026 T-027: Socket.IO redis-adapter; bridge worker→API"
-    status: pending
+    status: completed
   - id: bloco-k-T028-T029
     content: "T-028 T-029: webapp exeId + filtro console; botão Parar"
-    status: pending
+    status: completed
   - id: bloco-l-T030-T031
     content: "T-030 T-031: README env + ordem subida; opcional lock Redis cron multi-réplica"
-    status: pending
+    status: completed
 isProject: false
 ---
 
