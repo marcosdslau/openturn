@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "type": "node-terminal",
+            "name": "Run Script: start:dev",
+            "request": "launch",
+            "command": "cmd.exe /c npm.cmd run start:dev",
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

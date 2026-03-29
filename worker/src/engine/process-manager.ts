@@ -1,5 +1,6 @@
 import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
+import { existsSync } from 'fs';
 import Redis from 'ioredis';
 
 export interface LogEntry {
@@ -76,11 +77,15 @@ export class WorkerProcessManager {
                 resolve(result);
             };
 
-            const runnerPath = join(__dirname, 'routine-runner.js');
+            const jsPath = join(__dirname, 'routine-runner.js');
+            const tsPath = join(__dirname, 'routine-runner.ts');
+            const useTsNode = !existsSync(jsPath) && existsSync(tsPath);
+            const runnerPath = useTsNode ? tsPath : jsPath;
 
             const child = fork(runnerPath, [], {
                 stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
                 timeout: timeoutSeconds * 1000,
+                ...(useTsNode ? { execArgv: ['-r', 'ts-node/register'] } : {}),
             });
 
             this.activeProcesses.set(exeId, { child, rotinaCodigo });
