@@ -7,7 +7,7 @@ module.exports = {
             interpreter: "C:\\nvm\\v24.13.0\\node.exe",
             watch: false,
             exec_mode: "fork",
-            instances: 1,
+            instances: 3,
             env: {
                 NODE_ENV: "production",
             },
