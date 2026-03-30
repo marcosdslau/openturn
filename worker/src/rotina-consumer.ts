@@ -1,6 +1,7 @@
 import { Worker, Job } from 'bullmq';
 import { PrismaClient, StatusExecucao } from '@prisma/client';
 import Redis from 'ioredis';
+import type { RedisOptions } from 'ioredis';
 import { WorkerProcessManager } from './engine/process-manager';
 import { DbTenantProxy } from './engine/db-tenant-proxy';
 import { join } from 'path';
@@ -109,7 +110,7 @@ const SCHEMA_DEFINITION = {
     }
 };
 
-export function startConsumer(prisma: PrismaClient, processManager: WorkerProcessManager, redisUrl: string) {
+export function startConsumer(prisma: PrismaClient, processManager: WorkerProcessManager, redisOptions: RedisOptions) {
     const concurrency = parseInt(process.env.WORKER_CONCURRENCY || '5', 10);
 
     const worker = new Worker<RotinaJobData>(
@@ -173,7 +174,7 @@ export function startConsumer(prisma: PrismaClient, processManager: WorkerProces
             };
         },
         {
-            connection: parseRedisUrl(redisUrl),
+            connection: redisOptions,
             concurrency,
         },
     );
@@ -187,7 +188,7 @@ export function startConsumer(prisma: PrismaClient, processManager: WorkerProces
     });
 
     // Cancel listener via Redis pub/sub
-    const redisSub = new Redis(redisUrl);
+    const redisSub = new Redis(redisOptions);
     redisSub.subscribe('rotina:cancel');
     redisSub.on('message', (_channel: string, message: string) => {
         try {
@@ -241,11 +242,3 @@ async function updateExecLog(prisma: PrismaClient, exeId: string, status: Status
     });
 }
 
-function parseRedisUrl(url: string): { host: string; port: number } {
-    try {
-        const parsed = new URL(url);
-        return { host: parsed.hostname, port: parseInt(parsed.port || '6379', 10) };
-    } catch {
-        return { host: 'localhost', port: 6379 };
-    }
-}

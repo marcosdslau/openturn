@@ -2,6 +2,7 @@ import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import Redis from 'ioredis';
+import type { RedisOptions } from 'ioredis';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -23,8 +24,8 @@ export class WorkerProcessManager {
     private activeProcesses = new Map<string, { child: ChildProcess; rotinaCodigo: number }>();
     private redisPub: Redis;
 
-    constructor(redisUrl: string) {
-        this.redisPub = new Redis(redisUrl);
+    constructor(redisOptions: RedisOptions) {
+        this.redisPub = new Redis(redisOptions);
     }
 
     private publishLog(rotinaCodigo: number, exeId: string, log: LogEntry) {

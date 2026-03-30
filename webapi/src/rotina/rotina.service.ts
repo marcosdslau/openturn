@@ -6,6 +6,7 @@ import { RotinaQueueService } from './queue/rotina-queue.service';
 import { SchedulerService } from './scheduler.service';
 import { TipoRotina, HttpMetodo, WebhookTokenSource, StatusExecucao } from '@prisma/client';
 import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Injectable()
 export class RotinaService {
@@ -21,8 +22,7 @@ export class RotinaService {
     ) {
         try {
             this.redisPub = new Redis({
-                host: process.env.REDIS_HOST || 'localhost',
-                port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                ...getRedisConnectionOptions(),
                 lazyConnect: true,
             });
             this.redisPub.connect().catch(() => {

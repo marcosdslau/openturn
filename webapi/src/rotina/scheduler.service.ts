@@ -4,6 +4,7 @@ import { CronJob } from 'cron';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -17,8 +18,7 @@ export class SchedulerService implements OnModuleInit {
     ) {
         try {
             this.redis = new Redis({
-                host: process.env.REDIS_HOST || 'localhost',
-                port: parseInt(process.env.REDIS_PORT || '6379', 10),
+                ...getRedisConnectionOptions(),
                 lazyConnect: true,
             });
             this.redis.connect().catch(() => {

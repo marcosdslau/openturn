@@ -10,6 +10,7 @@ import { Server, Socket } from 'socket.io';
 import { Logger } from '@nestjs/common';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @WebSocketGateway({
     cors: {
@@ -26,60 +27,89 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect,
     private redisSub: Redis | null = null;
 
     afterInit(server: Server) {
-        const redisHost = process.env.REDIS_HOST || 'localhost';
-        const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
+        const redisOpts = { ...getRedisConnectionOptions(), lazyConnect: true };
 
         try {
-            const pubClient = new Redis({ host: redisHost, port: redisPort, lazyConnect: true });
+            const pubClient = new Redis(redisOpts);
             const subClient = pubClient.duplicate();
+            const onAdapterClientError = (label: string) => (err: Error) => {
+                this.logger.warn(`Redis Socket.IO (${label}): ${err.message}`);
+            };
+            pubClient.on('error', onAdapterClientError('pub'));
+            subClient.on('error', onAdapterClientError('sub'));
 
-            Promise.all([pubClient.connect(), subClient.connect()])
+            void Promise.all([pubClient.connect(), subClient.connect()])
                 .then(() => {
                     server.adapter(createAdapter(pubClient, subClient) as any);
                     this.logger.log('Socket.IO Redis adapter configured');
                 })
-                .catch(() => {
-                    this.logger.warn('Redis not available — Socket.IO running without adapter (single instance only)');
+                .catch((err: Error) => {
+                    this.logger.warn(
+                        `Redis not available — Socket.IO running without adapter (single instance only). ${err.message}. ` +
+                            'Com ACL, o utilizador precisa de permissão em canais (&* ou &socket.io#*). Ver REDIS no .env.example.',
+                    );
                 });
 
-            this.setupWorkerBridge(redisHost, redisPort);
+            this.setupWorkerBridge();
         } catch {
             this.logger.warn('Redis adapter setup skipped');
         }
     }
 
-    private setupWorkerBridge(host: string, port: number) {
+    private setupWorkerBridge() {
         try {
-            this.redisSub = new Redis({ host, port, lazyConnect: true });
-            this.redisSub.connect().then(() => {
-                this.redisSub!.subscribe('rotina:console');
-                this.redisSub!.on('message', (_channel: string, message: string) => {
-                    try {
-                        const data = JSON.parse(message);
-                        const room = `rotina-${data.rotinaCodigo}`;
+            const client = new Redis({ ...getRedisConnectionOptions(), lazyConnect: true });
+            this.redisSub = client;
 
-                        if (data.type === 'log') {
-                            this.server.to(room).emit('log', { ...data.log, exeId: data.exeId });
-                        } else if (data.type === 'execution:start') {
-                            this.server.to(room).emit('execution:start', {
-                                exeId: data.exeId,
-                                timestamp: data.timestamp,
-                            });
-                        } else if (data.type === 'execution:end') {
-                            this.server.to(room).emit('execution:end', {
-                                exeId: data.exeId,
-                                success: data.success,
-                                duration: data.duration,
-                                error: data.error,
-                                timestamp: data.timestamp,
-                            });
-                        }
-                    } catch { /* ignore malformed messages */ }
-                });
-                this.logger.log('Worker console bridge established via Redis pub/sub');
-            }).catch(() => {
-                this.logger.warn('Redis sub for worker bridge not available');
+            client.on('error', (err: Error) => {
+                this.logger.warn(`Redis worker bridge: ${err.message}`);
             });
+
+            void client
+                .connect()
+                .then(async () => {
+                    try {
+                        await client.subscribe('rotina:console');
+                    } catch (err: any) {
+                        const msg = err?.message ?? String(err);
+                        this.logger.warn(
+                            `Worker console bridge: subscribe rotina:console falhou (${msg}). ` +
+                                'No redis-cli (ACL): acrescente permissão de canais ao utilizador, p.ex. &rotina:* ou &*. Ver comentário em .env.example.',
+                        );
+                        await client.quit().catch(() => {});
+                        this.redisSub = null;
+                        return;
+                    }
+
+                    client.on('message', (_channel: string, message: string) => {
+                        try {
+                            const data = JSON.parse(message);
+                            const room = `rotina-${data.rotinaCodigo}`;
+
+                            if (data.type === 'log') {
+                                this.server.to(room).emit('log', { ...data.log, exeId: data.exeId });
+                            } else if (data.type === 'execution:start') {
+                                this.server.to(room).emit('execution:start', {
+                                    exeId: data.exeId,
+                                    timestamp: data.timestamp,
+                                });
+                            } else if (data.type === 'execution:end') {
+                                this.server.to(room).emit('execution:end', {
+                                    exeId: data.exeId,
+                                    success: data.success,
+                                    duration: data.duration,
+                                    error: data.error,
+                                    timestamp: data.timestamp,
+                                });
+                            }
+                        } catch { /* ignore malformed messages */ }
+                    });
+                    this.logger.log('Worker console bridge established via Redis pub/sub');
+                })
+                .catch((err: Error) => {
+                    this.logger.warn(`Redis worker bridge connect failed: ${err.message}`);
+                    this.redisSub = null;
+                });
         } catch {
             this.logger.warn('Worker bridge setup skipped');
         }

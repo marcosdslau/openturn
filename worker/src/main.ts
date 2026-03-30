@@ -2,9 +2,10 @@ import 'dotenv/config';
 import { PrismaClient } from '@prisma/client';
 import { WorkerProcessManager } from './engine/process-manager';
 import { startConsumer } from './rotina-consumer';
+import { getRedisConnectionOptions } from './redis-connection';
 
 async function bootstrap() {
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    const redisOptions = getRedisConnectionOptions();
     const databaseUrl = process.env.DATABASE_URL;
 
     if (!databaseUrl) {
@@ -18,9 +19,9 @@ async function bootstrap() {
     await prisma.$connect();
     console.log('[Worker] Database connected');
 
-    const processManager = new WorkerProcessManager(redisUrl);
+    const processManager = new WorkerProcessManager(redisOptions);
 
-    const worker = startConsumer(prisma, processManager, redisUrl);
+    const worker = startConsumer(prisma, processManager, redisOptions);
 
     const shutdown = async () => {
         console.log('[Worker] Shutting down...');

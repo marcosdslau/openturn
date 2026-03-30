@@ -3,6 +3,7 @@ import type { Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import { QueueEvents } from 'bullmq';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
@@ -19,10 +20,7 @@ export class RotinaWebhookController {
     private initQueueEvents() {
         try {
             this.queueEvents = new QueueEvents('rotina-execute', {
-                connection: {
-                    host: process.env.REDIS_HOST || 'localhost',
-                    port: parseInt(process.env.REDIS_PORT || '6379', 10),
-                },
+                connection: getRedisConnectionOptions(),
             });
         } catch (err) {
             this.logger.warn('QueueEvents could not be initialized (Redis may not be available)');
@@ -108,10 +106,7 @@ export class RotinaWebhookController {
 
                 const { Queue } = await import('bullmq');
                 const queue = new Queue('rotina-execute', {
-                    connection: {
-                        host: process.env.REDIS_HOST || 'localhost',
-                        port: parseInt(process.env.REDIS_PORT || '6379', 10),
-                    },
+                    connection: getRedisConnectionOptions(),
                 });
 
                 const queueJob = await queue.getJob(exeId);
