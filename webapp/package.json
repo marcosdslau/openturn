@@ -3,12 +3,16 @@
   "version": "2.2.4",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "cross-env NODE_ENV=development node -r dotenv/config node_modules/next/dist/bin/next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "eslint ."
+    "start": "node -r dotenv/config node_modules/next/dist/bin/next start",
+    "lint": "eslint .",
+    "service:install": "node scripts/windows-service.cjs install",
+    "service:uninstall": "node scripts/windows-service.cjs uninstall"
   },
   "dependencies": {
+    "dotenv": "^16.4.7",
+    "node-windows": "^1.0.0-beta.8",
     "@floating-ui/react": "^0.27.16",
     "@fullcalendar/core": "^6.1.15",
     "@fullcalendar/daygrid": "^6.1.15",
@@ -48,6 +52,7 @@
     "@types/prismjs": "^1.26.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "cross-env": "^7.0.3",
     "eslint": "^9.39.1",
     "eslint-config-next": "16.0.7",
     "postcss": "^8",

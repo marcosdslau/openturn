@@ -17,7 +17,22 @@ export class DbTenantProxy {
                 return (...args: any[]) => {
                     const [params] = args;
 
-                    if (['findMany', 'findFirst', 'findUnique', 'count', 'delete', 'deleteMany', 'update', 'updateMany'].includes(prop)) {
+                    // WhereUniqueInput: injeta via AND para não conflitar com @id/@unique
+                    if (['delete', 'update', 'findUnique'].includes(prop)) {
+                        return target[prop]({
+                            ...params,
+                            where: {
+                                ...params?.where,
+                                AND: [
+                                    ...(params?.where?.AND ? (Array.isArray(params.where.AND) ? params.where.AND : [params.where.AND]) : []),
+                                    { INSInstituicaoCodigo: this.instituicaoCodigo },
+                                ],
+                            },
+                        });
+                    }
+
+                    // WhereInput genérico: pode adicionar campo diretamente
+                    if (['findMany', 'findFirst', 'count', 'deleteMany', 'updateMany'].includes(prop)) {
                         return target[prop]({
                             ...params,
                             where: { ...params?.where, INSInstituicaoCodigo: this.instituicaoCodigo },

@@ -2,7 +2,7 @@ import { Controller, All, Param, Body, Query, Headers, Req, Res, NotFoundExcepti
 import type { Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
-import { QueueEvents } from 'bullmq';
+import { Queue, QueueEvents } from 'bullmq';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
@@ -100,25 +100,22 @@ export class RotinaWebhookController {
                     this.initQueueEvents();
                 }
 
-                const job = await (await import('bullmq')).Queue.prototype.getJob?.call(
-                    null, exeId
-                );
-
-                const { Queue } = await import('bullmq');
                 const queue = new Queue('rotina-execute', {
                     connection: getRedisConnectionOptions(),
                 });
 
-                const queueJob = await queue.getJob(exeId);
-                if (queueJob && this.queueEvents) {
-                    const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
-                    const result = await queueJob.waitUntilFinished(this.queueEvents, timeoutMs);
-                    await queue.close();
-                    return res.json(result?.result ?? result);
-                }
+                try {
+                    const queueJob = await queue.getJob(exeId);
+                    if (queueJob && this.queueEvents) {
+                        const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
+                        const result = await queueJob.waitUntilFinished(this.queueEvents, timeoutMs);
+                        return res.json(result?.result ?? result);
+                    }
 
-                await queue.close();
-                return res.json({ exeId, message: 'Webhook enqueued (sync fallback)' });
+                    return res.json({ exeId, message: 'Webhook enqueued (sync fallback)' });
+                } finally {
+                    await queue.close();
+                }
             } catch (err: any) {
                 this.logger.error(`Erro ao aguardar webhook síncrono ${path}:`, err);
                 return res.status(500).json({ error: err.message, exeId });
