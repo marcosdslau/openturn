@@ -10,6 +10,8 @@
  *   npm run service:uninstall
  *
  * Node: por omissão C:\nvm\v24.13.0\node.exe; noutra máquina use set NODE_EXE=C:\caminho\node.exe
+ *
+ * Os ficheiros do daemon (WinSW) ficam em <webapi>/daemon/, não em dist/ (para não serem apagados pelo build).
  */
 
 const fs = require('fs');
@@ -53,7 +55,7 @@ const execPath = process.env.NODE_EXE
   : path.resolve(DEFAULT_NODE);
 
 function createService() {
-  return new Service({
+  const svc = new Service({
     name: serviceName,
     description: `SG Web API (NestJS) (${nodeEnv}) Porta ${port} e ${portWs}`,
     script: path.join(root, 'dist', 'src', 'main.js'),
@@ -61,6 +63,8 @@ function createService() {
     execPath,
     env: [{ name: 'NODE_ENV', value: nodeEnv }],
   });
+  svc.directory(root);
+  return svc;
 }
 
 if (cmd === 'install') {

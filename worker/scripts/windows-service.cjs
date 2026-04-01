@@ -11,6 +11,8 @@
  *
  * Node: por omissão C:\nvm\v24.13.0\node.exe; noutra máquina use set NODE_EXE=C:\caminho\node.exe
  * Redis/DB devem ser acessíveis pela conta do serviço.
+ *
+ * Os ficheiros do daemon (WinSW) ficam em <worker>/daemon/, não em dist/, para não serem apagados pelo build.
  */
 
 const fs = require('fs');
@@ -56,12 +58,19 @@ function workerConfig(n) {
   };
 }
 
+/** Base do daemon WinSW: raiz do worker (evita dist/daemon apagado pelo `npm run build`). */
+function createService(n) {
+  const svc = new Service(workerConfig(n));
+  svc.directory(root);
+  return svc;
+}
+
 function installChain(index) {
   if (index > WORKER_INSTANCES) {
     console.log('Três serviços de worker instalados e iniciados.');
     return;
   }
-  const svc = new Service(workerConfig(index));
+  const svc = createService(index);
   svc.on('install', () => {
     console.log(`Serviço ${workerName(index)} instalado.`);
     svc.start();
@@ -85,7 +94,7 @@ function uninstallChain(index) {
     console.log('Três serviços de worker removidos.');
     return;
   }
-  const svc = new Service(workerConfig(index));
+  const svc = createService(index);
   svc.on('uninstall', () => {
     console.log(`Serviço ${workerName(index)} removido.`);
     uninstallChain(index + 1);

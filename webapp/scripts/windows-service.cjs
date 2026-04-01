@@ -11,6 +11,8 @@
  *   npm run service:uninstall
  *
  * Node: por omissão C:\nvm\v24.13.0\node.exe; noutra máquina use set NODE_EXE=C:\caminho\node.exe
+ *
+ * Os ficheiros do daemon (WinSW) ficam em <webapp>/daemon/, não junto ao script em node_modules (nem em .next).
  */
 
 const fs = require('fs');
@@ -71,7 +73,7 @@ if (!fs.existsSync(nextBin)) {
 }
 
 function createService() {
-  return new Service({
+  const svc = new Service({
     name: serviceName,
     description: `SG Webapp (Next.js) porta ${port}`,
     script: nextBin,
@@ -84,6 +86,8 @@ function createService() {
       { name: 'PORT', value: String(port) },
     ],
   });
+  svc.directory(root);
+  return svc;
 }
 
 if (cmd === 'install') {

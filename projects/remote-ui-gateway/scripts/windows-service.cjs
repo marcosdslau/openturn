@@ -10,6 +10,8 @@
  *   npm run service:uninstall
  *
  * Node: por omissão C:\nvm\v24.13.0\node.exe; noutra máquina use set NODE_EXE=C:\caminho\node.exe
+ *
+ * Os ficheiros do daemon (WinSW) ficam na raiz do projeto em <remote-ui-gateway>/daemon/, não em dist/.
  */
 
 const fs = require('fs');
@@ -47,7 +49,7 @@ const execPath = process.env.NODE_EXE
   : path.resolve(DEFAULT_NODE);
 
 function createService() {
-  return new Service({
+  const svc = new Service({
     name: serviceName,
     description: `OpenTurn Remote UI Gateway (${nodeEnv}) Porta ${port}`,
     script: path.join(root, 'dist', 'index.js'),
@@ -55,6 +57,8 @@ function createService() {
     execPath,
     env: [{ name: 'NODE_ENV', value: nodeEnv }],
   });
+  svc.directory(root);
+  return svc;
 }
 
 if (cmd === 'install') {
