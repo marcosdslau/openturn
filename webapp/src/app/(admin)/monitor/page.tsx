@@ -12,6 +12,7 @@ import {
     JanelaDuracao,
     StatusExecucaoKey,
     InstituicaoMonitorSnapshot,
+    RabbitOverview,
 } from "@/services/monitor.service";
 import {
     GroupIcon,
@@ -456,7 +457,7 @@ export default function MonitorPage() {
                     <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
                         <div>
                             <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold text-gray-700 dark:text-gray-300">
-                                <PieChartIcon className="h-4 w-4" />
+                                <PieChartIcon className="h-6 w-6" />
                                 Distribuição por status
                             </h4>
                             {pieTotal > 0 ? (
@@ -468,36 +469,8 @@ export default function MonitorPage() {
                                 </div>
                             )}
                         </div>
-                        <div className="space-y-6">
-                            <div>
-                                <h4 className="mb-2 text-sm font-semibold">Pessoas × matrículas</h4>
-                                <p className="text-2xl font-bold tabular-nums text-gray-800 dark:text-white">
-                                    {instSelecionada.pessoas.toLocaleString()}{" "}
-                                    <span className="text-base font-normal text-gray-500">pessoas</span>
-                                </p>
-                                <p className="text-2xl font-bold tabular-nums text-gray-800 dark:text-white">
-                                    {instSelecionada.matriculas.toLocaleString()}{" "}
-                                    <span className="text-base font-normal text-gray-500">
-                                        matrículas
-                                    </span>
-                                </p>
-                            </div>
-                            <div>
-                                <h4 className="mb-2 text-sm font-semibold">Top 5 rotinas (10 dias)</h4>
-                                <ul className="space-y-1 text-sm">
-                                    {instSelecionada.topRotinas10d.map((t) => (
-                                        <li key={t.rotinaCodigo} className="flex justify-between gap-2">
-                                            <span className="truncate text-gray-700 dark:text-gray-300">
-                                                {t.nome}
-                                            </span>
-                                            <span className="tabular-nums text-gray-500">{t.execucoes}</span>
-                                        </li>
-                                    ))}
-                                    {instSelecionada.topRotinas10d.length === 0 && (
-                                        <li className="text-gray-400">Sem dados</li>
-                                    )}
-                                </ul>
-                            </div>
+                        <div className="rounded-xl border border-gray-100 bg-white/50 p-4 dark:border-gray-800 dark:bg-white/[0.02]">
+                            <RabbitOverviewPanel />
                         </div>
                     </div>
                 ) : null}
@@ -753,6 +726,115 @@ export default function MonitorPage() {
                 <BoxCubeIcon className="h-6 w-6" />
                 Snapshot v{stats.version} — Redis key monitor:global:snapshot:v1
             </div>
+        </div>
+    );
+}
+
+function RabbitOverviewPanel() {
+    const [data, setData] = useState<RabbitOverview | null>(null);
+    const [refreshInterval, setRefreshInterval] = useState<number>(5000);
+    const [history, setHistory] = useState<{ publish: number[]; deliver: number[]; timestamps: string[] }>({
+        publish: [],
+        deliver: [],
+        timestamps: [],
+    });
+
+    const fetchRabbitData = useCallback(async () => {
+        try {
+            const result = await MonitorService.getRabbitOverview();
+            setData(result);
+            
+            setHistory(prev => {
+                const newPublish = [...prev.publish, result.publish_rate].slice(-20);
+                const newDeliver = [...prev.deliver, result.deliver_rate].slice(-20);
+                const newTimestamps = [...prev.timestamps, new Date().toLocaleTimeString()].slice(-20);
+                return { publish: newPublish, deliver: newDeliver, timestamps: newTimestamps };
+            });
+        } catch (error) {
+            console.error("Erro ao buscar dados do RabbitMQ:", error);
+        }
+    }, []);
+
+    useEffect(() => {
+        fetchRabbitData();
+        const interval = setInterval(fetchRabbitData, refreshInterval);
+        return () => clearInterval(interval);
+    }, [fetchRabbitData, refreshInterval]);
+
+    const chartOptions: ApexOptions = {
+        chart: {
+            type: "area",
+            height: 200,
+            sparkline: { enabled: false },
+            toolbar: { show: false },
+            animations: { enabled: true, easing: "linear", dynamicAnimation: { speed: 1000 } },
+        },
+        dataLabels: { enabled: false },
+        stroke: { curve: "smooth", width: 2 },
+        xaxis: {
+            categories: history.timestamps,
+            labels: { show: false },
+            axisBorder: { show: false },
+            axisTicks: { show: false },
+        },
+        yaxis: { labels: { show: true } },
+        tooltip: { x: { show: true } },
+        colors: ["#3b82f6", "#10b981"],
+        legend: { position: "top", horizontalAlign: "right" },
+        fill: {
+            type: "gradient",
+            gradient: { shadeIntensity: 1, opacityFrom: 0.4, opacityTo: 0.1 },
+        },
+    };
+
+    const chartSeries = [
+        { name: "Publish Rate", data: history.publish },
+        { name: "Deliver Rate", data: history.deliver },
+    ];
+
+    return (
+        <div className="space-y-4">
+            <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-gray-800 dark:text-white/90 flex items-center gap-2">
+                    <BoltIcon className="h-6 w-6 text-amber-500" />
+                    RabbitMQ Realtime
+                </h4>
+                <select
+                    value={refreshInterval}
+                    onChange={(e) => setRefreshInterval(Number(e.target.value))}
+                    className="text-xs rounded border border-gray-200 bg-white px-2 py-1 dark:border-gray-700 dark:bg-gray-900"
+                >
+                    <option value={5000}>5s</option>
+                    <option value={15000}>15s</option>
+                    <option value={60000}>1m</option>
+                    <option value={180000}>3m</option>
+                </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                <MiniCard title="Queues" value={data?.queues ?? 0} />
+                <MiniCard title="Ready" value={data?.messages_ready ?? 0} />
+                <MiniCard title="Unacked" value={data?.messages_unacknowledged ?? 0} />
+                <MiniCard title="Publish" value={`${data?.publish_rate?.toFixed(1) ?? 0}/s`} />
+                <MiniCard title="Deliver" value={`${data?.deliver_rate?.toFixed(1) ?? 0}/s`} />
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-2 dark:border-gray-800 dark:bg-black/20">
+                <ReactApexChart options={chartOptions} series={chartSeries} type="area" height={180} />
+            </div>
+        </div>
+    );
+}
+
+function MiniCard({ title, value }: { title: string; value: string | number }) {
+    return (
+        <div className="rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
+            <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                {title}
+            </p>
+            <p className="mt-1 text-lg font-bold text-gray-800 dark:text-white">
+                {value}
+            </p>
         </div>
     );
 }

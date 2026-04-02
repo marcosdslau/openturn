@@ -105,10 +105,20 @@ export interface MonitorSnapshot {
     serieExecucoesPlataforma: SeriePlataforma[];
 }
 
+export interface RabbitOverview {
+    queues: number;
+    messages_ready: number;
+    messages_unacknowledged: number;
+    publish_rate: number;
+    deliver_rate: number;
+    timestamp: string;
+}
+
 /** @deprecated use MonitorSnapshot */
 export type MonitorStats = MonitorSnapshot;
 
 export const MonitorService = {
     getStats: async () => apiGet<MonitorSnapshot>("/monitor/stats"),
     refreshSnapshot: async () => apiPost<MonitorSnapshot>("/monitor/refresh", {}),
+    getRabbitOverview: async () => apiGet<RabbitOverview>("/monitor/rabbit-overview"),
 };

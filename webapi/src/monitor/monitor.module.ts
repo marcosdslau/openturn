@@ -6,6 +6,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { MonitorSnapshotBuilder } from './monitor-snapshot.builder';
 import { MonitorSnapshotService } from './monitor-snapshot.service';
 import { MonitorSnapshotCronService } from './monitor-snapshot.cron';
+import { RabbitManagementService } from '../common/rabbit/rabbit-management.service';
 
 @Module({
     imports: [RotinaModule],
@@ -15,6 +16,7 @@ import { MonitorSnapshotCronService } from './monitor-snapshot.cron';
         MonitorSnapshotBuilder,
         MonitorSnapshotService,
         MonitorSnapshotCronService,
+        RabbitManagementService,
         MonitorService,
     ],
 })
