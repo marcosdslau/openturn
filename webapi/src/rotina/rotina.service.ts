@@ -5,34 +5,17 @@ import { ProcessManager } from './engine/process-manager';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import { SchedulerService } from './scheduler.service';
 import { TipoRotina, HttpMetodo, WebhookTokenSource, StatusExecucao } from '@prisma/client';
-import Redis from 'ioredis';
-import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Injectable()
 export class RotinaService {
     private readonly logger = new Logger(RotinaService.name);
-    private redisPub: Redis | null = null;
-
     constructor(
         private readonly prisma: PrismaService,
         private readonly executionService: ExecutionService,
         private readonly processManager: ProcessManager,
         private readonly rotinaQueueService: RotinaQueueService,
         private readonly schedulerService: SchedulerService,
-    ) {
-        try {
-            this.redisPub = new Redis({
-                ...getRedisConnectionOptions(),
-                lazyConnect: true,
-            });
-            this.redisPub.connect().catch(() => {
-                this.logger.warn('Redis not available for cancel pub/sub');
-                this.redisPub = null;
-            });
-        } catch {
-            this.redisPub = null;
-        }
-    }
+    ) { }
 
     async findAll(instituicaoCodigo: number) {
         return this.prisma.rOTRotina.findMany({
@@ -366,20 +349,7 @@ export class RotinaService {
         if (!killedLocal) {
             // 2) Marca status cancelado e notifica workers remotos
             await this.rotinaQueueService.cancelJob(exeId);
-
-            if (this.redisPub) {
-                await this.redisPub.publish('rotina:cancel', JSON.stringify({ exeId }));
-            } else {
-                await this.prisma.rOTExecucaoLog.update({
-                    where: { EXECodigo: execLog.EXECodigo },
-                    data: {
-                        EXEStatus: StatusExecucao.CANCELADO,
-                        EXEFim: new Date(),
-                        EXEDuracaoMs: Date.now() - execLog.EXEInicio.getTime(),
-                        EXEErro: 'Execução cancelada (processo remoto)',
-                    },
-                });
-            }
+            await this.rotinaQueueService.sendCancelSignal(exeId);
         }
 
         return { message: 'Execução cancelada', exeId };

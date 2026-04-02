@@ -15,6 +15,7 @@ import {
     PlugInIcon,
     TableIcon,
     TaskIcon,
+    TimeIcon,
     UserCircleIcon,
 } from "@/icons";
 
@@ -72,6 +73,11 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
             icon: <PlugInIcon />,
             name: "Rotinas",
             path: `${basePath}/rotinas`,
+        },
+        {
+            icon: <TimeIcon />,
+            name: "Execuções",
+            path: `${basePath}/execucoes`,
         }
     );
 

@@ -108,6 +108,48 @@ export const RotinaService = {
         return apiDelete(`/instituicao/${instituicaoCodigo}/rotina/versions/bulk`, { ids: versionIds });
     },
 
+    getExecutions: async (
+        instituicaoCodigo: number,
+        params: {
+            page?: number;
+            limit?: number;
+            rotinaCodigo?: number;
+            status?: string;
+            trigger?: string;
+            startDate?: string;
+            endDate?: string;
+            searchError?: string;
+            searchLog?: string;
+            searchBody?: string;
+            executionId?: string;
+        }
+    ) => {
+        const query = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+                query.append(key, value.toString());
+            }
+        });
+        return apiGet<{
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            items: any[];
+        }>(`/instituicao/${instituicaoCodigo}/execucoes?${query.toString()}`);
+    },
+
+    reprocessExecution: async (instituicaoCodigo: number, exeId: string) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/execucoes/${exeId}/reprocess`, {});
+    },
+
+    bulkExecutionsAction: async (
+        instituicaoCodigo: number,
+        data: { action: "delete" | "reprocess" | "cancel"; ids: string[] }
+    ) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/execucoes/bulk`, data);
+    },
+
     getLogs: async (
         id: number,
         instituicaoCodigo: number,

@@ -109,6 +109,15 @@ export class RotinaQueueService {
         return result.count > 0;
     }
 
+    async sendCancelSignal(exeId: string): Promise<void> {
+        if (!this.redis) return;
+        try {
+            await this.redis.publish('rotina:cancel', JSON.stringify({ exeId }));
+        } catch (e) {
+            this.logger.debug(`Erro ao publicar sinal de cancelamento (${exeId}): ${(e as Error)?.message ?? e}`);
+        }
+    }
+
     async getJobCounts() {
         return {
             waiting: 0,
