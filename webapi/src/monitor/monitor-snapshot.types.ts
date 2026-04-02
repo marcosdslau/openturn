@@ -1,32 +1,36 @@
-import { apiGet, apiPost } from "@/lib/api";
+/** Contrato snapshot monitor (Redis). version bump ao alterar forma do JSON. */
+export const MONITOR_SNAPSHOT_VERSION = 1;
+export const REDIS_KEY_MONITOR_SNAPSHOT = 'monitor:global:snapshot:v1';
+export const REDIS_KEY_MONITOR_REFRESH_LOCK = 'monitor:global:snapshot:refresh:lock';
 
-export type JanelaCurta = "1h" | "4h" | "8h" | "16h" | "24h" | "36h";
-export type JanelaDuracao = "1d" | "2d" | "5d" | "10d" | "15d" | "30d";
-export type JanelaStatus = "5d" | "10d" | "15d" | "30d" | "60d";
-export type SeriePeriodo = "10h" | "24h" | "5d" | "15d" | "30d";
+export type JanelaCurta = '1h' | '4h' | '8h' | '16h' | '24h' | '36h';
+export type JanelaDuracao = '1d' | '2d' | '5d' | '10d' | '15d' | '30d';
+export type JanelaStatus = '5d' | '10d' | '15d' | '30d' | '60d';
+export type SeriePeriodo = '10h' | '24h' | '5d' | '15d' | '30d';
+
 export type StatusExecucaoKey =
-    | "EM_EXECUCAO"
-    | "SUCESSO"
-    | "ERRO"
-    | "TIMEOUT"
-    | "CANCELADO";
+    | 'EM_EXECUCAO'
+    | 'SUCESSO'
+    | 'ERRO'
+    | 'TIMEOUT'
+    | 'CANCELADO';
 
 export interface ExecucoesJanelaCurta {
-    "1h": number;
-    "4h": number;
-    "8h": number;
-    "16h": number;
-    "24h": number;
-    "36h": number;
+    '1h': number;
+    '4h': number;
+    '8h': number;
+    '16h': number;
+    '24h': number;
+    '36h': number;
 }
 
 export interface TempoProcessamentoJanelas {
-    "1d": number;
-    "2d": number;
-    "5d": number;
-    "10d": number;
-    "15d": number;
-    "30d": number;
+    '1d': number;
+    '2d': number;
+    '5d': number;
+    '10d': number;
+    '15d': number;
+    '30d': number;
 }
 
 export interface TopRotina {
@@ -55,6 +59,7 @@ export interface InstituicaoMonitorSnapshot {
     pessoas: number;
     matriculas: number;
     execucoesPorJanelaCurta: ExecucoesJanelaCurta;
+    /** Top 20 rotinas por volume em cada janela curta */
     topRotinasPorJanelaCurta: Record<JanelaCurta, TopRotina[]>;
     tempoProcessamentoMsPorJanela: TempoProcessamentoJanelas;
     topRotinas10d: TopRotina[];
@@ -69,11 +74,11 @@ export interface SerieBucket {
 
 export interface SeriePlataforma {
     periodo: SeriePeriodo;
-    granularity: "hour" | "day";
+    granularity: 'hour' | 'day';
     buckets: SerieBucket[];
 }
 
-export interface MonitorSnapshot {
+export interface MonitorSnapshotDto {
     version: number;
     generatedAt: string;
     refreshDurationMs?: number;
@@ -98,17 +103,10 @@ export interface MonitorSnapshot {
         totalActive: number;
     };
     instituicoes: InstituicaoMonitorSnapshot[];
+    /** Por janela e status: instituições ordenadas por volume (maior primeiro) */
     rankingsGlobaisPorStatus: Record<
         JanelaStatus,
         Record<StatusExecucaoKey, InstituicaoRankingEntry[]>
     >;
     serieExecucoesPlataforma: SeriePlataforma[];
 }
-
-/** @deprecated use MonitorSnapshot */
-export type MonitorStats = MonitorSnapshot;
-
-export const MonitorService = {
-    getStats: async () => apiGet<MonitorSnapshot>("/monitor/stats"),
-    refreshSnapshot: async () => apiPost<MonitorSnapshot>("/monitor/refresh", {}),
-};

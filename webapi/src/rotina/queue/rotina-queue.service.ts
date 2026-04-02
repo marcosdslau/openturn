@@ -4,7 +4,7 @@ import { StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
 import type { Options } from 'amqplib';
 import Redis from 'ioredis';
-import { JOBS_EXCHANGE, getRabbitUrl } from '../../common/rabbit/rabbit-connection';
+import { JOBS_EXCHANGE, getRabbitUrl, getMainQueueName, GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE } from '../../common/rabbit/rabbit-connection';
 import { getRedisConnectionOptions } from '../../common/redis/redis-connection';
 import { RotinaJobData } from './rotina-job.dto';
 
@@ -119,11 +119,61 @@ export class RotinaQueueService {
     }
 
     async getJobCounts() {
+        const institutions = await this.prisma.iNSInstituicao.findMany({
+            where: { INSAtivo: true },
+            select: { INSCodigo: true },
+        });
+
+        let waitingCount = 0;
+        const conn = await this.getConnection();
+        let checkChannel = await conn.createChannel();
+
+        try {
+            for (const inst of institutions) {
+                try {
+                    const qName = getMainQueueName(inst.INSCodigo);
+                    const qInfo = await checkChannel.checkQueue(qName);
+                    waitingCount += qInfo.messageCount;
+                } catch (e) {
+                    try { await checkChannel.close(); } catch { }
+                    checkChannel = await conn.createChannel();
+                }
+            }
+
+            // Adiciona filas globais
+            for (const qName of [GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE]) {
+                try {
+                    const qInfo = await checkChannel.checkQueue(qName);
+                    waitingCount += qInfo.messageCount;
+                } catch (e) {
+                    try { await checkChannel.close(); } catch { }
+                    checkChannel = await conn.createChannel();
+                }
+            }
+        } finally {
+            try { await checkChannel.close(); } catch { }
+        }
+
+        // Contagem de jobs realmente ativos nos workers via Redis Semaphores
+        let redisActiveCount = 0;
+        if (this.redis) {
+            try {
+                const keys = await this.redis.keys('rotina:inflight:z:*');
+                const now = Date.now();
+                for (const key of keys) {
+                    // Limpa leases expirados para precisão no monitor
+                    await this.redis.zremrangebyscore(key, '-inf', now);
+                    const card = await this.redis.zcard(key);
+                    redisActiveCount += card;
+                }
+            } catch (e) {
+                this.logger.debug('Erro ao contar jobs ativos no Redis:', e);
+            }
+        }
+
         return {
-            waiting: 0,
-            active: await this.prisma.rOTExecucaoLog.count({
-                where: { EXEStatus: StatusExecucao.EM_EXECUCAO },
-            }),
+            waiting: waitingCount,
+            active: redisActiveCount,
             completed: await this.prisma.rOTExecucaoLog.count({
                 where: { EXEStatus: StatusExecucao.SUCESSO },
             }),

@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { MonitorService } from './monitor.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -14,5 +14,11 @@ export class MonitorController {
     @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
     async getStats() {
         return this.monitorService.getGlobalStats();
+    }
+
+    @Post('refresh')
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    async refreshSnapshot() {
+        return this.monitorService.forceRefreshSnapshot();
     }
 }
