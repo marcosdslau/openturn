@@ -55,6 +55,7 @@ model INSInstituicao {
   INSLogsAutoExcluir  Boolean               @default(true)
   INSLogsDiasRetencao Int                   @default(90)
   INSMaxExecucoesSimultaneas Int            @default(8)
+  INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
   INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   createdAt           DateTime              @default(now())
   pessoas             PESPessoa[]

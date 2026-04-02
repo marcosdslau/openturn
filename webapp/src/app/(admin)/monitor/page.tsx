@@ -11,6 +11,7 @@ import {
     JanelaCurta,
     JanelaDuracao,
     StatusExecucaoKey,
+    StatusContagem,
     InstituicaoMonitorSnapshot,
     RabbitOverview,
 } from "@/services/monitor.service";
@@ -767,7 +768,7 @@ function RabbitOverviewPanel() {
             height: 200,
             sparkline: { enabled: false },
             toolbar: { show: false },
-            animations: { enabled: true, easing: "linear", dynamicAnimation: { speed: 1000 } },
+            animations: { enabled: true, dynamicAnimation: { speed: 1000 } },
         },
         dataLabels: { enabled: false },
         stroke: { curve: "smooth", width: 2 },

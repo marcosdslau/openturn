@@ -30,6 +30,10 @@ export class CreateInstituicaoDto {
     INSMaxExecucoesSimultaneas?: number;
 
     @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
 }
@@ -61,6 +65,15 @@ export class UpdateInstituicaoDto {
     INSMaxExecucoesSimultaneas?: number;
 
     @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
+}
+
+export class SetWorkerStatusBodyDto {
+    @IsBoolean()
+    active: boolean;
 }

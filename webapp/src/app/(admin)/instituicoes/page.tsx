@@ -11,6 +11,7 @@ interface Instituicao {
     INSNome: string;
     CLICodigo: number;
     INSAtivo: boolean;
+    INSMaxExecucoesSimultaneas: number;
     INSConfigHardware?: any;
     cliente?: { CLINome: string };
 }
@@ -34,7 +35,11 @@ export default function InstituicoesGlobalPage() {
     // Modal state
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState<Instituicao | null>(null);
-    const [form, setForm] = useState<{ INSNome: string; CLICodigo: number; INSConfigHardware?: any }>({ INSNome: "", CLICodigo: 0 });
+    const [form, setForm] = useState<{ INSNome: string; CLICodigo: number; INSMaxExecucoesSimultaneas: number; INSConfigHardware?: any }>({
+        INSNome: "",
+        CLICodigo: 0,
+        INSMaxExecucoesSimultaneas: 8
+    });
     const [saving, setSaving] = useState(false);
 
     const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -66,7 +71,12 @@ export default function InstituicoesGlobalPage() {
 
     const openNew = () => {
         setEditing(null);
-        setForm({ INSNome: "", CLICodigo: clientes[0]?.CLICodigo || 0, INSConfigHardware: {} });
+        setForm({
+            INSNome: "",
+            CLICodigo: clientes[0]?.CLICodigo || 0,
+            INSMaxExecucoesSimultaneas: 8,
+            INSConfigHardware: {}
+        });
         setShowModal(true);
     };
 
@@ -89,7 +99,12 @@ export default function InstituicoesGlobalPage() {
             }
         };
 
-        setForm({ INSNome: i.INSNome, CLICodigo: i.CLICodigo, INSConfigHardware: newConfig });
+        setForm({
+            INSNome: i.INSNome,
+            CLICodigo: i.CLICodigo,
+            INSMaxExecucoesSimultaneas: i.INSMaxExecucoesSimultaneas || 8,
+            INSConfigHardware: newConfig
+        });
         setShowModal(true);
     };
 
@@ -168,6 +183,7 @@ export default function InstituicoesGlobalPage() {
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">ID</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Nome</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Cliente</th>
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Workers Max</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Status</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Ações</th>
                         </tr>
@@ -182,6 +198,7 @@ export default function InstituicoesGlobalPage() {
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{i.INSCodigo}</td>
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{i.INSNome}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{i.cliente?.CLINome || "—"}</td>
+                                <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{i.INSMaxExecucoesSimultaneas}</td>
                                 <td className="px-5 py-3">
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${i.INSAtivo ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                                         }`}>{i.INSAtivo ? "Ativo" : "Inativo"}</span>
@@ -263,6 +280,21 @@ export default function InstituicoesGlobalPage() {
                                     <option value={0}>Selecione um Cliente</option>
                                     {clientes.map(c => <option key={c.CLICodigo} value={c.CLICodigo}>{c.CLINome}</option>)}
                                 </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Max Execuções Simultâneas</label>
+                                <input
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={form.INSMaxExecucoesSimultaneas}
+                                    onChange={(e) => setForm({ ...form, INSMaxExecucoesSimultaneas: parseInt(e.target.value) || 1 })}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                />
+                                <p className="mt-1 text-[10px] text-gray-400">
+                                    Define o limite de workers paralelos para esta instituição.
+                                </p>
                             </div>
 
                             <div className="pt-2 border-t border-gray-100 dark:border-gray-800">

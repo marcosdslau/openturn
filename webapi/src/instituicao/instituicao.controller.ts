@@ -1,6 +1,6 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { InstituicaoService } from './instituicao.service';
-import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
+import { CreateInstituicaoDto, UpdateInstituicaoDto, SetWorkerStatusBodyDto } from './dto/instituicao.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -22,6 +22,18 @@ export class InstituicaoController {
     @Get()
     findAll(@Query() query: PaginationDto) {
         return this.service.findAll(query);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Post('worker/bulk')
+    bulkWorkerStatus(@Body() body: SetWorkerStatusBodyDto) {
+        return this.service.bulkUpdateWorkerStatus(body.active);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Patch(':id/worker')
+    patchWorkerStatus(@Param('id', ParseIntPipe) id: number, @Body() body: SetWorkerStatusBodyDto) {
+        return this.service.updateWorkerStatus(id, body.active);
     }
 
     @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)

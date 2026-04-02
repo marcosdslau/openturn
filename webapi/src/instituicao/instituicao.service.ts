@@ -76,13 +76,34 @@ export class InstituicaoService {
         return instituicao;
     }
 
+    async updateWorkerStatus(id: number, active: boolean) {
+        await this.findOne(id);
+        const instituicao = await this.prisma.iNSInstituicao.update({
+            where: { INSCodigo: id },
+            data: { INSWorkerAtivo: active },
+        });
+        await this.publishQueueRefresh(instituicao, 'updated');
+        return instituicao;
+    }
+
+    async bulkUpdateWorkerStatus(active: boolean) {
+        await this.prisma.iNSInstituicao.updateMany({ data: { INSWorkerAtivo: active } });
+        await this.publishReconcileAll();
+        return { ok: true, INSWorkerAtivo: active };
+    }
+
     async remove(id: number) {
         await this.findOne(id);
         return this.prisma.iNSInstituicao.delete({ where: { INSCodigo: id } });
     }
 
     private async publishQueueRefresh(
-        instituicao: { INSCodigo: number; INSAtivo: boolean; INSMaxExecucoesSimultaneas: number },
+        instituicao: {
+            INSCodigo: number;
+            INSAtivo: boolean;
+            INSMaxExecucoesSimultaneas: number;
+            INSWorkerAtivo: boolean;
+        },
         event: 'created' | 'updated',
     ) {
         if (!this.redisPub) return;
@@ -91,6 +112,7 @@ export class InstituicaoService {
             INSCodigo: instituicao.INSCodigo,
             INSAtivo: instituicao.INSAtivo,
             INSMaxExecucoesSimultaneas: instituicao.INSMaxExecucoesSimultaneas,
+            INSWorkerAtivo: instituicao.INSWorkerAtivo,
             event,
         });
 
@@ -98,6 +120,18 @@ export class InstituicaoService {
             await this.redisPub.publish('openturn:instituicao:queue:refresh', payload);
         } catch (error) {
             this.logger.warn(`Falha ao publicar refresh de instituição ${instituicao.INSCodigo}: ${(error as Error).message}`);
+        }
+    }
+
+    private async publishReconcileAll() {
+        if (!this.redisPub) return;
+        try {
+            await this.redisPub.publish(
+                'openturn:instituicao:queue:refresh',
+                JSON.stringify({ reconcileAll: true }),
+            );
+        } catch (error) {
+            this.logger.warn(`Falha ao publicar reconcileAll: ${(error as Error).message}`);
         }
     }
 }

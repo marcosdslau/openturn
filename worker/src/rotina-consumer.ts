@@ -31,6 +31,11 @@ interface InstituicaoAtiva {
     INSCodigo: number;
     INSMaxExecucoesSimultaneas: number;
     INSAtivo: boolean;
+    INSWorkerAtivo: boolean;
+}
+
+interface ReconcileAllMessage {
+    reconcileAll: true;
 }
 
 const WORKER_PREFETCH = 5;
@@ -283,10 +288,21 @@ class RabbitRotinaConsumer {
     }
 
     private async handleRefreshMessage(message: string) {
-        const payload = JSON.parse(message) as InstituicaoAtiva;
+        let parsed: InstituicaoAtiva | ReconcileAllMessage;
+        try {
+            parsed = JSON.parse(message) as InstituicaoAtiva | ReconcileAllMessage;
+        } catch {
+            return;
+        }
+        if ((parsed as ReconcileAllMessage).reconcileAll === true) {
+            await this.reconcileInstitutions();
+            return;
+        }
+        const payload = parsed as InstituicaoAtiva;
         if (!payload?.INSCodigo) return;
         this.tenantLimits.set(payload.INSCodigo, payload.INSMaxExecucoesSimultaneas || 8);
-        if (!payload.INSAtivo) {
+        const workerAtivo = payload.INSWorkerAtivo !== false;
+        if (!payload.INSAtivo || !workerAtivo) {
             await this.stopConsumer(payload.INSCodigo);
             return;
         }
@@ -296,11 +312,12 @@ class RabbitRotinaConsumer {
 
     private async reconcileInstitutions() {
         const instituicoes = await this.prisma.iNSInstituicao.findMany({
-            where: { INSAtivo: true },
+            where: { INSAtivo: true, INSWorkerAtivo: true },
             select: {
                 INSCodigo: true,
                 INSAtivo: true,
                 INSMaxExecucoesSimultaneas: true,
+                INSWorkerAtivo: true,
             },
         });
 
@@ -363,6 +380,12 @@ class RabbitRotinaConsumer {
             data = JSON.parse(msg.content.toString()) as RotinaJobData;
         } catch {
             channel.ack(msg);
+            return;
+        }
+
+        const workerOk = await this.isInstitutionWorkerConsuming(data.instituicaoCodigo);
+        if (!workerOk) {
+            channel.nack(msg, false, true);
             return;
         }
 
@@ -462,6 +485,14 @@ class RabbitRotinaConsumer {
             duration: result.duration,
             status: finalStatus,
         }));
+    }
+
+    private async isInstitutionWorkerConsuming(instituicaoCodigo: number): Promise<boolean> {
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instituicaoCodigo },
+            select: { INSAtivo: true, INSWorkerAtivo: true },
+        });
+        return !!(inst?.INSAtivo && inst.INSWorkerAtivo);
     }
 
     private async loadTenantLimit(instituicaoCodigo: number): Promise<number> {

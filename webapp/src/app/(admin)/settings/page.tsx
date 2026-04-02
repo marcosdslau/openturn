@@ -22,6 +22,7 @@ interface Instituicao {
     INSCodigo: number;
     INSNome: string;
     INSAtivo: boolean;
+    INSWorkerAtivo?: boolean;
     CLICodigo: number;
     cliente?: { CLINome: string };
 }
@@ -43,7 +44,7 @@ const GRUPO_COLORS: Record<string, string> = {
     SUPER_ADMIN: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
 };
 
-type ActiveTab = "usuarios" | "instituicoes";
+type ActiveTab = "usuarios" | "instituicoes" | "workers";
 type FormModalType = "create" | "edit" | "password" | null;
 
 // ════════════════════════════════════════════════════════════
@@ -111,6 +112,7 @@ export default function SettingsPage() {
     const tabs: { key: ActiveTab; label: string }[] = [
         { key: "usuarios", label: "Usuários" },
         { key: "instituicoes", label: "Instituições" },
+        { key: "workers", label: "Workers" },
     ];
 
     return (
@@ -120,7 +122,7 @@ export default function SettingsPage() {
                     Configurações
                 </h1>
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    Administração de usuários e instituições do sistema
+                    Administração de usuários, instituições e workers de rotinas
                 </p>
             </div>
 
@@ -146,6 +148,7 @@ export default function SettingsPage() {
 
             {activeTab === "usuarios" && <UsersTab isSuperRoot={isSuperRoot} />}
             {activeTab === "instituicoes" && <InstitutionsTab />}
+            {activeTab === "workers" && <WorkersTab />}
         </div>
     );
 }
@@ -591,6 +594,177 @@ function InstitutionsTab() {
                                 </td>
                             </tr>
                         ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    );
+}
+
+// ════════════════════════════════════════════════════════════
+// Workers Tab — controle de consumo Rabbit por instituição
+// ════════════════════════════════════════════════════════════
+function WorkersTab() {
+    const [instituicoes, setInstituicoes] = useState<Instituicao[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [search, setSearch] = useState("");
+    const [busy, setBusy] = useState<string | null>(null);
+    const toast = useToast();
+
+    const load = useCallback((q?: string) => {
+        setLoading(true);
+        const url = q ? `/instituicoes?limit=100&search=${encodeURIComponent(q)}` : "/instituicoes?limit=100";
+        apiGet<{ data: Instituicao[] }>(url)
+            .then((res) => setInstituicoes(res.data || []))
+            .catch(() => { })
+            .finally(() => setLoading(false));
+    }, []);
+
+    useEffect(() => {
+        load();
+    }, [load]);
+
+    useEffect(() => {
+        const timer = setTimeout(() => load(search), 400);
+        return () => clearTimeout(timer);
+    }, [search, load]);
+
+    const setBulk = async (active: boolean) => {
+        setBusy(active ? "bulk-on" : "bulk-off");
+        try {
+            await apiPost("/instituicoes/worker/bulk", { active });
+            toast.show("success", active ? "Workers ativados" : "Workers pausados", active
+                ? "Todas as instituições voltarão a processar filas de rotinas."
+                : "Nenhuma instituição processará novas mensagens até reativar.");
+            await load(search);
+        } catch (e: any) {
+            toast.show("error", "Erro", e?.message || "Falha ao atualizar workers.");
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    const setOne = async (id: number, nome: string, active: boolean) => {
+        setBusy(`one-${id}`);
+        try {
+            await apiPatch(`/instituicoes/${id}/worker`, { active });
+            toast.show("success", active ? "Worker iniciado" : "Worker pausado", `"${nome}" ${active ? "voltará a consumir a fila." : "não consumirá a fila até reativar."}`);
+            await load(search);
+        } catch (e: any) {
+            toast.show("error", "Erro", e?.message || "Falha ao atualizar worker.");
+        } finally {
+            setBusy(null);
+        }
+    };
+
+    return (
+        <div className="space-y-4">
+            <ToastContainer toasts={toast.toasts} dismiss={toast.dismiss} />
+
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-wrap items-center gap-3">
+                    <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={() => setBulk(true)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-medium text-white shadow hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                        Ativar todas
+                    </button>
+                    <button
+                        type="button"
+                        disabled={!!busy}
+                        onClick={() => setBulk(false)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2.5 text-sm font-medium text-white shadow hover:bg-red-700 disabled:opacity-50"
+                    >
+                        <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                            <path d="M6 6h12v12H6z" />
+                        </svg>
+                        Pausar todas
+                    </button>
+                    <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xl">
+                        Mensagens continuam entrando na fila; apenas o processamento pelo worker é ligado ou desligado por instituição.
+                    </p>
+                </div>
+
+                <div className="relative w-full sm:max-w-xs">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                        <svg className="fill-current" width="18" height="18" viewBox="0 0 18 18">
+                            <path d="M15.75 14.7188L11.5312 10.5C12.2062 9.59062 12.6 8.46562 12.6 7.25625C12.6 4.30312 10.2094 1.9125 7.25625 1.9125C4.30312 1.9125 1.9125 4.30312 1.9125 7.25625C1.9125 10.2094 4.30312 12.6 7.25625 12.6C8.46562 12.6 9.59062 12.2062 10.5 11.5312L14.7188 15.75L15.75 14.7188ZM3.375 7.25625C3.375 5.11875 5.11875 3.375 7.25625 3.375C9.39375 3.375 11.1375 5.11875 11.1375 7.25625C11.1375 9.39375 9.39375 11.1375 7.25625 11.1375C5.11875 11.1375 3.375 9.39375 3.375 7.25625Z" />
+                        </svg>
+                    </span>
+                    <input
+                        type="text"
+                        placeholder="Buscar instituição..."
+                        value={search}
+                        onChange={(e) => setSearch(e.target.value)}
+                        className="w-full bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-brand-500 transition-colors"
+                    />
+                </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
+                <table className="w-full">
+                    <thead>
+                        <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Código</th>
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Instituição</th>
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Cliente</th>
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Worker</th>
+                            <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Ação</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {loading ? (
+                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
+                        ) : instituicoes.length === 0 ? (
+                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma instituição encontrada.</td></tr>
+                        ) : instituicoes.map((i) => {
+                            const workerOn = i.INSWorkerAtivo !== false;
+                            const rowBusy = busy === `one-${i.INSCodigo}`;
+                            return (
+                                <tr
+                                    key={i.INSCodigo}
+                                    className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
+                                >
+                                    <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">#{i.INSCodigo}</td>
+                                    <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90 font-medium">{i.INSNome}</td>
+                                    <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{i.cliente?.CLINome || `CLI #${i.CLICodigo}`}</td>
+                                    <td className="px-5 py-3">
+                                        <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${workerOn
+                                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                            : "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300"
+                                            }`}>
+                                            {workerOn ? "Ativo" : "Pausado"}
+                                        </span>
+                                    </td>
+                                    <td className="px-5 py-3 text-right">
+                                        {workerOn ? (
+                                            <button
+                                                type="button"
+                                                disabled={!!busy}
+                                                onClick={() => setOne(i.INSCodigo, i.INSNome, false)}
+                                                className="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                                            >
+                                                {rowBusy ? "..." : "Parar"}
+                                            </button>
+                                        ) : (
+                                            <button
+                                                type="button"
+                                                disabled={!!busy}
+                                                onClick={() => setOne(i.INSCodigo, i.INSNome, true)}
+                                                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 disabled:opacity-50"
+                                            >
+                                                {rowBusy ? "..." : "Iniciar"}
+                                            </button>
+                                        )}
+                                    </td>
+                                </tr>
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>
