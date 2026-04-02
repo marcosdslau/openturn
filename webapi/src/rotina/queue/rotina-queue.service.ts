@@ -1,16 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Queue } from 'bullmq';
-import { InjectQueue } from '@nestjs/bullmq';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { StatusExecucao } from '@prisma/client';
-import { ROTINA_QUEUE_NAME, RotinaJobData } from './rotina-job.dto';
+import * as amqp from 'amqplib';
+import type { Options } from 'amqplib';
+import { JOBS_EXCHANGE, getRabbitUrl } from '../../common/rabbit/rabbit-connection';
+import { RotinaJobData } from './rotina-job.dto';
 
 @Injectable()
 export class RotinaQueueService {
     private readonly logger = new Logger(RotinaQueueService.name);
+    private connectionPromise: Promise<amqp.ChannelModel> | null = null;
+    private channelPromise: Promise<amqp.Channel> | null = null;
 
     constructor(
-        @InjectQueue(ROTINA_QUEUE_NAME) private readonly rotinaQueue: Queue<RotinaJobData>,
         private readonly prisma: PrismaService,
     ) { }
 
@@ -44,75 +46,87 @@ export class RotinaQueueService {
             enqueuedAt: new Date().toISOString(),
         };
 
-        const job = await this.rotinaQueue.add(trigger, jobData, {
-            jobId: exeId,
-            removeOnComplete: 100,
-            removeOnFail: 200,
-        });
+        await this.publishJob(jobData, exeId);
 
-        this.logger.log(`Job enqueued: ${job.id} (rotina=${rotinaCodigo}, trigger=${trigger})`);
+        this.logger.log(`Job enqueued: ${exeId} (rotina=${rotinaCodigo}, trigger=${trigger})`);
 
-        return { exeId, jobId: job.id! };
+        return { exeId, jobId: exeId };
     }
 
-    async waitForResult(exeId: string, timeoutMs: number = 120_000): Promise<any> {
-        const queueEvents = this.rotinaQueue.toKey('');
-        const job = await this.rotinaQueue.getJob(exeId);
-        if (!job) {
-            throw new Error(`Job ${exeId} não encontrado na fila`);
-        }
-        return job.waitUntilFinished(
-            (await import('bullmq')).QueueEvents.prototype as any,
-            timeoutMs,
-        );
-    }
-
-    /** Job ainda na fila ou sendo processado (não concluído / falho / removido). */
+    /** Estado ativo depende do log de execução no banco. */
     async hasLiveJob(exeId: string): Promise<boolean> {
-        const job = await this.rotinaQueue.getJob(exeId);
-        if (!job) return false;
-        const state = await job.getState();
-        const liveStates = [
-            'waiting',
-            'delayed',
-            'active',
-            'paused',
-            'waiting-children',
-            'prioritized',
-        ];
-        return liveStates.includes(state);
+        const exec = await this.prisma.rOTExecucaoLog.findFirst({
+            where: { EXEIdExterno: exeId },
+            select: { EXEStatus: true },
+        });
+        return exec?.EXEStatus === StatusExecucao.EM_EXECUCAO;
     }
 
     async cancelJob(exeId: string): Promise<boolean> {
-        const job = await this.rotinaQueue.getJob(exeId);
-        if (!job) return false;
-
-        const state = await job.getState();
-        if (state === 'waiting' || state === 'delayed') {
-            await job.remove();
-            await this.prisma.rOTExecucaoLog.updateMany({
-                where: { EXEIdExterno: exeId },
-                data: {
-                    EXEStatus: StatusExecucao.CANCELADO,
-                    EXEFim: new Date(),
-                    EXEErro: 'Cancelado antes de iniciar execução',
-                },
-            });
-            return true;
-        }
-
-        return false;
+        const result = await this.prisma.rOTExecucaoLog.updateMany({
+            where: {
+                EXEIdExterno: exeId,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+            },
+            data: {
+                EXEStatus: StatusExecucao.CANCELADO,
+                EXEFim: new Date(),
+                EXEErro: 'Cancelado antes de concluir execução',
+            },
+        });
+        return result.count > 0;
     }
 
     async getJobCounts() {
-        return this.rotinaQueue.getJobCounts(
-            'waiting',
-            'active',
-            'completed',
-            'failed',
-            'delayed',
-            'paused',
-            'prioritized',
-        );
+        return {
+            waiting: 0,
+            active: await this.prisma.rOTExecucaoLog.count({
+                where: { EXEStatus: StatusExecucao.EM_EXECUCAO },
+            }),
+            completed: await this.prisma.rOTExecucaoLog.count({
+                where: { EXEStatus: StatusExecucao.SUCESSO },
+            }),
+            failed: await this.prisma.rOTExecucaoLog.count({
+                where: { EXEStatus: StatusExecucao.ERRO },
+            }),
+            delayed: 0,
+            paused: 0,
+            prioritized: 0,
+        };
+    }
+
+    private async publishJob(data: RotinaJobData, exeId: string) {
+        const channel = await this.getChannel();
+        const properties: Options.Publish = {
+            persistent: true,
+            messageId: exeId,
+            correlationId: exeId,
+            contentType: 'application/json',
+            timestamp: Date.now(),
+            headers: {
+                'x-rotina-retry-count': 0,
+            },
+        };
+
+        const payload = Buffer.from(JSON.stringify(data));
+        channel.publish(JOBS_EXCHANGE, String(data.instituicaoCodigo), payload, properties);
+    }
+
+    private async getChannel(): Promise<amqp.Channel> {
+        if (!this.channelPromise) {
+            this.channelPromise = this.getConnection().then(async (connection) => {
+                const channel = await connection.createChannel();
+                await channel.assertExchange(JOBS_EXCHANGE, 'direct', { durable: true });
+                return channel;
+            });
+        }
+        return this.channelPromise;
+    }
+
+    private async getConnection(): Promise<amqp.ChannelModel> {
+        if (!this.connectionPromise) {
+            this.connectionPromise = amqp.connect(getRabbitUrl());
+        }
+        return this.connectionPromise;
     }
 }

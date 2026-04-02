@@ -4,28 +4,28 @@ overview: Migrar jobs de rotinas de BullMQ para RabbitMQ (exchange jobs, uma fil
 todos:
   - id: schema-max-concurrency
     content: "Migração Prisma: INSMaxExecucoesSimultaneas Int @default(8) em INSInstituicao (webapi + worker + remote-ui-gateway); API cadastro/edição + validação (min 1, max acordado)"
-    status: pending
+    status: completed
   - id: redis-inst-refresh-publish
     content: WebAPI após create/update instituição (Prisma). PUBLISH openturn:instituicao:queue:refresh com JSON; subscriber no worker + poll de backup
-    status: pending
+    status: completed
   - id: rabbit-infra-env
     content: RabbitMQ, RABBIT_URL; exchange jobs; filas q.rotina.inst.* com DLX → fila retry TTL 5s → volta ao jobs; DLQ após 3 ciclos; headers tentativas
-    status: pending
+    status: completed
   - id: webapi-publisher
     content: RotinaQueueService publish AMQP; remover Bull rotina; webhook síncrono Redis rotina:finished:{exeId}
-    status: pending
+    status: completed
   - id: webapi-cancel-monitor
     content: hasLiveJob Postgres; cancelJob Redis rotina:cancel; monitor sem getJobCounts Bull (Rabbit API ou simplificado)
-    status: pending
+    status: completed
   - id: worker-global-consumers
     content: "Worker pool global: canal(ís) prefetch(5, global), consume em todas filas ativas; Redis Lua inflight por INSCodigo; skip se EXEStatus cancelado"
-    status: pending
+    status: completed
   - id: worker-handler-dlx
     content: Extrair handler rotina-consumer; ack após sucesso; semáforo deny + falha processamento → DLX 5s, max 3; final DLQ + log; rotina:finished
-    status: pending
+    status: completed
   - id: remove-bull-rotina
     content: Remover BullMQ só da rotina (webapi + worker); código QueueEvents webhook morto
-    status: pending
+    status: completed
 isProject: false
 ---
 

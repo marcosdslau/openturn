@@ -21,7 +21,7 @@ async function bootstrap() {
 
     const processManager = new WorkerProcessManager(redisOptions);
 
-    const worker = startConsumer(prisma, processManager, redisOptions);
+    const worker = await startConsumer(prisma, processManager, redisOptions);
 
     const shutdown = async () => {
         console.log('[Worker] Shutting down...');

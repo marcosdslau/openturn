@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
-import { BullModule } from '@nestjs/bullmq';
-import { getRedisConnectionOptions } from './common/redis/redis-connection';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './common/prisma/prisma.module';
@@ -26,9 +24,6 @@ import { MonitorModule } from './monitor/monitor.module';
 @Module({
   imports: [
     ScheduleModule.forRoot(),
-    BullModule.forRoot({
-      connection: getRedisConnectionOptions(),
-    }),
     PrismaModule,
     AuthModule,
     ClienteModule,

@@ -1,31 +1,17 @@
-import { Controller, All, Param, Body, Query, Headers, Req, Res, NotFoundException, UnauthorizedException, Logger, HttpCode } from '@nestjs/common';
+import { Controller, All, Param, Body, Query, Headers, Req, Res, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
 import type { Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
-import { Queue, QueueEvents } from 'bullmq';
+import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
     private readonly logger = new Logger(RotinaWebhookController.name);
-    private queueEvents: QueueEvents | null = null;
-
     constructor(
         private readonly prisma: PrismaService,
         private readonly rotinaQueueService: RotinaQueueService,
-    ) {
-        this.initQueueEvents();
-    }
-
-    private initQueueEvents() {
-        try {
-            this.queueEvents = new QueueEvents('rotina-execute', {
-                connection: getRedisConnectionOptions(),
-            });
-        } catch (err) {
-            this.logger.warn('QueueEvents could not be initialized (Redis may not be available)');
-        }
-    }
+    ) { }
 
     @All(':path')
     async handleWebhook(
@@ -96,26 +82,9 @@ export class RotinaWebhookController {
 
         if (rotina.ROTWebhookAguardar) {
             try {
-                if (!this.queueEvents) {
-                    this.initQueueEvents();
-                }
-
-                const queue = new Queue('rotina-execute', {
-                    connection: getRedisConnectionOptions(),
-                });
-
-                try {
-                    const queueJob = await queue.getJob(exeId);
-                    if (queueJob && this.queueEvents) {
-                        const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
-                        const result = await queueJob.waitUntilFinished(this.queueEvents, timeoutMs);
-                        return res.json(result?.result ?? result);
-                    }
-
-                    return res.json({ exeId, message: 'Webhook enqueued (sync fallback)' });
-                } finally {
-                    await queue.close();
-                }
+                const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
+                const result = await this.waitForResultViaRedis(exeId, timeoutMs);
+                return res.json(result?.result ?? result);
             } catch (err: any) {
                 this.logger.error(`Erro ao aguardar webhook síncrono ${path}:`, err);
                 return res.status(500).json({ error: err.message, exeId });
@@ -123,5 +92,38 @@ export class RotinaWebhookController {
         }
 
         return res.status(202).json({ message: 'Webhook received', exeId, execution: 'queued' });
+    }
+
+    private async waitForResultViaRedis(exeId: string, timeoutMs: number): Promise<any> {
+        const channel = `rotina:finished:${exeId}`;
+        const sub = new Redis({ ...getRedisConnectionOptions(), lazyConnect: true });
+        await sub.connect();
+        await sub.subscribe(channel);
+
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(async () => {
+                try {
+                    await sub.unsubscribe(channel);
+                    await sub.quit();
+                } catch {
+                    // ignore close errors
+                }
+                reject(new Error('Timeout aguardando retorno da execução'));
+            }, timeoutMs);
+
+            sub.on('message', async (receivedChannel, message) => {
+                if (receivedChannel !== channel) return;
+                clearTimeout(timeout);
+                try {
+                    const parsed = JSON.parse(message);
+                    resolve(parsed);
+                } catch {
+                    resolve({ raw: message });
+                } finally {
+                    await sub.unsubscribe(channel);
+                    await sub.quit();
+                }
+            });
+        });
     }
 }

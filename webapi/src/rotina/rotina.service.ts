@@ -403,24 +403,21 @@ export class RotinaService {
         const killedLocal = this.processManager.killProcess(exeId);
 
         if (!killedLocal) {
-            // 2) Tenta remover da fila (waiting/delayed)
-            const removedFromQueue = await this.rotinaQueueService.cancelJob(exeId);
+            // 2) Marca status cancelado e notifica workers remotos
+            await this.rotinaQueueService.cancelJob(exeId);
 
-            if (!removedFromQueue) {
-                // 3) Publica cancel via Redis para workers remotos
-                if (this.redisPub) {
-                    await this.redisPub.publish('rotina:cancel', JSON.stringify({ exeId }));
-                } else {
-                    await this.prisma.rOTExecucaoLog.update({
-                        where: { EXECodigo: execLog.EXECodigo },
-                        data: {
-                            EXEStatus: StatusExecucao.CANCELADO,
-                            EXEFim: new Date(),
-                            EXEDuracaoMs: Date.now() - execLog.EXEInicio.getTime(),
-                            EXEErro: 'Execução cancelada (processo remoto)',
-                        },
-                    });
-                }
+            if (this.redisPub) {
+                await this.redisPub.publish('rotina:cancel', JSON.stringify({ exeId }));
+            } else {
+                await this.prisma.rOTExecucaoLog.update({
+                    where: { EXECodigo: execLog.EXECodigo },
+                    data: {
+                        EXEStatus: StatusExecucao.CANCELADO,
+                        EXEFim: new Date(),
+                        EXEDuracaoMs: Date.now() - execLog.EXEInicio.getTime(),
+                        EXEErro: 'Execução cancelada (processo remoto)',
+                    },
+                });
             }
         }
 
