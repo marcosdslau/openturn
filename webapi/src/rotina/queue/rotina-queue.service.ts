@@ -1,10 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
-import { StatusExecucao } from '@prisma/client';
+import { Prisma, StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
 import type { Options } from 'amqplib';
 import Redis from 'ioredis';
 import { JOBS_EXCHANGE, getRabbitUrl, getMainQueueName, GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE } from '../../common/rabbit/rabbit-connection';
+
+const ROTINA_RETRY_HEADER = 'x-rotina-retry-count';
+
+export interface ReprocessDeadLetterResult {
+    republished: number;
+    skippedInvalid: number;
+    errors: string[];
+}
 import { getRedisConnectionOptions } from '../../common/redis/redis-connection';
 import { RotinaJobData } from './rotina-job.dto';
 
@@ -116,6 +124,96 @@ export class RotinaQueueService {
         } catch (e) {
             this.logger.debug(`Erro ao publicar sinal de cancelamento (${exeId}): ${(e as Error)?.message ?? e}`);
         }
+    }
+
+    /**
+     * Esvazia `q.rotina.dlq`: republica cada payload na fila da instituição (exchange jobs + routing key)
+     * com contador de retry zerado. Marca o ROTExecucaoLog como EM_EXECUCAO para nova tentativa;
+     * o worker atualiza status/resultado ao concluir.
+     */
+    async reprocessDeadLetterQueue(): Promise<ReprocessDeadLetterResult> {
+        const MAX_MESSAGES = Math.max(1, parseInt(process.env.ROTINA_DLQ_REPROCESS_MAX || '5000', 10));
+        const channel = await this.getChannel();
+        await channel.assertQueue(JOBS_DLX_QUEUE, { durable: true });
+
+        let republished = 0;
+        let skippedInvalid = 0;
+        const errors: string[] = [];
+
+        for (let n = 0; n < MAX_MESSAGES; n++) {
+            const msg = await channel.get(JOBS_DLX_QUEUE, { noAck: false });
+            if (!msg) break;
+
+            let data: RotinaJobData;
+            try {
+                data = JSON.parse(msg.content.toString()) as RotinaJobData;
+            } catch {
+                skippedInvalid += 1;
+                errors.push('Mensagem com JSON inválido (removida da DLQ)');
+                channel.ack(msg);
+                continue;
+            }
+
+            if (
+                !data.exeId ||
+                typeof data.instituicaoCodigo !== 'number' ||
+                typeof data.rotinaCodigo !== 'number' ||
+                (data.trigger !== 'SCHEDULE' && data.trigger !== 'WEBHOOK')
+            ) {
+                skippedInvalid += 1;
+                errors.push(`Payload inválido (exeId=${String(data?.exeId)}), mensagem removida da DLQ`);
+                channel.ack(msg);
+                continue;
+            }
+
+            await this.prisma.rOTExecucaoLog.updateMany({
+                where: { EXEIdExterno: data.exeId },
+                data: {
+                    EXEStatus: StatusExecucao.EM_EXECUCAO,
+                    EXEInicio: new Date(),
+                    EXEFim: null,
+                    EXEDuracaoMs: null,
+                    EXEErro: null,
+                    EXEResultado: Prisma.JsonNull,
+                    EXELogs: Prisma.JsonNull,
+                },
+            });
+
+            const rawHeaders = (msg.properties.headers || {}) as Record<string, unknown>;
+            const headers: Record<string, unknown> = { ...rawHeaders };
+            headers[ROTINA_RETRY_HEADER] = 0;
+            delete headers['x-final-reason'];
+
+            const properties: Options.Publish = {
+                persistent: true,
+                headers: headers as Options.Publish['headers'],
+                messageId: data.exeId,
+                correlationId: (msg.properties.correlationId as string) || data.exeId,
+                contentType: msg.properties.contentType || 'application/json',
+                timestamp: Date.now(),
+            };
+
+            const ok = channel.publish(
+                JOBS_EXCHANGE,
+                String(data.instituicaoCodigo),
+                msg.content,
+                properties,
+            );
+            if (!ok) {
+                errors.push(`Buffer do canal cheio ao republicar ${data.exeId}; mensagem recolocada na DLQ`);
+                channel.nack(msg, false, true);
+                continue;
+            }
+
+            channel.ack(msg);
+            republished += 1;
+            void this.setPendingMarker(data.exeId).catch(() => { });
+        }
+
+        if (republished > 0) {
+            this.logger.log(`DLQ reprocess: ${republished} mensagem(ns) republicada(s)`);
+        }
+        return { republished, skippedInvalid, errors };
     }
 
     async getJobCounts() {

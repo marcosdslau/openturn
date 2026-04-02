@@ -3,28 +3,29 @@ import { PrismaClient } from '@prisma/client';
 import { WorkerProcessManager } from './engine/process-manager';
 import { startConsumer } from './rotina-consumer';
 import { getRedisConnectionOptions } from './redis-connection';
+import { workerLogLine } from './worker-log';
 
 async function bootstrap() {
     const redisOptions = getRedisConnectionOptions();
     const databaseUrl = process.env.DATABASE_URL;
 
     if (!databaseUrl) {
-        console.error('[Worker] DATABASE_URL is required');
+        console.error(workerLogLine('DATABASE_URL is required'));
         process.exit(1);
     }
 
-    console.log('[Worker] Starting openturn-worker...');
+    console.log(workerLogLine('Starting openturn-worker...'));
 
     const prisma = new PrismaClient();
     await prisma.$connect();
-    console.log('[Worker] Database connected');
+    console.log(workerLogLine('Database connected'));
 
     const processManager = new WorkerProcessManager(redisOptions);
 
     const worker = await startConsumer(prisma, processManager, redisOptions);
 
     const shutdown = async () => {
-        console.log('[Worker] Shutting down...');
+        console.log(workerLogLine('Shutting down...'));
         await worker.close();
         await prisma.$disconnect();
         process.exit(0);
@@ -35,6 +36,6 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-    console.error('[Worker] Fatal error:', err);
+    console.error(workerLogLine('Fatal error:'), err);
     process.exit(1);
 });

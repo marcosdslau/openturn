@@ -1,5 +1,11 @@
 import { apiGet, apiPost } from "@/lib/api";
 
+export interface ReprocessDeadLetterResult {
+    republished: number;
+    skippedInvalid: number;
+    errors: string[];
+}
+
 export type JanelaCurta = "1h" | "4h" | "8h" | "16h" | "24h" | "36h";
 export type JanelaDuracao = "1d" | "2d" | "5d" | "10d" | "15d" | "30d";
 export type JanelaStatus = "5d" | "10d" | "15d" | "30d" | "60d";
@@ -111,6 +117,8 @@ export interface RabbitOverview {
     messages_unacknowledged: number;
     publish_rate: number;
     deliver_rate: number;
+    dlq_messages: number;
+    retry_queue_messages: number;
     timestamp: string;
 }
 
@@ -121,4 +129,7 @@ export const MonitorService = {
     getStats: async () => apiGet<MonitorSnapshot>("/monitor/stats"),
     refreshSnapshot: async () => apiPost<MonitorSnapshot>("/monitor/refresh", {}),
     getRabbitOverview: async () => apiGet<RabbitOverview>("/monitor/rabbit-overview"),
+    /** Operação pode ser longa; timeout do cliente 15 min (ver `api` `timeoutMs`). */
+    reprocessDeadLetterQueue: async () =>
+        apiPost<ReprocessDeadLetterResult>("/monitor/rabbit/reprocess-dlq", {}, { timeoutMs: 900_000 }),
 };

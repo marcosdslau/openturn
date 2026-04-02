@@ -13,9 +13,12 @@ export function clearToken() {
     localStorage.removeItem('openturn_token');
 }
 
+export type ApiExtra = { timeoutMs?: number };
+
 export async function api<T = any>(
     path: string,
     options: RequestInit = {},
+    extra?: ApiExtra,
 ): Promise<T> {
     const token = getToken();
     const headers: Record<string, string> = {
@@ -40,10 +43,25 @@ export async function api<T = any>(
         }
     }
 
-    const res = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers,
-    });
+    let abortController: AbortController | undefined;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    if (extra?.timeoutMs && extra.timeoutMs > 0 && !options.signal) {
+        abortController = new AbortController();
+        timeoutId = setTimeout(() => abortController!.abort(), extra.timeoutMs);
+    }
+
+    let res: Response;
+    try {
+        res = await fetch(`${API_BASE}${path}`, {
+            ...options,
+            headers,
+            signal: options.signal ?? abortController?.signal,
+        });
+    } catch (err) {
+        if (timeoutId) clearTimeout(timeoutId);
+        throw err;
+    }
+    if (timeoutId) clearTimeout(timeoutId);
 
     if (res.status === 401) {
         clearToken();
@@ -72,8 +90,8 @@ export async function api<T = any>(
 
 export const apiGet = <T = any>(path: string) => api<T>(path);
 
-export const apiPost = <T = any>(path: string, body: any) =>
-    api<T>(path, { method: 'POST', body: JSON.stringify(body) });
+export const apiPost = <T = any>(path: string, body: any, extra?: ApiExtra) =>
+    api<T>(path, { method: 'POST', body: JSON.stringify(body) }, extra);
 
 export const apiPut = <T = any>(path: string, body: any) =>
     api<T>(path, { method: 'PUT', body: JSON.stringify(body) });

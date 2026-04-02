@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import {
@@ -26,8 +26,61 @@ import {
 } from "@/icons";
 import dynamic from "next/dynamic";
 import { ApexOptions } from "apexcharts";
+import Tooltip from "@/components/ui/tooltip/Tooltip";
+import { Modal } from "@/components/ui/modal";
+import { useModal } from "@/hooks/useModal";
+import Alert from "@/components/ui/alert/Alert";
 
 const ReactApexChart = dynamic(() => import("react-apexcharts"), { ssr: false });
+
+type RabbitToastVariant = "success" | "error" | "warning" | "info";
+
+interface RabbitToastItem {
+    id: number;
+    variant: RabbitToastVariant;
+    title: string;
+    message: string;
+}
+
+function useRabbitToast() {
+    const [toasts, setToasts] = useState<RabbitToastItem[]>([]);
+    const nextId = useRef(0);
+
+    const show = useCallback((variant: RabbitToastVariant, title: string, message: string, durationMs = 5000) => {
+        const id = nextId.current++;
+        setToasts((prev) => [...prev, { id, variant, title, message }]);
+        window.setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), durationMs);
+    }, []);
+
+    const dismiss = useCallback((id: number) => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, []);
+
+    return { toasts, show, dismiss };
+}
+
+function RabbitToastContainer({
+    toasts,
+    dismiss,
+}: {
+    toasts: RabbitToastItem[];
+    dismiss: (id: number) => void;
+}) {
+    if (toasts.length === 0) return null;
+    return (
+        <div className="pointer-events-none fixed right-5 top-5 z-[100000] flex w-[380px] max-w-[calc(100vw-2rem)] flex-col gap-3">
+            {toasts.map((t) => (
+                <div
+                    key={t.id}
+                    className="pointer-events-auto cursor-pointer animate-slide-in-right rounded-xl shadow-lg"
+                    onClick={() => dismiss(t.id)}
+                >
+                    <Alert variant={t.variant} title={t.title} message={t.message} />
+                </div>
+            ))}
+        </div>
+    );
+}
 
 const JANELAS_CURTAS: JanelaCurta[] = ["1h", "4h", "8h", "16h", "24h", "36h"];
 const JANELAS_STATUS: JanelaStatus[] = ["5d", "10d", "15d", "30d", "60d"];
@@ -46,6 +99,9 @@ const STATUS_LABEL: Record<StatusExecucaoKey, string> = {
     CANCELADO: "Cancelado",
     EM_EXECUCAO: "Em execução",
 };
+
+/** Altura do donut alinhada à coluna RabbitMQ Realtime (cards + área do gráfico). */
+const STATUS_PIE_CHART_HEIGHT = 400;
 
 function emptyStatusContagem(): StatusContagem {
     return {
@@ -325,7 +381,7 @@ export default function MonitorPage() {
             plotOptions: {
                 pie: {
                     donut: {
-                        size: "65%",
+                        size: "70%",
                         labels: {
                             show: true,
                             total: {
@@ -462,9 +518,17 @@ export default function MonitorPage() {
                                 Distribuição por status
                             </h4>
                             {pieTotal > 0 ? (
-                                <ReactApexChart options={pieOptions} series={pieSeries} type="donut" height={280} />
+                                <ReactApexChart
+                                    options={pieOptions}
+                                    series={pieSeries}
+                                    type="donut"
+                                    height={STATUS_PIE_CHART_HEIGHT}
+                                />
                             ) : (
-                                <div className="flex h-[280px] flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 dark:border-gray-800">
+                                <div
+                                    className="flex flex-col items-center justify-center rounded-xl border border-dashed border-gray-200 dark:border-gray-800"
+                                    style={{ minHeight: STATUS_PIE_CHART_HEIGHT }}
+                                >
                                     <PieChartIcon className="mb-2 h-10 w-10 text-gray-300 dark:text-gray-700" />
                                     <p className="text-sm text-gray-400">Sem dados no período</p>
                                 </div>
@@ -734,6 +798,10 @@ export default function MonitorPage() {
 function RabbitOverviewPanel() {
     const [data, setData] = useState<RabbitOverview | null>(null);
     const [refreshInterval, setRefreshInterval] = useState<number>(5000);
+    const [reprocessingDlq, setReprocessingDlq] = useState(false);
+    const [dlqFeedback, setDlqFeedback] = useState<string | null>(null);
+    const confirmDlqModal = useModal();
+    const rabbitToast = useRabbitToast();
     const [history, setHistory] = useState<{ publish: number[]; deliver: number[]; timestamps: string[] }>({
         publish: [],
         deliver: [],
@@ -761,6 +829,38 @@ function RabbitOverviewPanel() {
         const interval = setInterval(fetchRabbitData, refreshInterval);
         return () => clearInterval(interval);
     }, [fetchRabbitData, refreshInterval]);
+
+    const executeReprocessDlq = () => {
+        rabbitToast.show(
+            "info",
+            "Reprocessamento iniciado",
+            "A fila q.rotina.dlq está sendo republicada em segundo plano. Você pode continuar usando o monitor; os contadores do RabbitMQ serão atualizados ao final.",
+            6000,
+        );
+        confirmDlqModal.closeModal();
+        setDlqFeedback(null);
+        setReprocessingDlq(true);
+
+        void (async () => {
+            try {
+                const r = await MonitorService.reprocessDeadLetterQueue();
+                const parts = [`Republicadas: ${r.republished}`];
+                if (r.skippedInvalid) parts.push(`Removidas (inválidas): ${r.skippedInvalid}`);
+                if (r.errors.length) parts.push(r.errors.slice(0, 5).join(" · "));
+                const summary = parts.join(" — ");
+                rabbitToast.show("success", "DLQ reprocessada", summary, 8000);
+                setDlqFeedback(summary);
+                await fetchRabbitData();
+            } catch (e: unknown) {
+                const msg = e instanceof Error ? e.message : "Falha ao reprocessar DLQ";
+                rabbitToast.show("error", "Erro ao reprocessar DLQ", msg, 10000);
+                setDlqFeedback(msg);
+            } finally {
+                setReprocessingDlq(false);
+                window.setTimeout(() => setDlqFeedback(null), 12000);
+            }
+        })();
+    };
 
     const chartOptions: ApexOptions = {
         chart: {
@@ -795,6 +895,7 @@ function RabbitOverviewPanel() {
 
     return (
         <div className="space-y-4">
+            <RabbitToastContainer toasts={rabbitToast.toasts} dismiss={rabbitToast.dismiss} />
             <div className="flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-gray-800 dark:text-white/90 flex items-center gap-2">
                     <BoltIcon className="h-6 w-6 text-amber-500" />
@@ -812,30 +913,157 @@ function RabbitOverviewPanel() {
                 </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-                <MiniCard title="Queues" value={data?.queues ?? 0} />
-                <MiniCard title="Ready" value={data?.messages_ready ?? 0} />
-                <MiniCard title="Unacked" value={data?.messages_unacknowledged ?? 0} />
-                <MiniCard title="Publish" value={`${data?.publish_rate?.toFixed(1) ?? 0}/s`} />
-                <MiniCard title="Deliver" value={`${data?.deliver_rate?.toFixed(1) ?? 0}/s`} />
+            {dlqFeedback ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+                    {dlqFeedback}
+                </p>
+            ) : null}
+
+            <div className="flex flex-col gap-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    <MiniCard title="Filas" value={data?.queues ?? 0} />
+                    <MiniCard
+                        title="DeadLetter"
+                        subtitle="q.rotina.dlq"
+                        value={data?.dlq_messages ?? 0}
+                        headerRight={
+                            <Tooltip content="Reprocessar mensagens DeadLetter" placement="top">
+                                <button
+                                    type="button"
+                                    disabled={reprocessingDlq || (data?.dlq_messages ?? 0) === 0}
+                                    onClick={() => confirmDlqModal.openModal()}
+                                    className="-mr-3 -mt-0.5 rounded-md p-1 text-gray-500 transition hover:bg-gray-100 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-brand-400"
+                                    aria-label="Reprocessar mensagens DeadLetter"
+                                >
+                                    <RefreshIcon
+                                        className={`h-4 w-4 ${reprocessingDlq ? "animate-spin" : ""}`}
+                                    />
+                                </button>
+                            </Tooltip>
+                        }
+                    />
+                    <MiniCard title="Msg Retry's" subtitle="q.rotina.retry" value={data?.retry_queue_messages ?? 0} />
+                    <MiniCard title="Total MSG" value={data?.messages_ready ?? 0} />
+                </div>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                    <MiniCard title="Em Processamento" value={data?.messages_unacknowledged ?? 0} />
+                    <MiniCard title="Publish" value={`${data?.publish_rate?.toFixed(1) ?? 0}/s`} />
+                    <MiniCard title="Deliver" value={`${data?.deliver_rate?.toFixed(1) ?? 0}/s`} />
+                </div>
             </div>
 
             <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-2 dark:border-gray-800 dark:bg-black/20">
                 <ReactApexChart options={chartOptions} series={chartSeries} type="area" height={180} />
             </div>
+
+            <Modal
+                isOpen={confirmDlqModal.isOpen}
+                onClose={confirmDlqModal.closeModal}
+                className="max-w-[500px] p-5 lg:p-8"
+            >
+                <div className="text-center">
+                    <div className="relative z-1 mb-6 flex items-center justify-center">
+                        <svg
+                            className="fill-warning-50 dark:fill-warning-500/15"
+                            width="80"
+                            height="80"
+                            viewBox="0 0 90 90"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                        >
+                            <path
+                                d="M34.364 6.85053C38.6205 -2.28351 51.3795 -2.28351 55.636 6.85053C58.0129 11.951 63.5594 14.6722 68.9556 13.3853C78.6192 11.0807 86.5743 21.2433 82.2185 30.3287C79.7862 35.402 81.1561 41.5165 85.5082 45.0122C93.3019 51.2725 90.4628 63.9451 80.7747 66.1403C75.3648 67.3661 71.5265 72.2695 71.5572 77.9156C71.6123 88.0265 60.1169 93.6664 52.3918 87.3184C48.0781 83.7737 41.9219 83.7737 37.6082 87.3184C29.8831 93.6664 18.3877 88.0266 18.4428 77.9156C18.4735 72.2695 14.6352 67.3661 9.22531 66.1403C-0.462787 63.9451 -3.30193 51.2725 4.49185 45.0122C8.84391 41.5165 10.2138 35.402 7.78151 30.3287C3.42572 21.2433 11.3808 11.0807 21.0444 13.3853C26.4406 14.6722 31.9871 11.951 34.364 6.85053Z"
+                                fill=""
+                            />
+                        </svg>
+                        <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+                            <svg
+                                className="fill-warning-600 dark:fill-orange-400"
+                                width="34"
+                                height="34"
+                                viewBox="0 0 38 38"
+                                fill="none"
+                                xmlns="http://www.w3.org/2000/svg"
+                            >
+                                <path
+                                    fillRule="evenodd"
+                                    clipRule="evenodd"
+                                    d="M32.1445 19.0002C32.1445 26.2604 26.2589 32.146 18.9987 32.146C11.7385 32.146 5.85287 26.2604 5.85287 19.0002C5.85287 11.7399 11.7385 5.85433 18.9987 5.85433C26.2589 5.85433 32.1445 11.7399 32.1445 19.0002ZM18.9987 35.146C27.9158 35.146 35.1445 27.9173 35.1445 19.0002C35.1445 10.0831 27.9158 2.85433 18.9987 2.85433C10.0816 2.85433 2.85287 10.0831 2.85287 19.0002C2.85287 27.9173 10.0816 35.146 18.9987 35.146ZM21.0001 26.0855C21.0001 24.9809 20.1047 24.0855 19.0001 24.0855L18.9985 24.0855C17.894 24.0855 16.9985 24.9809 16.9985 26.0855C16.9985 27.19 17.894 28.0855 18.9985 28.0855L19.0001 28.0855C20.1047 28.0855 21.0001 27.19 21.0001 26.0855ZM18.9986 10.1829C19.827 10.1829 20.4986 10.8545 20.4986 11.6829L20.4986 20.6707C20.4986 21.4992 19.827 22.1707 18.9986 22.1707C18.1701 22.1707 17.4986 21.4992 17.4986 20.6707L17.4986 11.6829C17.4986 10.8545 18.1701 10.1829 18.9986 10.1829Z"
+                                    fill=""
+                                />
+                            </svg>
+                        </span>
+                    </div>
+                    <h4 className="mb-2 text-xl font-semibold text-gray-800 dark:text-white/90">
+                        Reprocessar Dead Letter?
+                    </h4>
+                    <p className="text-sm leading-6 text-gray-500 dark:text-gray-400">
+                        Todas as mensagens da fila{" "}
+                        <span className="font-mono text-gray-700 dark:text-gray-300">q.rotina.dlq</span> serão
+                        republicadas nas filas das instituições correspondentes. Os registros de execução serão
+                        marcados como em execução novamente até o worker concluir.
+                        {data?.dlq_messages != null ? (
+                            <>
+                                {" "}
+                                <span className="font-medium text-gray-700 dark:text-gray-200">
+                                    Mensagens na DLQ: {data.dlq_messages.toLocaleString()}
+                                </span>
+                                .
+                            </>
+                        ) : null}
+                    </p>
+                    <div className="mt-7 flex w-full flex-wrap items-center justify-center gap-3">
+                        <button
+                            type="button"
+                            onClick={confirmDlqModal.closeModal}
+                            className="flex justify-center rounded-lg bg-white px-4 py-3 text-sm font-medium text-gray-700 shadow-theme-xs ring-1 ring-inset ring-gray-300 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-400 dark:ring-gray-700 dark:hover:bg-white/[0.03] sm:w-auto"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            type="button"
+                            onClick={executeReprocessDlq}
+                            className="flex justify-center rounded-lg bg-warning-500 px-4 py-3 text-sm font-medium text-white shadow-theme-xs hover:bg-warning-600 sm:w-auto"
+                        >
+                            Sim, republicar
+                        </button>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 }
 
-function MiniCard({ title, value }: { title: string; value: string | number }) {
+function MiniCard({
+    title,
+    subtitle,
+    value,
+    headerRight,
+}: {
+    title: string;
+    subtitle?: string;
+    value: string | number;
+    headerRight?: React.ReactNode;
+}) {
     return (
         <div className="rounded-lg border border-gray-100 bg-white p-3 dark:border-gray-800 dark:bg-white/[0.03]">
-            <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                {title}
-            </p>
-            <p className="mt-1 text-lg font-bold text-gray-800 dark:text-white">
-                {value}
-            </p>
+            <div className="flex items-start justify-between gap-1">
+                <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                        {title}
+                    </p>
+                    {subtitle ? (
+                        <p
+                            className="mt-0.5 truncate text-[9px] font-mono text-gray-400 dark:text-gray-500"
+                            title={subtitle}
+                        >
+                            {subtitle}
+                        </p>
+                    ) : null}
+                </div>
+                {headerRight ? <div className="shrink-0">{headerRight}</div> : null}
+            </div>
+            <p className="mt-1 text-lg font-bold text-gray-800 dark:text-white">{value}</p>
         </div>
     );
 }

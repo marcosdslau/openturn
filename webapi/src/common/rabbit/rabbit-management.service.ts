@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE } from './rabbit-connection';
 
 export interface RabbitOverviewDto {
     queues: number;
@@ -7,6 +8,10 @@ export interface RabbitOverviewDto {
     messages_unacknowledged: number;
     publish_rate: number;
     deliver_rate: number;
+    /** Total de mensagens na fila `q.rotina.dlq`. */
+    dlq_messages: number;
+    /** Total de mensagens na fila `q.rotina.retry`. */
+    retry_queue_messages: number;
     timestamp: string;
 }
 
@@ -47,12 +52,23 @@ export class RabbitManagementService {
                 }
             }
 
+            const queueTotalMessages = (q: { messages?: number; messages_ready?: number; messages_unacknowledged?: number }) =>
+                q.messages ?? (q.messages_ready || 0) + (q.messages_unacknowledged || 0);
+
+            const findQueueDepth = (name: string): number => {
+                if (!Array.isArray(queues)) return 0;
+                const q = queues.find((x: { name?: string }) => x.name === name);
+                return q ? queueTotalMessages(q) : 0;
+            };
+
             return {
                 queues: Array.isArray(queues) ? queues.length : 0,
                 messages_ready: messagesReady,
                 messages_unacknowledged: messagesUnacked,
                 publish_rate: overview.message_stats?.publish_details?.rate || 0,
                 deliver_rate: overview.message_stats?.deliver_details?.rate || 0,
+                dlq_messages: findQueueDepth(JOBS_DLX_QUEUE),
+                retry_queue_messages: findQueueDepth(GLOBAL_RETRY_QUEUE),
                 timestamp: new Date().toISOString(),
             };
         } catch (error) {

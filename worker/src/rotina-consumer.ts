@@ -17,6 +17,7 @@ import {
     JOBS_RETRY_EXCHANGE,
     RETRY_DLX_ROUTING_KEY,
 } from './rabbit-connection';
+import { workerLogLine } from './worker-log';
 
 export interface RotinaJobData {
     exeId: string;
@@ -42,6 +43,11 @@ const WORKER_PREFETCH = 5;
 const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
+/** Pausa ao devolver job ao fim da fila quando não há vaga no semáforo (não incrementa x-rotina-retry-count). */
+const CAPACITY_DEFER_MS = Math.max(
+    0,
+    parseInt(process.env.ROTINA_CAPACITY_DEFER_MS || '50', 10),
+);
 const POLL_INTERVAL_MS = 120000;
 /** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
 const INFLIGHT_LEASE_MS = Math.max(
@@ -184,10 +190,10 @@ class RabbitRotinaConsumer {
         await this.reconcileInstitutions();
         this.pollTimer = setInterval(() => {
             this.reconcileInstitutions().catch((err) => {
-                console.error('[Worker] reconcile error:', err);
+                console.error(workerLogLine('reconcile error:'), err);
             });
         }, POLL_INTERVAL_MS);
-        console.log(`[Worker] Rabbit consumer started (prefetch=${WORKER_PREFETCH})`);
+        console.log(workerLogLine(`Rabbit consumer started (prefetch=${WORKER_PREFETCH})`));
     }
 
     async close() {
@@ -220,7 +226,7 @@ class RabbitRotinaConsumer {
         if (!this.retryChannel) return;
         await this.retryChannel.consume(GLOBAL_RETRY_QUEUE, (msg) => {
             this.onRetryQueueMessage(msg).catch((err) => {
-                console.error('[Worker] retry consumer error:', err);
+                console.error(workerLogLine('retry consumer error:'), err);
             });
         }, { noAck: false });
     }
@@ -282,7 +288,7 @@ class RabbitRotinaConsumer {
         this.redisSub.on('message', (channel, message) => {
             if (channel !== INSTITUICAO_REFRESH_CHANNEL) return;
             this.handleRefreshMessage(message).catch((err) => {
-                console.error('[Worker] refresh handler error:', err);
+                console.error(workerLogLine('refresh handler error:'), err);
             });
         });
     }
@@ -413,7 +419,15 @@ class RabbitRotinaConsumer {
             data.exeId,
         );
         if (!acquired) {
-            channel.nack(msg, false, false);
+            if (CAPACITY_DEFER_MS > 0) {
+                await sleep(CAPACITY_DEFER_MS);
+            }
+            const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
+            if (republished) {
+                channel.ack(msg);
+            } else {
+                channel.nack(msg, false, true);
+            }
             return;
         }
 
@@ -422,6 +436,10 @@ class RabbitRotinaConsumer {
             await this.processJob(data);
             channel.ack(msg);
         } catch (error: any) {
+            console.error(
+                workerLogLine(`Job ${data.exeId} error:`),
+                error?.message ?? error,
+            );
             // Republish / DLQ após MAX_RETRIES é tratado pelo consumer da fila global `q.rotina.retry`.
             channel.nack(msg, false, false);
         } finally {
@@ -432,6 +450,7 @@ class RabbitRotinaConsumer {
     /** Um log EM_EXECUCAO + exeId único: redelivery Rabbit reusa a mesma linha até SUCESSO/ERRO/TIMEOUT/CANCELADO. */
     private async processJob(jobData: RotinaJobData) {
         const { exeId, rotinaCodigo, instituicaoCodigo, requestEnvelope } = jobData;
+        console.log(workerLogLine(`Processing job ${exeId} (rotina=${rotinaCodigo}, trigger=${jobData.trigger})`));
         const rotina = await this.prisma.rOTRotina.findFirst({
             where: { ROTCodigo: rotinaCodigo, INSInstituicaoCodigo: instituicaoCodigo },
             include: { instituicao: true },
@@ -485,6 +504,8 @@ class RabbitRotinaConsumer {
             duration: result.duration,
             status: finalStatus,
         }));
+
+        console.log(workerLogLine(`Job ${exeId} completed`));
     }
 
     private async isInstitutionWorkerConsuming(instituicaoCodigo: number): Promise<boolean> {
@@ -548,6 +569,23 @@ class RabbitRotinaConsumer {
     private async releaseTenantSlot(instituicaoCodigo: number, exeId: string) {
         const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
         await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
+    }
+
+    /**
+     * Recoloca o job no exchange principal (fim da fila da instituição) sem DLX.
+     * Preserva headers, em especial {@link RETRY_HEADER} — não conta como nova tentativa de falha.
+     */
+    private republishToTenantMainQueue(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
+        const headers = { ...(msg.properties.headers || {}) };
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: msg.properties.messageId,
+            correlationId: msg.properties.correlationId,
+            contentType: msg.properties.contentType || 'application/json',
+            timestamp: Date.now(),
+        };
+        return ch.publish(JOBS_EXCHANGE, String(instituicaoCodigo), msg.content, properties);
     }
 
     private getRetryCount(msg: ConsumeMessage): number {
