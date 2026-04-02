@@ -121,7 +121,7 @@ export class RotinaService {
         await this.createVersion(rotina.ROTCodigo, data.ROTCodigoJS, usuarioCodigo, 'Versão inicial');
 
         // Agendar se for CRON e estiver ativa
-        if (rotina.ROTTipo === 'SCHEDULE' && rotina.ROTAtivo && rotina.ROTCronExpressao) {
+        if (rotina.ROTTipo === TipoRotina.SCHEDULE && rotina.ROTAtivo && rotina.ROTCronExpressao) {
             this.schedulerService.addCronJob(
                 rotina.ROTCodigo,
                 rotina.ROTCronExpressao,
@@ -192,8 +192,10 @@ export class RotinaService {
             },
         });
 
-        // Atualizar agendamento
-        if (updated.ROTTipo === 'SCHEDULE') {
+        // Cron: apenas SCHEDULE (reativação/atualização do job); WEBHOOK sempre fora do agendador.
+        if (updated.ROTTipo === TipoRotina.WEBHOOK) {
+            this.schedulerService.removeCronJob(updated.ROTCodigo);
+        } else if (updated.ROTTipo === TipoRotina.SCHEDULE) {
             if (updated.ROTAtivo && updated.ROTCronExpressao) {
                 this.schedulerService.addCronJob(
                     updated.ROTCodigo,
@@ -204,9 +206,6 @@ export class RotinaService {
             } else {
                 this.schedulerService.removeCronJob(updated.ROTCodigo);
             }
-        } else {
-            // Se mudou de tipo ou algo assim, garante remoção
-            this.schedulerService.removeCronJob(updated.ROTCodigo);
         }
 
         return updated;

@@ -3,6 +3,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
+import { TipoRotina } from '@prisma/client';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
@@ -47,11 +48,12 @@ export class SchedulerService implements OnModuleInit {
             const rotinas = await this.prisma.rOTRotina.findMany({
                 where: {
                     ROTAtivo: true,
+                    ROTTipo: TipoRotina.SCHEDULE,
                     ROTCronExpressao: { not: null },
                 },
             });
 
-            this.logger.log(`Encontradas ${rotinas.length} rotinas ativas para agendamento.`);
+            this.logger.log(`Encontradas ${rotinas.length} rotinas ativas do tipo agendamento (SCHEDULE) com cron.`);
 
             for (const rotina of rotinas) {
                 if (rotina.ROTCronExpressao) {

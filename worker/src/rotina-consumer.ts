@@ -39,15 +39,10 @@ interface ReconcileAllMessage {
     reconcileAll: true;
 }
 
-const WORKER_PREFETCH = 5;
+const MIN_PREFETCH = 10;
 const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
-/** Pausa ao devolver job ao fim da fila quando não há vaga no semáforo (não incrementa x-rotina-retry-count). */
-const CAPACITY_DEFER_MS = Math.max(
-    0,
-    parseInt(process.env.ROTINA_CAPACITY_DEFER_MS || '50', 10),
-);
 const POLL_INTERVAL_MS = 120000;
 /** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
 const INFLIGHT_LEASE_MS = Math.max(
@@ -178,7 +173,7 @@ class RabbitRotinaConsumer {
     async start() {
         this.connection = await amqp.connect(getRabbitUrl());
         this.channel = await this.connection.createChannel();
-        await this.channel.prefetch(WORKER_PREFETCH, true);
+        await this.channel.prefetch(MIN_PREFETCH, true);
 
         this.retryChannel = await this.connection.createChannel();
         await this.retryChannel.prefetch(50, false);
@@ -193,7 +188,7 @@ class RabbitRotinaConsumer {
                 console.error(workerLogLine('reconcile error:'), err);
             });
         }, POLL_INTERVAL_MS);
-        console.log(workerLogLine(`Rabbit consumer started (prefetch=${WORKER_PREFETCH})`));
+        console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH})`));
     }
 
     async close() {
@@ -310,10 +305,12 @@ class RabbitRotinaConsumer {
         const workerAtivo = payload.INSWorkerAtivo !== false;
         if (!payload.INSAtivo || !workerAtivo) {
             await this.stopConsumer(payload.INSCodigo);
+            await this.updateChannelPrefetch();
             return;
         }
         await this.ensureTenantTopology(payload);
         await this.ensureTenantConsumer(payload);
+        await this.updateChannelPrefetch();
     }
 
     private async reconcileInstitutions() {
@@ -340,6 +337,8 @@ class RabbitRotinaConsumer {
                 await this.stopConsumer(codigo);
             }
         }
+
+        await this.updateChannelPrefetch();
     }
 
     private async ensureTenantTopology(instituicao: InstituicaoAtiva) {
@@ -375,6 +374,15 @@ class RabbitRotinaConsumer {
             await this.channel.cancel(tag);
             this.consumerTags.delete(instituicaoCodigo);
         }
+    }
+
+    /** Ajusta prefetch global do canal para acomodar a soma de todas as vagas de instituições ativas. */
+    private async updateChannelPrefetch() {
+        if (!this.channel) return;
+        const totalSlots = Array.from(this.tenantLimits.values()).reduce((sum, v) => sum + v, 0);
+        const prefetch = Math.max(totalSlots + 3, MIN_PREFETCH);
+        await this.channel.prefetch(prefetch, true);
+        console.log(workerLogLine(`Prefetch adjusted to ${prefetch} (total institution slots: ${totalSlots})`));
     }
 
     private async onMessage(msg: ConsumeMessage | null) {
@@ -419,9 +427,6 @@ class RabbitRotinaConsumer {
             data.exeId,
         );
         if (!acquired) {
-            if (CAPACITY_DEFER_MS > 0) {
-                await sleep(CAPACITY_DEFER_MS);
-            }
             const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
             if (republished) {
                 channel.ack(msg);
@@ -431,19 +436,24 @@ class RabbitRotinaConsumer {
             return;
         }
 
+        let jobSucceeded = false;
         try {
             await this.clearPendingMarker(data.exeId);
             await this.processJob(data);
-            channel.ack(msg);
+            jobSucceeded = true;
         } catch (error: any) {
             console.error(
                 workerLogLine(`Job ${data.exeId} error:`),
                 error?.message ?? error,
             );
-            // Republish / DLQ após MAX_RETRIES é tratado pelo consumer da fila global `q.rotina.retry`.
+        }
+
+        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+
+        if (jobSucceeded) {
+            channel.ack(msg);
+        } else {
             channel.nack(msg, false, false);
-        } finally {
-            await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
         }
     }
 
