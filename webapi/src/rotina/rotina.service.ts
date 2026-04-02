@@ -265,8 +265,8 @@ export class RotinaService {
     }
 
     /**
-     * Mapa rotinaCodigo → execução realmente ativa (mesma regra de getActiveExecution).
-     * Só inclui entradas com running=true.
+     * Mapa rotinaCodigo → execução ativa (log EM_EXECUCAO). Jobs Rabbit mantêm o mesmo exeId até o worker finalizar;
+     * não há correção automática para ERRO só porque o processo sumiu da API.
      */
     async getActiveExecutionsMap(instituicaoCodigo: number) {
         const rows = await this.prisma.rOTExecucaoLog.findMany({
@@ -290,7 +290,7 @@ export class RotinaService {
             if (seen.has(row.ROTCodigo)) continue;
             seen.add(row.ROTCodigo);
 
-            const resolved = await this.resolveRunningExecutionRow(row, row.ROTCodigo);
+            const resolved = this.resolveRunningExecutionRow(row);
             if (resolved.running && resolved.exeId) {
                 out[String(row.ROTCodigo)] = { running: true, exeId: resolved.exeId };
             }
@@ -316,51 +316,12 @@ export class RotinaService {
             return { running: false, exeId: null };
         }
 
-        return this.resolveRunningExecutionRow(row, rotinaCodigo);
+        return this.resolveRunningExecutionRow(row);
     }
 
-    private async resolveRunningExecutionRow(
-        row: { EXEIdExterno: string; EXECodigo: number; EXEInicio: Date },
-        rotinaCodigo: number,
-    ): Promise<{ running: boolean; exeId: string | null }> {
-        const exeId = row.EXEIdExterno;
-        const onThisNode = this.processManager.isRunning(exeId);
-
-        let inQueue = false;
-        let queueUnreachable = false;
-        try {
-            inQueue = await this.rotinaQueueService.hasLiveJob(exeId);
-        } catch (e: any) {
-            queueUnreachable = true;
-            this.logger.warn(`Fila Bull indisponível ao checar ${exeId}: ${e?.message ?? e}`);
-        }
-
-        if (onThisNode || inQueue) {
-            return { running: true, exeId };
-        }
-
-        if (queueUnreachable) {
-            return { running: true, exeId };
-        }
-
-        const GRACE_MS = 10_000;
-        const ageMs = Date.now() - row.EXEInicio.getTime();
-        if (ageMs < GRACE_MS) {
-            return { running: true, exeId };
-        }
-
-        await this.prisma.rOTExecucaoLog.update({
-            where: { EXECodigo: row.EXECodigo },
-            data: {
-                EXEStatus: StatusExecucao.ERRO,
-                EXEFim: new Date(),
-                EXEDuracaoMs: ageMs,
-                EXEErro: 'Estado inconsistente: sem processo nem job ativo (corrigido automaticamente)',
-            },
-        });
-        this.logger.warn(`Execução órfã corrigida: ${exeId} (rotina ${rotinaCodigo})`);
-
-        return { running: false, exeId: null };
+    /** Linha já é EM_EXECUCAO; execução manual neste nó ou job na fila compartilham o mesmo critério de “ativa”. */
+    private resolveRunningExecutionRow(row: { EXEIdExterno: string }): { running: boolean; exeId: string | null } {
+        return { running: true, exeId: row.EXEIdExterno };
     }
 
     async executeManual(id: number, instituicaoCodigo: number) {

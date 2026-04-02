@@ -3,7 +3,9 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
 import type { Options } from 'amqplib';
+import Redis from 'ioredis';
 import { JOBS_EXCHANGE, getRabbitUrl } from '../../common/rabbit/rabbit-connection';
+import { getRedisConnectionOptions } from '../../common/redis/redis-connection';
 import { RotinaJobData } from './rotina-job.dto';
 
 @Injectable()
@@ -11,10 +13,23 @@ export class RotinaQueueService {
     private readonly logger = new Logger(RotinaQueueService.name);
     private connectionPromise: Promise<amqp.ChannelModel> | null = null;
     private channelPromise: Promise<amqp.Channel> | null = null;
+    private redis: Redis | null = null;
 
     constructor(
         private readonly prisma: PrismaService,
-    ) { }
+    ) {
+        try {
+            const client = new Redis({ ...getRedisConnectionOptions(), lazyConnect: true });
+            this.redis = client;
+            client.connect().catch(() => {
+                this.logger.warn('Redis indisponível: marcador rotina:pending desligado');
+                void client.quit();
+                this.redis = null;
+            });
+        } catch {
+            this.redis = null;
+        }
+    }
 
     async enqueue(
         rotinaCodigo: number,
@@ -47,19 +62,33 @@ export class RotinaQueueService {
         };
 
         await this.publishJob(jobData, exeId);
+        void this.setPendingMarker(exeId).catch((e) =>
+            this.logger.debug(`rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`),
+        );
 
         this.logger.log(`Job enqueued: ${exeId} (rotina=${rotinaCodigo}, trigger=${trigger})`);
 
         return { exeId, jobId: exeId };
     }
 
-    /** Estado ativo depende do log de execução no banco. */
-    async hasLiveJob(exeId: string): Promise<boolean> {
-        const exec = await this.prisma.rOTExecucaoLog.findFirst({
-            where: { EXEIdExterno: exeId },
-            select: { EXEStatus: true },
-        });
-        return exec?.EXEStatus === StatusExecucao.EM_EXECUCAO;
+    private pendingKey(exeId: string) {
+        return `rotina:pending:${exeId}`;
+    }
+
+    /** Marcador opcional (UX): worker remove ao consumir. TTL evita chave órfã se o Redis da API reiniciar. */
+    private async setPendingMarker(exeId: string): Promise<void> {
+        if (!this.redis) return;
+        const ttl = Math.max(60, parseInt(process.env.ROTINA_PENDING_TTL_SEC || '86400', 10));
+        await this.redis.setex(this.pendingKey(exeId), ttl, '1');
+    }
+
+    async clearPendingMarker(exeId: string): Promise<void> {
+        if (!this.redis) return;
+        try {
+            await this.redis.del(this.pendingKey(exeId));
+        } catch (e) {
+            this.logger.debug(`rotina:pending não removido (${exeId}): ${(e as Error)?.message ?? e}`);
+        }
     }
 
     async cancelJob(exeId: string): Promise<boolean> {
@@ -74,6 +103,9 @@ export class RotinaQueueService {
                 EXEErro: 'Cancelado antes de concluir execução',
             },
         });
+        if (result.count > 0) {
+            await this.clearPendingMarker(exeId);
+        }
         return result.count > 0;
     }
 

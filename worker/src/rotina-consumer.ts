@@ -38,6 +38,11 @@ const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
+/** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
+const INFLIGHT_LEASE_MS = Math.max(
+    60_000,
+    parseInt(process.env.ROTINA_INFLIGHT_LEASE_SEC || String(3600), 10) * 1000,
+);
 
 const ALLOWED_MODELS = [
     'pESPessoa', 'mATMatricula', 'rEGRegistroPassagem',
@@ -379,23 +384,29 @@ class RabbitRotinaConsumer {
         }
 
         const tenantLimit = this.tenantLimits.get(data.instituicaoCodigo) ?? await this.loadTenantLimit(data.instituicaoCodigo);
-        const acquired = await this.tryAcquireTenantSlot(data.instituicaoCodigo, tenantLimit);
+        const acquired = await this.tryAcquireTenantSlot(
+            data.instituicaoCodigo,
+            tenantLimit,
+            data.exeId,
+        );
         if (!acquired) {
             channel.nack(msg, false, false);
             return;
         }
 
         try {
+            await this.clearPendingMarker(data.exeId);
             await this.processJob(data);
             channel.ack(msg);
         } catch (error: any) {
             // Republish / DLQ após MAX_RETRIES é tratado pelo consumer da fila global `q.rotina.retry`.
             channel.nack(msg, false, false);
         } finally {
-            await this.releaseTenantSlot(data.instituicaoCodigo);
+            await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
         }
     }
 
+    /** Um log EM_EXECUCAO + exeId único: redelivery Rabbit reusa a mesma linha até SUCESSO/ERRO/TIMEOUT/CANCELADO. */
     private async processJob(jobData: RotinaJobData) {
         const { exeId, rotinaCodigo, instituicaoCodigo, requestEnvelope } = jobData;
         const rotina = await this.prisma.rOTRotina.findFirst({
@@ -463,35 +474,49 @@ class RabbitRotinaConsumer {
         return limit;
     }
 
-    private async tryAcquireTenantSlot(instituicaoCodigo: number, limit: number): Promise<boolean> {
-        const key = `rotina:inflight:${instituicaoCodigo}`;
+    private async clearPendingMarker(exeId: string): Promise<void> {
+        try {
+            await this.redis.del(`rotina:pending:${exeId}`);
+        } catch {
+            /* ignore */
+        }
+    }
+
+    /** Limite por instituição via ZSET: membros expirados liberam vaga sem DECR manual. */
+    private async tryAcquireTenantSlot(
+        instituicaoCodigo: number,
+        limit: number,
+        exeId: string,
+    ): Promise<boolean> {
+        const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
+        const now = Date.now();
+        const until = now + INFLIGHT_LEASE_MS;
         const result = await this.redis.eval(
-            `local current = tonumber(redis.call('GET', KEYS[1]) or '0')
-             local maxv = tonumber(ARGV[1])
-             if current < maxv then
-               redis.call('INCR', KEYS[1])
+            `local zkey = KEYS[1]
+             local now = tonumber(ARGV[1])
+             local maxv = tonumber(ARGV[2])
+             local exe = ARGV[3]
+             local untilScore = tonumber(ARGV[4])
+             redis.call('ZREMRANGEBYSCORE', zkey, '-inf', now)
+             local n = redis.call('ZCARD', zkey)
+             if n < maxv then
+               redis.call('ZADD', zkey, untilScore, exe)
                return 1
              end
              return 0`,
             1,
-            key,
+            zkey,
+            String(now),
             String(limit),
+            exeId,
+            String(until),
         );
         return Number(result) === 1;
     }
 
-    private async releaseTenantSlot(instituicaoCodigo: number) {
-        const key = `rotina:inflight:${instituicaoCodigo}`;
-        await this.redis.eval(
-            `local current = tonumber(redis.call('GET', KEYS[1]) or '0')
-             if current <= 1 then
-               redis.call('DEL', KEYS[1])
-               return 0
-             end
-             return redis.call('DECR', KEYS[1])`,
-            1,
-            key,
-        );
+    private async releaseTenantSlot(instituicaoCodigo: number, exeId: string) {
+        const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
+        await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
     }
 
     private getRetryCount(msg: ConsumeMessage): number {
