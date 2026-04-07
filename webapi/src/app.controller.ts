@@ -9,4 +9,9 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  @Get('app/environment')
+  getDeployEnvironment() {
+    return this.appService.getDeployEnvironment();
+  }
 }

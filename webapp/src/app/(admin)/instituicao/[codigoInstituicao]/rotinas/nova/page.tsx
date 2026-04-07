@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { RotinaService } from "@/services/rotina.service";
+import { RotinaService, ROTINA_TIMEOUT_SECONDS_MAX, clampRotinaTimeoutSeconds } from "@/services/rotina.service";
 import Button from "@/components/ui/button/Button";
 import { useTenant } from "@/context/TenantContext";
 import { ChevronLeftIcon, InfoIcon, AlertIcon, RefreshIcon, EyeIcon, EyeCloseIcon } from "@/icons";
@@ -48,6 +48,7 @@ export default function NovaRotinaPage() {
         try {
             const newRotina = await RotinaService.create({
                 ...formData,
+                ROTTimeoutSeconds: clampRotinaTimeoutSeconds(formData.ROTTimeoutSeconds),
                 INSInstituicaoCodigo: codigoInstituicao
             } as any);
 
@@ -117,7 +118,7 @@ export default function NovaRotinaPage() {
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (segundos)</label>
                             <input
                                 type="number"
-                                min="1" max="2000"
+                                min="1" max={ROTINA_TIMEOUT_SECONDS_MAX}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                                 value={formData.ROTTimeoutSeconds}
                                 onChange={(e) => setFormData({ ...formData, ROTTimeoutSeconds: Number(e.target.value) })}

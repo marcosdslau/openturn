@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { ConsoleGateway } from '../console.gateway';
+import { routineTimeoutSecondsFromCadastro } from './routine-timeout.util';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -16,76 +17,73 @@ export interface ExecutionResult {
     duration: number;
     timedOut: boolean;
     logs: LogEntry[];
+    cancelled?: boolean;
 }
 
 @Injectable()
 export class ProcessManager {
     private readonly logger = new Logger(ProcessManager.name);
-    private activeProcesses = new Map<string, ChildProcess>();
+    private activeProcesses = new Map<string, { child: ChildProcess; rotinaCodigo: number }>();
     private consoleGateway: ConsoleGateway | null = null;
 
-    /**
-     * Define o gateway de console (injeção manual para evitar dependência circular)
-     */
     setConsoleGateway(gateway: ConsoleGateway) {
         this.consoleGateway = gateway;
     }
 
-    /**
-     * Executa código JavaScript em um processo filho isolado
-     */
     async executeInProcess(
-        executionId: string,
+        exeId: string,
         rotinaCodigo: number,
         code: string,
         context: any,
         timeoutSeconds: number = 30,
         rpcHandler?: (method: string, params: any) => Promise<any>,
     ): Promise<ExecutionResult> {
+        const sec = routineTimeoutSecondsFromCadastro(timeoutSeconds);
+        const timeoutMs = sec * 1000;
         const startTime = Date.now();
         let timedOut = false;
         const logs: LogEntry[] = [];
 
-        // Notifica início via WebSocket
         if (this.consoleGateway) {
-            this.consoleGateway.sendExecutionStart(rotinaCodigo, executionId);
+            this.consoleGateway.sendExecutionStart(rotinaCodigo, exeId);
         }
 
         return new Promise((resolve) => {
-            // Caminho para o script runner
+            let resolved = false;
+            const safeResolve = (result: ExecutionResult) => {
+                if (resolved) return;
+                resolved = true;
+                resolve(result);
+            };
+
             const runnerPath = join(__dirname, 'routine-runner.js');
 
-            // Cria processo filho
+            // Sem `fork({ timeout })`: o timeout do Node usa SIGTERM e pode divergir do kill abaixo;
+            // um único timer com SIGKILL respeita estritamente o cadastro (ROTTimeoutSeconds).
             const child = fork(runnerPath, [], {
                 stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-                timeout: timeoutSeconds * 1000,
             });
 
-            this.activeProcesses.set(executionId, child);
+            this.activeProcesses.set(exeId, { child, rotinaCodigo });
 
-            // Timeout handler
             const timeoutHandle = setTimeout(() => {
                 timedOut = true;
-                this.logger.warn(`Execution ${executionId} timed out after ${timeoutSeconds}s`);
+                this.logger.warn(`Execution ${exeId} timed out after ${sec}s (cadastro)`);
 
                 const timeoutLog: LogEntry = {
                     level: 'error',
-                    message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
+                    message: `⏱️ Timeout: Execução excedeu o limite de ${sec}s`,
                     timestamp: new Date().toISOString(),
                 };
                 logs.push(timeoutLog);
 
-                // Envia log de timeout via WebSocket
                 if (this.consoleGateway) {
-                    this.consoleGateway.sendLog(rotinaCodigo, timeoutLog);
+                    this.consoleGateway.sendLog(rotinaCodigo, timeoutLog, exeId);
                 }
 
                 child.kill('SIGKILL');
-            }, timeoutSeconds * 1000);
+            }, timeoutMs);
 
-            // Envia código e contexto para o processo filho
-            // IMPORTANTE: context não deve conter objetos não serializáveis (como conexões DB)
-            // Use dbConfig e rpcHandler para isso.
             child.send({
                 type: 'execute',
                 code,
@@ -93,9 +91,7 @@ export class ProcessManager {
                 dbConfig: rpcHandler ? (context as any).dbConfig : undefined,
             });
 
-            // Escuta mensagens do processo filho
             child.on('message', async (message: any) => {
-                // Se for um log, transmite via WebSocket
                 if (message.type === 'log') {
                     const logEntry: LogEntry = {
                         level: message.level,
@@ -105,34 +101,21 @@ export class ProcessManager {
                     logs.push(logEntry);
 
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendLog(rotinaCodigo, logEntry);
+                        this.consoleGateway.sendLog(rotinaCodigo, logEntry, exeId);
                     }
-                    return; // Não resolve a promise
+                    return;
                 }
 
-                // Se for uma chamada RPC
                 if (message.type === 'rpc') {
                     if (rpcHandler) {
                         try {
                             const result = await rpcHandler(message.method, message.params);
-                            child.send({
-                                type: 'rpc:success',
-                                id: message.id,
-                                result
-                            });
+                            child.send({ type: 'rpc:success', id: message.id, result });
                         } catch (error: any) {
-                            child.send({
-                                type: 'rpc:error',
-                                id: message.id,
-                                error: error.message || String(error)
-                            });
+                            child.send({ type: 'rpc:error', id: message.id, error: error.message || String(error) });
                         }
                     } else {
-                        child.send({
-                            type: 'rpc:error',
-                            id: message.id,
-                            error: 'RPC Handler not configured'
-                        });
+                        child.send({ type: 'rpc:error', id: message.id, error: 'RPC Handler not configured' });
                     }
                     return;
                 }
@@ -141,7 +124,7 @@ export class ProcessManager {
                 const duration = Date.now() - startTime;
 
                 if (message.type === 'success') {
-                    const executionResult = {
+                    const executionResult: ExecutionResult = {
                         success: true,
                         result: message.result,
                         duration,
@@ -149,14 +132,14 @@ export class ProcessManager {
                         logs,
                     };
 
-                    // Notifica fim via WebSocket
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, executionResult);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, executionResult);
                     }
 
-                    resolve(executionResult);
+                    this.cleanup(exeId);
+                    safeResolve(executionResult);
                 } else if (message.type === 'error') {
-                    const executionResult = {
+                    const executionResult: ExecutionResult = {
                         success: false,
                         error: message.error,
                         duration,
@@ -164,25 +147,21 @@ export class ProcessManager {
                         logs,
                     };
 
-                    // Notifica fim via WebSocket
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, executionResult);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, executionResult);
                     }
 
-                    resolve(executionResult);
+                    this.cleanup(exeId);
+                    safeResolve(executionResult);
                 }
-
-                this.cleanup(executionId);
             });
 
-            // Erro no processo
             child.on('error', (error) => {
                 clearTimeout(timeoutHandle);
                 const duration = Date.now() - startTime;
+                this.logger.error(`Process error for ${exeId}:`, error);
 
-                this.logger.error(`Process error for ${executionId}:`, error);
-
-                const result = {
+                const result: ExecutionResult = {
                     success: false,
                     error: error.message,
                     duration,
@@ -190,24 +169,22 @@ export class ProcessManager {
                     logs,
                 };
 
-                // Notifica fim via WebSocket
                 if (this.consoleGateway) {
-                    this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, result);
+                    this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
                 }
 
-                resolve(result);
-                this.cleanup(executionId);
+                this.cleanup(exeId);
+                safeResolve(result);
             });
 
-            // Processo encerrado
             child.on('exit', (code, signal) => {
                 clearTimeout(timeoutHandle);
                 const duration = Date.now() - startTime;
 
                 if (code !== 0 && code !== null) {
-                    this.logger.warn(`Process ${executionId} exited with code ${code}`);
+                    this.logger.warn(`Process ${exeId} exited with code ${code}`);
 
-                    const result = {
+                    const result: ExecutionResult = {
                         success: false,
                         error: `Process exited with code ${code}`,
                         duration,
@@ -216,56 +193,64 @@ export class ProcessManager {
                     };
 
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, result);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
                     }
 
-                    resolve(result);
+                    this.cleanup(exeId);
+                    safeResolve(result);
                 } else if (signal) {
-                    const result = {
+                    const cancelled = !timedOut && signal === 'SIGKILL';
+                    const result: ExecutionResult = {
                         success: false,
-                        error: `Process killed with signal ${signal}`,
+                        error: cancelled ? 'Execução cancelada pelo usuário' : `Process killed with signal ${signal}`,
                         duration,
-                        timedOut: signal === 'SIGKILL',
+                        timedOut: timedOut && signal === 'SIGKILL',
+                        cancelled,
                         logs,
                     };
 
                     if (this.consoleGateway) {
-                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, executionId, result);
+                        this.consoleGateway.sendExecutionEnd(rotinaCodigo, exeId, result);
                     }
 
-                    resolve(result);
+                    this.cleanup(exeId);
+                    safeResolve(result);
                 }
-
-                this.cleanup(executionId);
             });
         });
     }
 
-    /**
-     * Limpa processo da lista de ativos
-     */
-    private cleanup(executionId: string) {
-        const child = this.activeProcesses.get(executionId);
-        if (child) {
-            child.removeAllListeners();
-            this.activeProcesses.delete(executionId);
+    private cleanup(exeId: string) {
+        const entry = this.activeProcesses.get(exeId);
+        if (entry) {
+            entry.child.removeAllListeners();
+            this.activeProcesses.delete(exeId);
         }
     }
 
-    /**
-     * Mata um processo específico
-     */
-    killProcess(executionId: string) {
-        const child = this.activeProcesses.get(executionId);
-        if (child) {
-            child.kill('SIGKILL');
-            this.cleanup(executionId);
+    killProcess(exeId: string): boolean {
+        const entry = this.activeProcesses.get(exeId);
+        if (entry) {
+            entry.child.kill('SIGKILL');
+            return true;
         }
+        return false;
     }
 
-    /**
-     * Retorna número de processos ativos
-     */
+    isRunning(exeId: string): boolean {
+        return this.activeProcesses.has(exeId);
+    }
+
+    getActiveForRotina(rotinaCodigo: number): string[] {
+        const ids: string[] = [];
+        for (const [exeId, entry] of this.activeProcesses) {
+            if (entry.rotinaCodigo === rotinaCodigo) {
+                ids.push(exeId);
+            }
+        }
+        return ids;
+    }
+
     getActiveCount(): number {
         return this.activeProcesses.size;
     }

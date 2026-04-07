@@ -1,14 +1,20 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { ExecutionService } from './engine/execution.service';
+import { ProcessManager } from './engine/process-manager';
+import { RotinaQueueService } from './queue/rotina-queue.service';
 import { SchedulerService } from './scheduler.service';
-import { TipoRotina, HttpMetodo, WebhookTokenSource } from '@prisma/client';
+import { TipoRotina, HttpMetodo, WebhookTokenSource, StatusExecucao } from '@prisma/client';
+import { clampRotinaTimeoutForPersist } from './engine/routine-timeout.util';
 
 @Injectable()
 export class RotinaService {
+    private readonly logger = new Logger(RotinaService.name);
     constructor(
         private readonly prisma: PrismaService,
         private readonly executionService: ExecutionService,
+        private readonly processManager: ProcessManager,
+        private readonly rotinaQueueService: RotinaQueueService,
         private readonly schedulerService: SchedulerService,
     ) { }
 
@@ -116,7 +122,7 @@ export class RotinaService {
         await this.createVersion(rotina.ROTCodigo, data.ROTCodigoJS, usuarioCodigo, 'Versão inicial');
 
         // Agendar se for CRON e estiver ativa
-        if (rotina.ROTTipo === 'SCHEDULE' && rotina.ROTAtivo && rotina.ROTCronExpressao) {
+        if (rotina.ROTTipo === TipoRotina.SCHEDULE && rotina.ROTAtivo && rotina.ROTCronExpressao) {
             this.schedulerService.addCronJob(
                 rotina.ROTCodigo,
                 rotina.ROTCronExpressao,
@@ -183,12 +189,17 @@ export class RotinaService {
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo,
-                ROTTimeoutSeconds: data.ROTTimeoutSeconds,
+                ROTTimeoutSeconds:
+                    data.ROTTimeoutSeconds === undefined
+                        ? undefined
+                        : clampRotinaTimeoutForPersist(data.ROTTimeoutSeconds),
             },
         });
 
-        // Atualizar agendamento
-        if (updated.ROTTipo === 'SCHEDULE') {
+        // Cron: apenas SCHEDULE (reativação/atualização do job); WEBHOOK sempre fora do agendador.
+        if (updated.ROTTipo === TipoRotina.WEBHOOK) {
+            this.schedulerService.removeCronJob(updated.ROTCodigo);
+        } else if (updated.ROTTipo === TipoRotina.SCHEDULE) {
             if (updated.ROTAtivo && updated.ROTCronExpressao) {
                 this.schedulerService.addCronJob(
                     updated.ROTCodigo,
@@ -199,9 +210,6 @@ export class RotinaService {
             } else {
                 this.schedulerService.removeCronJob(updated.ROTCodigo);
             }
-        } else {
-            // Se mudou de tipo ou algo assim, garante remoção
-            this.schedulerService.removeCronJob(updated.ROTCodigo);
         }
 
         return updated;
@@ -242,11 +250,70 @@ export class RotinaService {
         });
     }
 
+    /**
+     * Mapa rotinaCodigo → execução ativa (log EM_EXECUCAO). Jobs Rabbit mantêm o mesmo exeId até o worker finalizar;
+     * não há correção automática para ERRO só porque o processo sumiu da API.
+     */
+    async getActiveExecutionsMap(instituicaoCodigo: number) {
+        const rows = await this.prisma.rOTExecucaoLog.findMany({
+            where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+            },
+            orderBy: { EXEInicio: 'desc' },
+            select: {
+                ROTCodigo: true,
+                EXEIdExterno: true,
+                EXECodigo: true,
+                EXEInicio: true,
+            },
+        });
+
+        const seen = new Set<number>();
+        const out: Record<string, { running: boolean; exeId: string }> = {};
+
+        for (const row of rows) {
+            if (seen.has(row.ROTCodigo)) continue;
+            seen.add(row.ROTCodigo);
+
+            const resolved = this.resolveRunningExecutionRow(row);
+            if (resolved.running && resolved.exeId) {
+                out[String(row.ROTCodigo)] = { running: true, exeId: resolved.exeId };
+            }
+        }
+
+        return out;
+    }
+
+    async getActiveExecution(rotinaCodigo: number, instituicaoCodigo: number) {
+        await this.findOne(rotinaCodigo, instituicaoCodigo);
+
+        const row = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                ROTCodigo: rotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+            },
+            orderBy: { EXEInicio: 'desc' },
+            select: { EXEIdExterno: true, EXECodigo: true, EXEInicio: true },
+        });
+
+        if (!row) {
+            return { running: false, exeId: null };
+        }
+
+        return this.resolveRunningExecutionRow(row);
+    }
+
+    /** Linha já é EM_EXECUCAO; execução manual neste nó ou job na fila compartilham o mesmo critério de “ativa”. */
+    private resolveRunningExecutionRow(row: { EXEIdExterno: string }): { running: boolean; exeId: string | null } {
+        return { running: true, exeId: row.EXEIdExterno };
+    }
+
     async executeManual(id: number, instituicaoCodigo: number) {
         const rotina = await this.findOne(id, instituicaoCodigo);
 
-        // Executa rotina via ExecutionService
-        const result = await this.executionService.execute(
+        const exeId = await this.executionService.startExecution(
             rotina.ROTCodigo,
             instituicaoCodigo,
             'MANUAL',
@@ -255,11 +322,55 @@ export class RotinaService {
         );
 
         return {
-            message: 'Execução concluída',
+            message: 'Execução iniciada',
+            exeId,
             rotinaCodigo: rotina.ROTCodigo,
             rotinaName: rotina.ROTNome,
-            ...result,
         };
+    }
+
+    async cancelExecution(exeId: string, rotinaCodigo: number, instituicaoCodigo: number) {
+        const execLog = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                EXEIdExterno: exeId,
+                ROTCodigo: rotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+        });
+
+        if (!execLog) {
+            throw new NotFoundException('Execução não encontrada');
+        }
+
+        if (execLog.EXEStatus !== StatusExecucao.EM_EXECUCAO) {
+            throw new ConflictException('Execução não está em andamento');
+        }
+
+        // 1) Tenta kill local (MANUAL executions run in webapi)
+        const killedLocal = this.processManager.killProcess(exeId);
+
+        if (!killedLocal) {
+            // 2) Marca status cancelado e notifica workers remotos
+            await this.rotinaQueueService.cancelJob(exeId);
+            await this.rotinaQueueService.sendCancelSignal(exeId);
+        }
+
+        return { message: 'Execução cancelada', exeId };
+    }
+
+    async getExecution(exeId: string, instituicaoCodigo: number) {
+        const execLog = await this.prisma.rOTExecucaoLog.findFirst({
+            where: {
+                EXEIdExterno: exeId,
+                INSInstituicaoCodigo: instituicaoCodigo,
+            },
+        });
+
+        if (!execLog) {
+            throw new NotFoundException('Execução não encontrada');
+        }
+
+        return execLog;
     }
 
     private async createVersion(

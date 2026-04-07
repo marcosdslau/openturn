@@ -26,6 +26,21 @@ export class RotinaController {
         return this.rotinaService.findAll(instituicaoCodigo);
     }
 
+    @Get('execucoes-ativas/mapa')
+    async getActiveExecutionsMap(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    ) {
+        return this.rotinaService.getActiveExecutionsMap(instituicaoCodigo);
+    }
+
+    @Get(':id/execucao-ativa')
+    async getActiveExecution(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.rotinaService.getActiveExecution(id, instituicaoCodigo);
+    }
+
     @Get(':id')
     async findOne(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
@@ -70,6 +85,23 @@ export class RotinaController {
         @Param('id', ParseIntPipe) id: number,
     ) {
         return this.rotinaService.executeManual(id, instituicaoCodigo);
+    }
+
+    @Post(':id/execucoes/:exeId/cancel')
+    async cancelExecution(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+        @Param('exeId') exeId: string,
+    ) {
+        return this.rotinaService.cancelExecution(exeId, id, instituicaoCodigo);
+    }
+
+    @Get(':id/execucoes/:exeId')
+    async getExecution(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('exeId') exeId: string,
+    ) {
+        return this.rotinaService.getExecution(exeId, instituicaoCodigo);
     }
 
     @Get(':id/versions')

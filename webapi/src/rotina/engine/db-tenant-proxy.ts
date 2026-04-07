@@ -30,8 +30,24 @@ export class DbTenantProxy {
                 return (...args: any[]) => {
                     const [params] = args;
 
-                    // Métodos que precisam de filtro WHERE
-                    if (['findMany', 'findFirst', 'findUnique', 'count', 'delete', 'deleteMany', 'update', 'updateMany'].includes(prop)) {
+                    // Métodos que usam WhereUniqueInput (apenas @id/@unique permitidos no where)
+                    // Injeta INSInstituicaoCodigo via AND para garantir tenant isolation
+                    if (['delete', 'update', 'findUnique'].includes(prop)) {
+                        const enhancedParams = {
+                            ...params,
+                            where: {
+                                ...params?.where,
+                                AND: [
+                                    ...(params?.where?.AND ? (Array.isArray(params.where.AND) ? params.where.AND : [params.where.AND]) : []),
+                                    { INSInstituicaoCodigo: this.instituicaoCodigo },
+                                ],
+                            },
+                        };
+                        return target[prop](enhancedParams);
+                    }
+
+                    // Métodos que aceitam where genérico (WhereInput)
+                    if (['findMany', 'findFirst', 'count', 'deleteMany', 'updateMany'].includes(prop)) {
                         const enhancedParams = {
                             ...params,
                             where: {

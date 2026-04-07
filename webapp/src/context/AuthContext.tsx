@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Redirect: prioritize activeScope > localStorage > first available institution
         let instId = activeScope?.instituicaoId;
         if (!instId) {
-            const saved = localStorage.getItem("openturn_last_inst");
+            const saved = localStorage.getItem("sg_last_inst");
             if (saved && saved !== "0") {
                 instId = Number(saved);
             }
@@ -103,7 +103,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
         if (instId) {
-            localStorage.setItem("openturn_last_inst", String(instId));
+            localStorage.setItem("sg_last_inst", String(instId));
         }
 
         router.push(instId ? `/instituicao/${instId}/dashboard` : "/");

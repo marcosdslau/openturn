@@ -144,3 +144,7 @@ webapi/ecosystem.config.cjs
 start.bat
 stop.bat
 webapp/ecosystem.config.cjs
+/projects/remote-ui-gateway/daemon
+/webapi/daemon
+/webapp/daemon
+/worker/daemon

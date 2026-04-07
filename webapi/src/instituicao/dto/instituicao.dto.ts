@@ -1,5 +1,5 @@
 
-import { IsString, IsOptional, IsBoolean, IsInt, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, IsObject, Min } from 'class-validator';
 
 export class CreateInstituicaoDto {
     @IsInt()
@@ -23,6 +23,15 @@ export class CreateInstituicaoDto {
     @IsOptional()
     @IsInt()
     INSLogsDiasRetencao?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    INSMaxExecucoesSimultaneas?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
 
     @IsOptional()
     @IsObject()
@@ -51,6 +60,20 @@ export class UpdateInstituicaoDto {
     INSLogsDiasRetencao?: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(1)
+    INSMaxExecucoesSimultaneas?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
+}
+
+export class SetWorkerStatusBodyDto {
+    @IsBoolean()
+    active: boolean;
 }

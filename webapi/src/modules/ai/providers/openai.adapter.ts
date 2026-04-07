@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
     ILlmProviderAdapter,
     ChatMessageRequest,
@@ -11,14 +11,20 @@ import { OPENAI_TOOLS, executeToolCall } from '../ai-project-rules';
 @Injectable()
 export class OpenAiAdapter implements ILlmProviderAdapter {
     providerCode = 'OPENAI';
-    private openai: OpenAI;
+    private openai: OpenAI | null = null;
     private readonly logger = new Logger(OpenAiAdapter.name);
 
-    constructor() {
-        // Requires OPENAI_API_KEY in the environment (.env)
-        this.openai = new OpenAI({
-            apiKey: process.env.OPENAI_API_KEY,
-        });
+    private getClient(): OpenAI {
+        const apiKey = process.env.OPENAI_API_KEY?.trim();
+        if (!apiKey) {
+            throw new ServiceUnavailableException(
+                'Módulo de IA indisponível: defina OPENAI_API_KEY no ambiente.',
+            );
+        }
+        if (!this.openai) {
+            this.openai = new OpenAI({ apiKey });
+        }
+        return this.openai;
     }
 
     async predictStream(
@@ -37,8 +43,9 @@ export class OpenAiAdapter implements ILlmProviderAdapter {
 
         // Tool-call loop: the model may request tools before producing its final text answer
         const MAX_TOOL_ROUNDS = 3; // Safety cap to avoid infinite loops
+        const client = this.getClient();
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            const stream = await this.openai.chat.completions.create({
+            const stream = await client.chat.completions.create({
                 model: modelId,
                 messages: conversationMessages,
                 tools: OPENAI_TOOLS,

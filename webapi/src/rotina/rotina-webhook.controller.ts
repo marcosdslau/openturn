@@ -1,14 +1,17 @@
-import { Controller, All, Param, Body, Query, Headers, Req, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
+import { Controller, All, Param, Body, Query, Headers, Req, Res, NotFoundException, UnauthorizedException, Logger } from '@nestjs/common';
+import type { Response } from 'express';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { ExecutionService } from './engine/execution.service';
+import { RotinaQueueService } from './queue/rotina-queue.service';
+import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { routineTimeoutSecondsFromCadastro } from './engine/routine-timeout.util';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
     private readonly logger = new Logger(RotinaWebhookController.name);
-
     constructor(
         private readonly prisma: PrismaService,
-        private readonly executionService: ExecutionService,
+        private readonly rotinaQueueService: RotinaQueueService,
     ) { }
 
     @All(':path')
@@ -19,10 +22,10 @@ export class RotinaWebhookController {
         @Query() query: any,
         @Headers() headers: any,
         @Req() req: any,
+        @Res() res: Response,
     ) {
         const method = req.method;
 
-        // Busca rotina pelo path (case sensitive ou não? vamos assumir exact match)
         const rotina = await this.prisma.rOTRotina.findFirst({
             where: {
                 ROTWebhookPath: `/${path}`,
@@ -35,27 +38,22 @@ export class RotinaWebhookController {
             throw new NotFoundException('Webhook not found');
         }
 
-        // Validação Play/Stop
         if (!rotina.ROTAtivo) {
             this.logger.debug(`Webhook recebido para rotina inativa ${rotina.ROTCodigo}. Ignorando.`);
-            return { message: 'Routine is paused', status: 'skipped' };
+            return res.json({ message: 'Routine is paused', status: 'skipped' });
         }
 
-        // Validação de Método HTTP (se configurado)
         if (rotina.ROTWebhookMetodo && rotina.ROTWebhookMetodo !== method) {
             throw new NotFoundException(`Method ${method} not allowed`);
         }
 
-        // Validação de Token de Segurança (se configurado)
         if (rotina.ROTWebhookSeguro && rotina.ROTWebhookToken) {
             const tokenKey = rotina.ROTWebhookTokenKey || 'x-webhook-token';
-            // Fonte do token (padrão HEADER se nulo)
             const tokenSource = rotina.ROTWebhookTokenSource || 'HEADER';
 
             let receivedToken: string | undefined;
 
             if (tokenSource === 'HEADER') {
-                // Headers no node/express são lowercase
                 receivedToken = headers[tokenKey.toLowerCase()];
             } else if (tokenSource === 'QUERY') {
                 receivedToken = query[tokenKey];
@@ -67,54 +65,67 @@ export class RotinaWebhookController {
             }
         }
 
-        // Executa a rotina
-        // Nota: Webhooks rodam em "Fire and Forget" ou esperamos o resultado?
-        // Geralmente webhooks devem responder rápido. Vamos disparar sem awaitar o resultado final
-        // mas garantindo que o erro de start seja capturado.
+        const requestData = {
+            body,
+            query,
+            headers,
+            method,
+            path: `/${path}`,
+            params: req.params,
+        };
 
-        // Executa a rotina
+        const { exeId } = await this.rotinaQueueService.enqueue(
+            rotina.ROTCodigo,
+            rotina.INSInstituicaoCodigo,
+            'WEBHOOK',
+            requestData,
+        );
+
         if (rotina.ROTWebhookAguardar) {
             try {
-                const data = await this.executionService.execute(
-                    rotina.ROTCodigo,
-                    rotina.INSInstituicaoCodigo,
-                    'WEBHOOK',
-                    {
-                        body,
-                        query,
-                        headers,
-                        method,
-                        path: `/${path}`,
-                        params: req.params,
-                    }
-                );
-                const { result } = data;
-                return result;
+                const execSec = routineTimeoutSecondsFromCadastro(rotina.ROTTimeoutSeconds);
+                const timeoutMs = (execSec + 10) * 1000;
+                const result = await this.waitForResultViaRedis(exeId, timeoutMs);
+                return res.json(result?.result ?? result);
             } catch (err: any) {
-                this.logger.error(`Erro ao executar webhook síncrono ${path}:`, err);
-                // Retorna erro 500 ou 400 dependendo do erro
-                // Vamos retornar o erro para quem chamou
-                throw err;
+                this.logger.error(`Erro ao aguardar webhook síncrono ${path}:`, err);
+                return res.status(500).json({ error: err.message, exeId });
             }
-        } else {
-            // Fire and Forget (Async)
-            this.executionService.execute(
-                rotina.ROTCodigo,
-                rotina.INSInstituicaoCodigo,
-                'WEBHOOK',
-                {
-                    body,
-                    query,
-                    headers,
-                    method,
-                    path: `/${path}`,
-                    params: req.params,
-                }
-            ).catch(err => {
-                this.logger.error(`Erro ao executar webhook assíncrono ${path}:`, err);
-            });
-
-            return { message: 'Webhook received', execution: 'started' };
         }
+
+        return res.status(202).json({ message: 'Webhook received', exeId, execution: 'queued' });
+    }
+
+    private async waitForResultViaRedis(exeId: string, timeoutMs: number): Promise<any> {
+        const channel = `rotina:finished:${exeId}`;
+        const sub = new Redis({ ...getRedisConnectionOptions(), lazyConnect: true });
+        await sub.connect();
+        await sub.subscribe(channel);
+
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(async () => {
+                try {
+                    await sub.unsubscribe(channel);
+                    await sub.quit();
+                } catch {
+                    // ignore close errors
+                }
+                reject(new Error('Timeout aguardando retorno da execução'));
+            }, timeoutMs);
+
+            sub.on('message', async (receivedChannel, message) => {
+                if (receivedChannel !== channel) return;
+                clearTimeout(timeout);
+                try {
+                    const parsed = JSON.parse(message);
+                    resolve(parsed);
+                } catch {
+                    resolve({ raw: message });
+                } finally {
+                    await sub.unsubscribe(channel);
+                    await sub.quit();
+                }
+            });
+        });
     }
 }

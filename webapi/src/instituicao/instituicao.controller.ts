@@ -1,16 +1,20 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { InstituicaoService } from './instituicao.service';
-import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
+import { CreateInstituicaoDto, UpdateInstituicaoDto, SetWorkerStatusBodyDto } from './dto/instituicao.dto';
 import { PaginationDto } from '../common/dto/pagination.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 import { GrupoAcesso } from '@prisma/client';
+import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('instituicoes')
 export class InstituicaoController {
-    constructor(private service: InstituicaoService) { }
+    constructor(
+        private service: InstituicaoService,
+        private rotinaQueue: RotinaQueueService,
+    ) { }
 
     @Roles(GrupoAcesso.SUPER_ROOT)
     @Post()
@@ -22,6 +26,32 @@ export class InstituicaoController {
     @Get()
     findAll(@Query() query: PaginationDto) {
         return this.service.findAll(query);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Post('worker/bulk')
+    bulkWorkerStatus(@Body() body: SetWorkerStatusBodyDto) {
+        return this.service.bulkUpdateWorkerStatus(body.active);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Get('worker/inflight')
+    async getWorkerInflight() {
+        const items = await this.rotinaQueue.getInflightCounts();
+        return { items };
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Patch(':id/worker')
+    patchWorkerStatus(@Param('id', ParseIntPipe) id: number, @Body() body: SetWorkerStatusBodyDto) {
+        return this.service.updateWorkerStatus(id, body.active);
+    }
+
+    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+    @Post(':id/worker/inflight/reset')
+    async resetWorkerInflight(@Param('id', ParseIntPipe) id: number) {
+        await this.service.findOne(id);
+        return this.rotinaQueue.resetInflightForInstitution(id);
     }
 
     @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)

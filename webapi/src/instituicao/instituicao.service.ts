@@ -1,15 +1,35 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
+import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 
 @Injectable()
 export class InstituicaoService {
-    constructor(private prisma: PrismaService) { }
+    private readonly logger = new Logger(InstituicaoService.name);
+    private redisPub: Redis | null = null;
+
+    constructor(private prisma: PrismaService) {
+        try {
+            this.redisPub = new Redis({
+                ...getRedisConnectionOptions(),
+                lazyConnect: true,
+            });
+            this.redisPub.connect().catch(() => {
+                this.logger.warn('Redis indisponível para instituicao:queue:refresh');
+                this.redisPub = null;
+            });
+        } catch {
+            this.redisPub = null;
+        }
+    }
 
     async create(dto: CreateInstituicaoDto) {
-        return this.prisma.iNSInstituicao.create({ data: dto });
+        const instituicao = await this.prisma.iNSInstituicao.create({ data: dto });
+        await this.publishQueueRefresh(instituicao, 'created');
+        return instituicao;
     }
 
     async findAll(query: PaginationDto): Promise<PaginatedResult<any>> {
@@ -51,11 +71,67 @@ export class InstituicaoService {
 
     async update(id: number, dto: UpdateInstituicaoDto) {
         await this.findOne(id);
-        return this.prisma.iNSInstituicao.update({ where: { INSCodigo: id }, data: dto });
+        const instituicao = await this.prisma.iNSInstituicao.update({ where: { INSCodigo: id }, data: dto });
+        await this.publishQueueRefresh(instituicao, 'updated');
+        return instituicao;
+    }
+
+    async updateWorkerStatus(id: number, active: boolean) {
+        await this.findOne(id);
+        const instituicao = await this.prisma.iNSInstituicao.update({
+            where: { INSCodigo: id },
+            data: { INSWorkerAtivo: active },
+        });
+        await this.publishQueueRefresh(instituicao, 'updated');
+        return instituicao;
+    }
+
+    async bulkUpdateWorkerStatus(active: boolean) {
+        await this.prisma.iNSInstituicao.updateMany({ data: { INSWorkerAtivo: active } });
+        await this.publishReconcileAll();
+        return { ok: true, INSWorkerAtivo: active };
     }
 
     async remove(id: number) {
         await this.findOne(id);
         return this.prisma.iNSInstituicao.delete({ where: { INSCodigo: id } });
+    }
+
+    private async publishQueueRefresh(
+        instituicao: {
+            INSCodigo: number;
+            INSAtivo: boolean;
+            INSMaxExecucoesSimultaneas: number;
+            INSWorkerAtivo: boolean;
+        },
+        event: 'created' | 'updated',
+    ) {
+        if (!this.redisPub) return;
+
+        const payload = JSON.stringify({
+            INSCodigo: instituicao.INSCodigo,
+            INSAtivo: instituicao.INSAtivo,
+            INSMaxExecucoesSimultaneas: instituicao.INSMaxExecucoesSimultaneas,
+            INSWorkerAtivo: instituicao.INSWorkerAtivo,
+            event,
+        });
+
+        try {
+            await this.redisPub.publish('openturn:instituicao:queue:refresh', payload);
+        } catch (error) {
+            this.logger.warn(`Falha ao publicar refresh de instituição ${instituicao.INSCodigo}: ${(error as Error).message}`);
+        }
+    }
+
+    private async publishReconcileAll() {
+        if (!this.redisPub) return;
+        try {
+            await this.redisPub.publish(
+                'openturn:instituicao:queue:refresh',
+                JSON.stringify({ reconcileAll: true }),
+            );
+        } catch (error) {
+            this.logger.warn(`Falha ao publicar reconcileAll: ${(error as Error).message}`);
+        }
     }
 }

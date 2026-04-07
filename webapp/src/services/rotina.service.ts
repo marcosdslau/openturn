@@ -1,5 +1,14 @@
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 
+/** Limite superior de timeout (segundos) no cadastro da rotina (UI + alinhado à API). */
+export const ROTINA_TIMEOUT_SECONDS_MAX = 1_000_000;
+
+export function clampRotinaTimeoutSeconds(value: unknown): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 30;
+    return Math.min(ROTINA_TIMEOUT_SECONDS_MAX, Math.max(1, Math.floor(n)));
+}
+
 export interface Rotina {
     ROTCodigo: number;
     ROTNome: string;
@@ -72,7 +81,24 @@ export const RotinaService = {
     },
 
     execute: async (id: number, instituicaoCodigo: number) => {
-        return apiPost(`/instituicao/${instituicaoCodigo}/rotina/${id}/execute`, {});
+        return apiPost<{ exeId: string; success: boolean; result?: any; error?: string; duration?: number }>(`/instituicao/${instituicaoCodigo}/rotina/${id}/execute`, {});
+    },
+
+    getActiveExecution: async (id: number, instituicaoCodigo: number) => {
+        return apiGet<{ running: boolean; exeId: string | null }>(
+            `/instituicao/${instituicaoCodigo}/rotina/${id}/execucao-ativa`,
+        );
+    },
+
+    /** Rotinas com execução ativa (chave = ROTCodigo em string). */
+    getActiveExecutionsMap: async (instituicaoCodigo: number) => {
+        return apiGet<Record<string, { running: boolean; exeId: string }>>(
+            `/instituicao/${instituicaoCodigo}/rotina/execucoes-ativas/mapa`,
+        );
+    },
+
+    cancelExecution: async (id: number, exeId: string, instituicaoCodigo: number) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/rotina/${id}/execucoes/${exeId}/cancel`, {});
     },
 
     getVersions: async (id: number, instituicaoCodigo: number) => {
@@ -89,6 +115,48 @@ export const RotinaService = {
 
     deleteVersions: async (versionIds: number[], instituicaoCodigo: number) => {
         return apiDelete(`/instituicao/${instituicaoCodigo}/rotina/versions/bulk`, { ids: versionIds });
+    },
+
+    getExecutions: async (
+        instituicaoCodigo: number,
+        params: {
+            page?: number;
+            limit?: number;
+            rotinaCodigo?: number;
+            status?: string;
+            trigger?: string;
+            startDate?: string;
+            endDate?: string;
+            searchError?: string;
+            searchLog?: string;
+            searchBody?: string;
+            executionId?: string;
+        }
+    ) => {
+        const query = new URLSearchParams();
+        Object.entries(params).forEach(([key, value]) => {
+            if (value !== undefined && value !== null && value !== "") {
+                query.append(key, value.toString());
+            }
+        });
+        return apiGet<{
+            total: number;
+            page: number;
+            limit: number;
+            totalPages: number;
+            items: any[];
+        }>(`/instituicao/${instituicaoCodigo}/execucoes?${query.toString()}`);
+    },
+
+    reprocessExecution: async (instituicaoCodigo: number, exeId: string) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/execucoes/${exeId}/reprocess`, {});
+    },
+
+    bulkExecutionsAction: async (
+        instituicaoCodigo: number,
+        data: { action: "delete" | "reprocess" | "cancel"; ids: string[] }
+    ) => {
+        return apiPost(`/instituicao/${instituicaoCodigo}/execucoes/bulk`, data);
     },
 
     getLogs: async (

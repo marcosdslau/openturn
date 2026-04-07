@@ -16,7 +16,7 @@ import {
 } from "./menu-data";
 import { useAuth } from "@/context/AuthContext";
 
-const LAST_INST_KEY = "openturn_last_inst";
+const LAST_INST_KEY = "sg_last_inst";
 
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);

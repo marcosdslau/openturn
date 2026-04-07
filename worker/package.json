@@ -1,0 +1,30 @@
+{
+  "name": "openturn-worker",
+  "version": "0.0.1",
+  "description": "Worker dedicado para execução de rotinas via BullMQ",
+  "private": true,
+  "scripts": {
+    "postinstall": "prisma generate",
+    "build": "prisma generate && tsc",
+    "start": "node dist/main.js",
+    "start:dev": "ts-node src/main.ts",
+    "prisma:sync": "node -e \"require('fs').copyFileSync('../webapi/prisma/schema.prisma','prisma/schema.prisma')\" && npx prisma generate",
+    "service:install": "node scripts/windows-service.cjs install",
+    "service:uninstall": "node scripts/windows-service.cjs uninstall"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "amqplib": "^1.0.3",
+    "axios": "^1.13.5",
+    "dotenv": "^17.3.1",
+    "ioredis": "^5.0.0",
+    "node-windows": "^1.0.0-beta.8"
+  },
+  "devDependencies": {
+    "@types/amqplib": "^0.10.8",
+    "@types/node": "^22.10.7",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}

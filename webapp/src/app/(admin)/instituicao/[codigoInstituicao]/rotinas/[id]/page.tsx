@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
-import { RotinaService, Rotina, RotinaVersao } from "@/services/rotina.service";
+import { io as socketIo } from "socket.io-client";
+import { RotinaService, Rotina, RotinaVersao, ROTINA_TIMEOUT_SECONDS_MAX, clampRotinaTimeoutSeconds } from "@/services/rotina.service";
 import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { RoutineHelper } from "@/components/rotinas/RoutineHelper";
 import { VersionHistory, RoutineVersion } from "@/components/rotinas/VersionHistory";
@@ -51,6 +52,8 @@ export default function RoutineEditorPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [executing, setExecuting] = useState(false);
+    const [stoppingExecution, setStoppingExecution] = useState(false);
+    const [currentExeId, setCurrentExeId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'helper' | 'history' | 'ai' | null>('ai');
 
     // Versioning
@@ -115,6 +118,7 @@ export default function RoutineEditorPage() {
     const loadRotina = useCallback(async () => {
         if (!id) return;
         setLoading(true);
+        setCurrentExeId(null);
         try {
             const data = await RotinaService.getById(id, codigoInstituicao);
             setRotina(data);
@@ -137,6 +141,12 @@ export default function RoutineEditorPage() {
             codeRef.current = initialCode;
             setCode(initialCode);
             setOriginalCode(data.ROTCodigoJS || "");
+            try {
+                const { running, exeId } = await RotinaService.getActiveExecution(id, codigoInstituicao);
+                setCurrentExeId(running && exeId ? exeId : null);
+            } catch {
+                setCurrentExeId(null);
+            }
         } catch (error) {
             console.error("Erro ao carregar rotina", error);
             showToast("error", "Erro", "Erro ao carregar rotina");
@@ -174,7 +184,7 @@ export default function RoutineEditorPage() {
         if (!rotina) return;
         try {
             const timeoutRaw = settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds;
-            const ROTTimeoutSeconds = Math.min(2000, Math.max(1, Number(timeoutRaw) || 30));
+            const ROTTimeoutSeconds = clampRotinaTimeoutSeconds(timeoutRaw);
             await RotinaService.update(rotina.ROTCodigo, {
                 ...settingsForm,
                 ROTTimeoutSeconds,
@@ -257,11 +267,6 @@ export default function RoutineEditorPage() {
         if (!rotina) return;
         setExecuting(true);
         try {
-            // Auto-save before execute? Maybe nice, but let's confirm first or just execute stored?
-            // Usually execution runs the STORED code. User should save first.
-            // But we can offer a "Save & Execute" or just warn.
-            // For now, let's just trigger execution of what is on server.
-
             if (codeRef.current !== rotina.ROTCodigoJS) {
                 if (!confirm("Existem alterações não salvas. A execução usará a última versão SALVA. Deseja continuar?")) {
                     setExecuting(false);
@@ -269,13 +274,31 @@ export default function RoutineEditorPage() {
                 }
             }
 
-            await RotinaService.execute(rotina.ROTCodigo, codigoInstituicao);
+            const result = await RotinaService.execute(rotina.ROTCodigo, codigoInstituicao);
+            if (result.exeId) {
+                setCurrentExeId(result.exeId);
+            }
             showToast("info", "Execução", "Execução iniciada! Acompanhe no console.");
         } catch (error) {
             console.error("Erro ao executar", error);
             showToast("error", "Erro", "Erro ao iniciar execução");
         } finally {
             setExecuting(false);
+        }
+    };
+
+    const handleStopExecution = async () => {
+        if (!rotina || !currentExeId || stoppingExecution) return;
+        setStoppingExecution(true);
+        try {
+            await RotinaService.cancelExecution(rotina.ROTCodigo, currentExeId, codigoInstituicao);
+            showToast("info", "Parado", "Execução cancelada.");
+            setCurrentExeId(null);
+        } catch (error) {
+            console.error("Erro ao parar execução", error);
+            showToast("error", "Erro", "Erro ao cancelar execução");
+        } finally {
+            setStoppingExecution(false);
         }
     };
 
@@ -449,6 +472,36 @@ export default function RoutineEditorPage() {
         };
     }, [isResizingSidebar, resizeSidebar, stopResizingSidebar, isResizing]);
 
+    // Mantém currentExeId alinhado ao servidor e aos eventos do console (não exige ter iniciado o run nesta aba)
+    useEffect(() => {
+        if (!rotina) return;
+        const baseUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:8000';
+        const socket = socketIo(`${baseUrl}/console`, { transports: ['websocket'] });
+
+        socket.on('connect', () => {
+            socket.emit('subscribe', { rotinaCodigo: rotina.ROTCodigo });
+        });
+
+        socket.on('execution:start', (data: { exeId?: string }) => {
+            if (data?.exeId) {
+                setCurrentExeId(data.exeId);
+            }
+        });
+
+        socket.on('execution:end', (data: { exeId?: string }) => {
+            if (!data?.exeId) return;
+            setCurrentExeId((prev) =>
+                prev != null && String(prev) === String(data.exeId) ? null : prev,
+            );
+        });
+
+        socket.connect();
+
+        return () => {
+            socket.disconnect();
+        };
+    }, [rotina?.ROTCodigo]);
+
     // Handle Escape Key
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
@@ -491,7 +544,7 @@ export default function RoutineEditorPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center justify-end gap-2 min-w-0 shrink">
                     <div className="flex bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5 mr-2">
                         <button
                             onClick={() => setActiveTab(activeTab === 'helper' ? null : 'helper')}
@@ -545,20 +598,40 @@ export default function RoutineEditorPage() {
 
                     <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
 
-                    <Button
-                        onClick={handleExecute}
-                        size="sm"
-                        variant="outline"
-                        disabled={executing}
-                        className="gap-2"
-                    >
-                        {executing ? (
-                            <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
-                        ) : (
-                            <ArrowRightIcon className="w-5 h-5" />
-                        )}
-                        Execute
-                    </Button>
+                    {currentExeId ? (
+                        <Tooltip content="Interrompe o processo da rotina (cancelamento / kill quando aplicável)" placement="bottom">
+                            <Button
+                                onClick={() => void handleStopExecution()}
+                                size="sm"
+                                variant="outline"
+                                disabled={stoppingExecution}
+                                className="gap-2 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                            >
+                                {stoppingExecution ? (
+                                    <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full inline-block" />
+                                ) : (
+                                    <CloseIcon className="w-5 h-5" />
+                                )}
+                                <span className="hidden sm:inline">Encerrar execução</span>
+                                <span className="sm:hidden">Parar</span>
+                            </Button>
+                        </Tooltip>
+                    ) : (
+                        <Button
+                            onClick={handleExecute}
+                            size="sm"
+                            variant="outline"
+                            disabled={executing}
+                            className="gap-2"
+                        >
+                            {executing ? (
+                                <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
+                            ) : (
+                                <ArrowRightIcon className="w-5 h-5" />
+                            )}
+                            Execute
+                        </Button>
+                    )}
                     <Button
                         onClick={handleSave}
                         size="sm"
@@ -661,6 +734,9 @@ export default function RoutineEditorPage() {
                             rotinaCodigo={rotina.ROTCodigo}
                             instituicaoCodigo={codigoInstituicao}
                             height="100%"
+                            activeExeId={currentExeId}
+                            onStopExecution={handleStopExecution}
+                            stoppingExecution={stoppingExecution}
                         />
                     </div>
                 </div>
@@ -751,7 +827,7 @@ export default function RoutineEditorPage() {
                                 <input
                                     type="number"
                                     min={1}
-                                    max={2000}
+                                    max={ROTINA_TIMEOUT_SECONDS_MAX}
                                     className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
                                     value={settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds ?? 30}
                                     onChange={e =>
