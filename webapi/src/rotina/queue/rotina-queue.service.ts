@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
@@ -282,6 +282,60 @@ export class RotinaQueueService {
             paused: 0,
             prioritized: 0,
         };
+    }
+
+    private inflightZkey(instituicaoCodigo: number): string {
+        return `rotina:inflight:z:${instituicaoCodigo}`;
+    }
+
+    /** Execuções em andamento (semáforo Redis) para uma instituição; remove leases expirados antes de contar. */
+    async getInflightCountForInstitution(instituicaoCodigo: number): Promise<number> {
+        if (!this.redis) return 0;
+        try {
+            const zkey = this.inflightZkey(instituicaoCodigo);
+            const now = Date.now();
+            await this.redis.zremrangebyscore(zkey, '-inf', now);
+            return await this.redis.zcard(zkey);
+        } catch (e) {
+            this.logger.debug(`Erro ao contar inflight (${instituicaoCodigo}):`, e);
+            return 0;
+        }
+    }
+
+    /** Lista contagens por instituição (apenas chaves existentes; merge com zeros no cliente). */
+    async getInflightCounts(): Promise<{ instituicaoCodigo: number; inflight: number }[]> {
+        if (!this.redis) return [];
+        try {
+            const keys = await this.redis.keys('rotina:inflight:z:*');
+            const now = Date.now();
+            const items: { instituicaoCodigo: number; inflight: number }[] = [];
+            for (const key of keys) {
+                const m = /^rotina:inflight:z:(\d+)$/.exec(key);
+                if (!m) continue;
+                const instituicaoCodigo = parseInt(m[1], 10);
+                await this.redis.zremrangebyscore(key, '-inf', now);
+                const inflight = await this.redis.zcard(key);
+                items.push({ instituicaoCodigo, inflight });
+            }
+            return items;
+        } catch (e) {
+            this.logger.debug('Erro ao listar inflight por instituição:', e);
+            return [];
+        }
+    }
+
+    /** Remove o ZSET de semáforo da instituição (uso operacional se contador ficar preso). */
+    async resetInflightForInstitution(instituicaoCodigo: number): Promise<{ ok: boolean }> {
+        if (!this.redis) {
+            throw new ServiceUnavailableException('Redis indisponível');
+        }
+        try {
+            await this.redis.unlink(this.inflightZkey(instituicaoCodigo));
+            return { ok: true };
+        } catch (e) {
+            this.logger.warn(`Falha ao resetar inflight (${instituicaoCodigo}):`, e);
+            throw new ServiceUnavailableException('Falha ao resetar contador no Redis');
+        }
     }
 
     private async publishJob(data: RotinaJobData, exeId: string) {

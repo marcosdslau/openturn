@@ -16,6 +16,7 @@ import {
   othersItems,
   supportItems,
 } from "./menu-data";
+import { apiGet } from "../lib/api";
 
 function useNavItems(): NavItem[] {
   const params = useParams();
@@ -25,7 +26,7 @@ function useNavItems(): NavItem[] {
 
   useEffect(() => {
     setMounted(true);
-    const stored = localStorage.getItem("openturn_last_inst");
+    const stored = localStorage.getItem("sg_last_inst");
     if (stored) {
       setLastInst(stored);
     }
@@ -41,10 +42,27 @@ function useNavItems(): NavItem[] {
   return useMemo(() => getMainNavItems(base as string, isSuperRoot, isAdmin), [base, isSuperRoot, isAdmin]);
 }
 
+type DeployEnv = { code: "DEV" | "PRD"; label: string };
+
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
   const navItems = useNavItems();
+  const [deployEnv, setDeployEnv] = useState<DeployEnv | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<DeployEnv>("/app/environment")
+      .then((data) => {
+        if (!cancelled && data?.code && data?.label) setDeployEnv(data);
+      })
+      .catch(() => {
+        if (!cancelled) setDeployEnv(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [openSubmenu, setOpenSubmenu] = useState<{
     type: "main" | "demo" | "support" | "others";
@@ -268,18 +286,29 @@ const AppSidebar: React.FC = () => {
       onMouseLeave={() => setIsHovered(false)}
     >
       <div
-        className={`py-8 flex  ${!isExpanded && !isHovered ? "xl:justify-center" : "justify-start"
+        className={`py-8 flex flex-col gap-2 ${!isExpanded && !isHovered ? "xl:items-center" : "items-start"
           }`}
       >
         <Link href="/" className="flex items-center gap-2">
           {isExpanded || isHovered || isMobileOpen ? (
             <span className="text-xl font-bold text-gray-800 dark:text-white">
-              OpenTurn
+              SchoolGuard
             </span>
           ) : (
-            <span className="text-xl font-bold text-brand-500">OT</span>
+            <span className="text-xl font-bold text-brand-500">SG</span>
           )}
         </Link>
+        {deployEnv && (
+          <span
+            className={`inline-flex max-w-full items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+              deployEnv.code === "PRD"
+                ? "bg-green-100 text-green-800 ring-1 ring-inset ring-green-600/20 dark:bg-green-900/35 dark:text-green-200 dark:ring-green-500/30"
+                : "bg-yellow-100 text-yellow-900 ring-1 ring-inset ring-yellow-600/25 dark:bg-yellow-900/40 dark:text-yellow-100 dark:ring-yellow-500/35"
+            }`}
+          >
+            {deployEnv.label}
+          </span>
+        )}
       </div>
       <div className="flex flex-col overflow-y-auto  duration-300 ease-linear no-scrollbar">
         <nav className="mb-6">

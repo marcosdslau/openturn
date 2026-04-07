@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import Alert from "@/components/ui/alert/Alert";
 import Button from "@/components/ui/button/Button";
+import Tooltip from "@/components/ui/tooltip/Tooltip";
+import { RefreshIcon } from "@/icons";
 
 interface AdminUser {
     USRCodigo: number;
@@ -609,7 +611,25 @@ function WorkersTab() {
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [busy, setBusy] = useState<string | null>(null);
+    const [inflightByInst, setInflightByInst] = useState<Record<number, number>>({});
+    const [inflightLoadError, setInflightLoadError] = useState(false);
     const toast = useToast();
+
+    const loadInflight = useCallback(async () => {
+        try {
+            const res = await apiGet<{ items: { instituicaoCodigo: number; inflight: number }[] }>(
+                "/instituicoes/worker/inflight",
+            );
+            setInflightLoadError(false);
+            const map: Record<number, number> = {};
+            for (const it of res.items || []) {
+                map[it.instituicaoCodigo] = it.inflight;
+            }
+            setInflightByInst(map);
+        } catch {
+            setInflightLoadError(true);
+        }
+    }, []);
 
     const load = useCallback((q?: string) => {
         setLoading(true);
@@ -628,6 +648,25 @@ function WorkersTab() {
         const timer = setTimeout(() => load(search), 400);
         return () => clearTimeout(timer);
     }, [search, load]);
+
+    useEffect(() => {
+        void loadInflight();
+        const interval = setInterval(() => void loadInflight(), 8000);
+        return () => clearInterval(interval);
+    }, [loadInflight]);
+
+    const resetInflight = async (id: number, nome: string) => {
+        setBusy(`reset-${id}`);
+        try {
+            await apiPost(`/instituicoes/${id}/worker/inflight/reset`, {});
+            toast.show("success", "Contador resetado", `Semáforo Redis de "${nome}" foi zerado.`);
+            await loadInflight();
+        } catch (e: any) {
+            toast.show("error", "Erro", e?.message || "Falha ao resetar contador.");
+        } finally {
+            setBusy(null);
+        }
+    };
 
     const setBulk = async (active: boolean) => {
         setBusy(active ? "bulk-on" : "bulk-off");
@@ -687,6 +726,7 @@ function WorkersTab() {
                     </button>
                     <p className="text-xs text-gray-500 dark:text-gray-400 max-w-xl">
                         Mensagens continuam entrando na fila; apenas o processamento pelo worker é ligado ou desligado por instituição.
+                        O contador em Redis indica execuções em andamento por instituição; use &quot;Resetar contador&quot; só se o valor ficar preso (ex.: falha do worker).
                     </p>
                 </div>
 
@@ -714,17 +754,20 @@ function WorkersTab() {
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Instituição</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Cliente</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Worker</th>
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Em processamento</th>
                             <th className="px-5 py-3 text-right text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Ação</th>
                         </tr>
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
+                            <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
                         ) : instituicoes.length === 0 ? (
-                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma instituição encontrada.</td></tr>
+                            <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Nenhuma instituição encontrada.</td></tr>
                         ) : instituicoes.map((i) => {
                             const workerOn = i.INSWorkerAtivo !== false;
                             const rowBusy = busy === `one-${i.INSCodigo}`;
+                            const resetBusy = busy === `reset-${i.INSCodigo}`;
+                            const inflight = inflightLoadError ? null : (inflightByInst[i.INSCodigo] ?? 0);
                             return (
                                 <tr
                                     key={i.INSCodigo}
@@ -740,6 +783,29 @@ function WorkersTab() {
                                             }`}>
                                             {workerOn ? "Ativo" : "Pausado"}
                                         </span>
+                                    </td>
+                                    <td className="px-5 py-3">
+                                        <div className="inline-flex flex-row items-center gap-2">
+                                            <span className="text-sm font-mono tabular-nums text-gray-800 dark:text-white/90 min-w-[1.25rem]">
+                                                {inflight === null ? "—" : inflight}
+                                            </span>
+                                            <Tooltip
+                                                content="Reseta o semáforo Redis desta instituição (zera o contador de execuções em andamento)."
+                                                placement="top"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    disabled={!!busy}
+                                                    onClick={() => resetInflight(i.INSCodigo, i.INSNome)}
+                                                    className="inline-flex shrink-0 rounded-md p-1.5 text-gray-500 transition hover:bg-gray-100 hover:text-brand-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-gray-800 dark:hover:text-brand-400"
+                                                    aria-label="Resetar contador Redis"
+                                                >
+                                                    <RefreshIcon
+                                                        className={`h-4 w-4 ${resetBusy ? "animate-spin" : ""}`}
+                                                    />
+                                                </button>
+                                            </Tooltip>
+                                        </div>
                                     </td>
                                     <td className="px-5 py-3 text-right">
                                         {workerOn ? (

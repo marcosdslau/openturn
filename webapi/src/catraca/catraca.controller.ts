@@ -47,7 +47,7 @@ export class CatracaController {
                         parameters: 'door=1',
                     },
                 ],
-                message: 'Acesso Liberado (OpenTurn)',
+                message: 'Acesso Liberado (SchoolGuard)',
             },
         };
     }

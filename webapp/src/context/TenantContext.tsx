@@ -45,9 +45,9 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
                 setInstituicao(inst);
 
                 // Persist current institution code in localStorage
-                const saved = localStorage.getItem("openturn_last_inst");
+                const saved = localStorage.getItem("sg_last_inst");
                 if (!saved || saved === "0") {
-                    localStorage.setItem("openturn_last_inst", String(codigoInstituicao));
+                    localStorage.setItem("sg_last_inst", String(codigoInstituicao));
                 }
 
                 // If global user, show all institutions; otherwise filter by user's acessos
@@ -73,7 +73,7 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
     }, [codigoInstituicao, isGlobal, user?.acessos]);
 
     const switchInstituicao = async (codigo: number) => {
-        localStorage.setItem("openturn_last_inst", String(codigo));
+        localStorage.setItem("sg_last_inst", String(codigo));
         await switchContext(undefined, codigo);
         router.push(`/instituicao/${codigo}/dashboard`);
     };

@@ -223,7 +223,7 @@ export default function InstitutionERPPage() {
                 {/* Connector On-Premise */}
                 <ComponentCard
                     title="Connector On-Premise (Addon)"
-                    desc="Ponte segura entre o OpenTurn SaaS e equipamentos na rede local da instituição."
+                    desc="Ponte segura entre o SchoolGuard SaaS e equipamentos na rede local da instituição."
                 >
                     {connector?.paired ? (
                         <div className="space-y-4">
