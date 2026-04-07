@@ -4,7 +4,7 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Editor, { DiffEditor, OnMount } from "@monaco-editor/react";
 import { io as socketIo } from "socket.io-client";
-import { RotinaService, Rotina, RotinaVersao } from "@/services/rotina.service";
+import { RotinaService, Rotina, RotinaVersao, ROTINA_TIMEOUT_SECONDS_MAX, clampRotinaTimeoutSeconds } from "@/services/rotina.service";
 import Tooltip from "@/components/ui/tooltip/Tooltip";
 import { RoutineHelper } from "@/components/rotinas/RoutineHelper";
 import { VersionHistory, RoutineVersion } from "@/components/rotinas/VersionHistory";
@@ -184,7 +184,7 @@ export default function RoutineEditorPage() {
         if (!rotina) return;
         try {
             const timeoutRaw = settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds;
-            const ROTTimeoutSeconds = Math.min(2000, Math.max(1, Number(timeoutRaw) || 30));
+            const ROTTimeoutSeconds = clampRotinaTimeoutSeconds(timeoutRaw);
             await RotinaService.update(rotina.ROTCodigo, {
                 ...settingsForm,
                 ROTTimeoutSeconds,
@@ -827,7 +827,7 @@ export default function RoutineEditorPage() {
                                 <input
                                     type="number"
                                     min={1}
-                                    max={2000}
+                                    max={ROTINA_TIMEOUT_SECONDS_MAX}
                                     className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
                                     value={settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds ?? 30}
                                     onChange={e =>

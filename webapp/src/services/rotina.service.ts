@@ -1,5 +1,14 @@
 import { apiGet, apiPost, apiPut, apiDelete } from "@/lib/api";
 
+/** Limite superior de timeout (segundos) no cadastro da rotina (UI + alinhado à API). */
+export const ROTINA_TIMEOUT_SECONDS_MAX = 1_000_000;
+
+export function clampRotinaTimeoutSeconds(value: unknown): number {
+    const n = Number(value);
+    if (!Number.isFinite(n)) return 30;
+    return Math.min(ROTINA_TIMEOUT_SECONDS_MAX, Math.max(1, Math.floor(n)));
+}
+
 export interface Rotina {
     ROTCodigo: number;
     ROTNome: string;

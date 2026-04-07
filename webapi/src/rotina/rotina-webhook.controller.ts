@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { routineTimeoutSecondsFromCadastro } from './engine/routine-timeout.util';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
 export class RotinaWebhookController {
@@ -82,7 +83,8 @@ export class RotinaWebhookController {
 
         if (rotina.ROTWebhookAguardar) {
             try {
-                const timeoutMs = (rotina.ROTTimeoutSeconds + 10) * 1000;
+                const execSec = routineTimeoutSecondsFromCadastro(rotina.ROTTimeoutSeconds);
+                const timeoutMs = (execSec + 10) * 1000;
                 const result = await this.waitForResultViaRedis(exeId, timeoutMs);
                 return res.json(result?.result ?? result);
             } catch (err: any) {

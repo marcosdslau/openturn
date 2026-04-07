@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { fork, ChildProcess } from 'child_process';
 import { join } from 'path';
 import { ConsoleGateway } from '../console.gateway';
+import { routineTimeoutSecondsFromCadastro } from './routine-timeout.util';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -37,6 +38,8 @@ export class ProcessManager {
         timeoutSeconds: number = 30,
         rpcHandler?: (method: string, params: any) => Promise<any>,
     ): Promise<ExecutionResult> {
+        const sec = routineTimeoutSecondsFromCadastro(timeoutSeconds);
+        const timeoutMs = sec * 1000;
         const startTime = Date.now();
         let timedOut = false;
         const logs: LogEntry[] = [];
@@ -55,20 +58,21 @@ export class ProcessManager {
 
             const runnerPath = join(__dirname, 'routine-runner.js');
 
+            // Sem `fork({ timeout })`: o timeout do Node usa SIGTERM e pode divergir do kill abaixo;
+            // um único timer com SIGKILL respeita estritamente o cadastro (ROTTimeoutSeconds).
             const child = fork(runnerPath, [], {
                 stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-                timeout: timeoutSeconds * 1000,
             });
 
             this.activeProcesses.set(exeId, { child, rotinaCodigo });
 
             const timeoutHandle = setTimeout(() => {
                 timedOut = true;
-                this.logger.warn(`Execution ${exeId} timed out after ${timeoutSeconds}s`);
+                this.logger.warn(`Execution ${exeId} timed out after ${sec}s (cadastro)`);
 
                 const timeoutLog: LogEntry = {
                     level: 'error',
-                    message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
+                    message: `⏱️ Timeout: Execução excedeu o limite de ${sec}s`,
                     timestamp: new Date().toISOString(),
                 };
                 logs.push(timeoutLog);
@@ -78,7 +82,7 @@ export class ProcessManager {
                 }
 
                 child.kill('SIGKILL');
-            }, timeoutSeconds * 1000);
+            }, timeoutMs);
 
             child.send({
                 type: 'execute',

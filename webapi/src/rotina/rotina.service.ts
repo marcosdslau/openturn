@@ -5,6 +5,7 @@ import { ProcessManager } from './engine/process-manager';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import { SchedulerService } from './scheduler.service';
 import { TipoRotina, HttpMetodo, WebhookTokenSource, StatusExecucao } from '@prisma/client';
+import { clampRotinaTimeoutForPersist } from './engine/routine-timeout.util';
 
 @Injectable()
 export class RotinaService {
@@ -188,7 +189,10 @@ export class RotinaService {
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo,
-                ROTTimeoutSeconds: data.ROTTimeoutSeconds,
+                ROTTimeoutSeconds:
+                    data.ROTTimeoutSeconds === undefined
+                        ? undefined
+                        : clampRotinaTimeoutForPersist(data.ROTTimeoutSeconds),
             },
         });
 

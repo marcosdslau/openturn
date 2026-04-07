@@ -3,6 +3,7 @@ import { join } from 'path';
 import { existsSync } from 'fs';
 import Redis from 'ioredis';
 import type { RedisOptions } from 'ioredis';
+import { routineTimeoutSecondsFromCadastro } from './routine-timeout.util';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -64,6 +65,8 @@ export class WorkerProcessManager {
         timeoutSeconds: number = 30,
         rpcHandler?: (method: string, params: any) => Promise<any>,
     ): Promise<ExecutionResult> {
+        const sec = routineTimeoutSecondsFromCadastro(timeoutSeconds);
+        const timeoutMs = sec * 1000;
         const startTime = Date.now();
         let timedOut = false;
         const logs: LogEntry[] = [];
@@ -85,7 +88,6 @@ export class WorkerProcessManager {
 
             const child = fork(runnerPath, [], {
                 stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
-                timeout: timeoutSeconds * 1000,
                 ...(useTsNode ? { execArgv: ['-r', 'ts-node/register'] } : {}),
             });
 
@@ -95,13 +97,13 @@ export class WorkerProcessManager {
                 timedOut = true;
                 const timeoutLog: LogEntry = {
                     level: 'error',
-                    message: `⏱️ Timeout: Execução excedeu o limite de ${timeoutSeconds}s`,
+                    message: `⏱️ Timeout: Execução excedeu o limite de ${sec}s`,
                     timestamp: new Date().toISOString(),
                 };
                 logs.push(timeoutLog);
                 this.publishLog(rotinaCodigo, exeId, timeoutLog);
                 child.kill('SIGKILL');
-            }, timeoutSeconds * 1000);
+            }, timeoutMs);
 
             child.send({
                 type: 'execute',
