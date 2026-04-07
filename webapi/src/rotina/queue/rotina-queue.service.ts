@@ -284,6 +284,27 @@ export class RotinaQueueService {
         };
     }
 
+    /** Mensagens na fila principal da instituição (`SG_CLI_*`), sem DLQ/retry. Fila inexistente => 0. */
+    async getMainQueueMessageCount(instituicaoCodigo: number): Promise<number> {
+        const qName = getMainQueueName(instituicaoCodigo);
+        const conn = await this.getConnection();
+        let ch = await conn.createChannel();
+        try {
+            try {
+                const qInfo = await ch.checkQueue(qName);
+                return qInfo.messageCount;
+            } catch {
+                return 0;
+            }
+        } finally {
+            try {
+                await ch.close();
+            } catch {
+                // ignore
+            }
+        }
+    }
+
     private inflightZkey(instituicaoCodigo: number): string {
         return `rotina:inflight:z:${instituicaoCodigo}`;
     }

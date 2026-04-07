@@ -5,10 +5,13 @@ import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import { ProcessManager } from '../rotina/engine/process-manager';
 import { MonitorSnapshotBuilder } from './monitor-snapshot.builder';
 import {
+    MONITOR_INST_DASHBOARD_CACHE_VERSION,
     MONITOR_SNAPSHOT_VERSION,
+    type MonitorInstituicaoDashboardExtrasCacheDto,
     REDIS_KEY_MONITOR_REFRESH_LOCK,
     REDIS_KEY_MONITOR_SNAPSHOT,
     MonitorSnapshotDto,
+    redisKeyMonitorInstDashboard,
 } from './monitor-snapshot.types';
 
 const LOCK_TTL_SEC = 300;
@@ -52,12 +55,69 @@ export class MonitorSnapshotService {
         }
     }
 
+    private instDashboardTtlSec(): number {
+        return Math.max(60, parseInt(process.env.MONITOR_INST_DASHBOARD_TTL_SEC || '3600', 10));
+    }
+
+    private async invalidateInstituicaoDashboardCaches(): Promise<void> {
+        if (!this.redis) return;
+        try {
+            const keys = await this.redis.keys('monitor:instituicao:*:dashboard:v1');
+            if (keys.length > 0) {
+                await this.redis.del(...keys);
+                this.logger.debug(`Caches dashboard instituição invalidados (${keys.length})`);
+            }
+        } catch (e) {
+            this.logger.warn(`Falha ao invalidar caches dashboard instituição: ${(e as Error).message}`);
+        }
+    }
+
+    /**
+     * Read-through Redis para complemento do dashboard por instituição (série + contagens Prisma).
+     */
+    async getInstituicaoDashboardExtrasCached(
+        instituicaoCodigo: number,
+        build: () => Promise<MonitorInstituicaoDashboardExtrasCacheDto>,
+    ): Promise<MonitorInstituicaoDashboardExtrasCacheDto> {
+        if (this.redis) {
+            try {
+                const raw = await this.redis.get(redisKeyMonitorInstDashboard(instituicaoCodigo));
+                if (raw) {
+                    const parsed = JSON.parse(raw) as MonitorInstituicaoDashboardExtrasCacheDto;
+                    if (parsed.version === MONITOR_INST_DASHBOARD_CACHE_VERSION) {
+                        return parsed;
+                    }
+                }
+            } catch (e) {
+                this.logger.warn(`Falha ao ler cache dashboard inst: ${(e as Error).message}`);
+            }
+        }
+
+        const dto = await build();
+
+        if (this.redis) {
+            try {
+                await this.redis.set(
+                    redisKeyMonitorInstDashboard(instituicaoCodigo),
+                    JSON.stringify(dto),
+                    'EX',
+                    this.instDashboardTtlSec(),
+                );
+            } catch (e) {
+                this.logger.warn(`Falha ao gravar cache dashboard inst: ${(e as Error).message}`);
+            }
+        }
+
+        return dto;
+    }
+
     private async persist(dto: MonitorSnapshotDto): Promise<void> {
         if (!this.redis) return;
         try {
             const body = JSON.stringify(dto);
             await this.redis.set(REDIS_KEY_MONITOR_SNAPSHOT, body);
             this.logger.log(`Snapshot monitor gravado (${Math.round(body.length / 1024)} KiB)`);
+            await this.invalidateInstituicaoDashboardCaches();
         } catch (e) {
             this.logger.warn(`Falha ao gravar snapshot Redis: ${(e as Error).message}`);
         }

@@ -15,6 +15,17 @@ export interface RabbitOverviewDto {
     timestamp: string;
 }
 
+/** Métricas de uma única fila (Management API). Taxas podem ser 0 se o broker não expuser `message_stats`. */
+export interface RabbitQueueDetailDto {
+    queue_name: string;
+    messages_ready: number;
+    messages_unacknowledged: number;
+    messages_total: number;
+    publish_rate: number;
+    deliver_rate: number;
+    timestamp: string;
+}
+
 @Injectable()
 export class RabbitManagementService {
     private readonly logger = new Logger(RabbitManagementService.name);
@@ -73,6 +84,62 @@ export class RabbitManagementService {
             };
         } catch (error) {
             this.logger.error(`Erro ao buscar overview do RabbitMQ: ${error.message}`);
+            throw error;
+        }
+    }
+
+    /**
+     * Detalhes de uma fila pelo nome. Se a fila não existir, retorna zeros (não lança).
+     */
+    async getQueueDetail(queueName: string): Promise<RabbitQueueDetailDto> {
+        const empty = (): RabbitQueueDetailDto => ({
+            queue_name: queueName,
+            messages_ready: 0,
+            messages_unacknowledged: 0,
+            messages_total: 0,
+            publish_rate: 0,
+            deliver_rate: 0,
+            timestamp: new Date().toISOString(),
+        });
+        try {
+            const { url, auth } = this.config;
+            const [overviewRes, queuesRes] = await Promise.all([
+                axios.get(`${url}/api/overview`, { auth }),
+                axios.get(`${url}/api/queues`, { auth }),
+            ]);
+            const overview = overviewRes.data;
+            const queues = queuesRes.data;
+            if (!Array.isArray(queues)) return empty();
+            const q = queues.find((x: { name?: string }) => x.name === queueName);
+            if (!q) return empty();
+
+            const ready = q.messages_ready ?? 0;
+            const unacked = q.messages_unacknowledged ?? 0;
+            const total =
+                typeof q.messages === 'number' ? q.messages : ready + unacked;
+            const ms = q.message_stats || {};
+            const publish_rate =
+                    ms.publish_details?.rate ??
+                    ms.publish?.rate ??
+                    overview.message_stats?.publish_details?.rate ??
+                    0;
+            const deliver_rate =
+                    ms.deliver_get_details?.rate ??
+                    ms.deliver_details?.rate ??
+                    overview.message_stats?.deliver_details?.rate ??
+                    0;
+
+            return {
+                queue_name: queueName,
+                messages_ready: ready,
+                messages_unacknowledged: unacked,
+                messages_total: total,
+                publish_rate,
+                deliver_rate,
+                timestamp: new Date().toISOString(),
+            };
+        } catch (error) {
+            this.logger.error(`Erro ao buscar fila RabbitMQ ${queueName}: ${error.message}`);
             throw error;
         }
     }

@@ -122,11 +122,34 @@ export interface RabbitOverview {
     timestamp: string;
 }
 
+/** Resposta `GET /api/instituicao/:id/monitor/dashboard` */
+export interface MonitorInstituicaoDashboard {
+    version: number;
+    generatedAt: string;
+    refreshDurationMs?: number;
+    instituicao: InstituicaoMonitorSnapshot;
+    counts: MonitorSnapshot["counts"];
+    queue: MonitorSnapshot["queue"];
+    serieExecucoesInstituicao: SeriePlataforma[];
+    rankingsGlobaisPorStatus: MonitorSnapshot["rankingsGlobaisPorStatus"];
+    rabbit: {
+        queue_name: string;
+        messages_ready: number;
+        messages_unacknowledged: number;
+        messages_total: number;
+        publish_rate: number;
+        deliver_rate: number;
+        timestamp: string;
+    };
+}
+
 /** @deprecated use MonitorSnapshot */
 export type MonitorStats = MonitorSnapshot;
 
 export const MonitorService = {
     getStats: async () => apiGet<MonitorSnapshot>("/monitor/stats"),
+    getInstituicaoDashboard: async (instituicaoCodigo: number) =>
+        apiGet<MonitorInstituicaoDashboard>(`/instituicao/${instituicaoCodigo}/monitor/dashboard`),
     refreshSnapshot: async () => apiPost<MonitorSnapshot>("/monitor/refresh", {}),
     getRabbitOverview: async () => apiGet<RabbitOverview>("/monitor/rabbit-overview"),
     /** Operação pode ser longa; timeout do cliente 15 min (ver `api` `timeoutMs`). */

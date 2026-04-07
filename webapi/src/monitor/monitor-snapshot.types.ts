@@ -3,6 +3,29 @@ export const MONITOR_SNAPSHOT_VERSION = 1;
 export const REDIS_KEY_MONITOR_SNAPSHOT = 'monitor:global:snapshot:v1';
 export const REDIS_KEY_MONITOR_REFRESH_LOCK = 'monitor:global:snapshot:refresh:lock';
 
+/** Complemento Redis do dashboard por instituição (série + contagens). Bump ao alterar JSON. */
+export const MONITOR_INST_DASHBOARD_CACHE_VERSION = 1;
+
+export function redisKeyMonitorInstDashboard(instituicaoCodigo: number): string {
+    return `monitor:instituicao:${instituicaoCodigo}:dashboard:v1`;
+}
+
+/** Payload gravado em `redisKeyMonitorInstDashboard` (read-through). */
+export interface MonitorInstituicaoDashboardExtrasCacheDto {
+    version: number;
+    generatedAt: string;
+    serieExecucoesInstituicao: SeriePlataforma[];
+    counts: {
+        execucoes: { hoje: number; total: number };
+        rotinas: { total: number; schedules: number; webhooks: number };
+        equipamentos: number;
+    };
+    queueHistory: {
+        completed: number;
+        failed: number;
+    };
+}
+
 export type JanelaCurta = '1h' | '4h' | '8h' | '16h' | '24h' | '36h';
 export type JanelaDuracao = '1d' | '2d' | '5d' | '10d' | '15d' | '30d';
 export type JanelaStatus = '5d' | '10d' | '15d' | '30d' | '60d';
@@ -109,4 +132,46 @@ export interface MonitorSnapshotDto {
         Record<StatusExecucaoKey, InstituicaoRankingEntry[]>
     >;
     serieExecucoesPlataforma: SeriePlataforma[];
+}
+
+/** Resposta `GET /instituicao/:id/monitor/dashboard`. */
+export interface MonitorInstituicaoDashboardDto {
+    version: number;
+    generatedAt: string;
+    refreshDurationMs?: number;
+    instituicao: InstituicaoMonitorSnapshot;
+    counts: {
+        clientes: number;
+        instituicoes: number;
+        pessoas: number;
+        matriculas: number;
+        equipamentos: number;
+        rotinas: { total: number; schedules: number; webhooks: number };
+        execucoes: { total: number; hoje: number };
+    };
+    queue: {
+        waiting: number;
+        active: number;
+        completed: number;
+        failed: number;
+        delayed: number;
+        paused: number;
+        prioritized: number;
+        running: number;
+        totalActive: number;
+    };
+    serieExecucoesInstituicao: SeriePlataforma[];
+    rankingsGlobaisPorStatus: Record<
+        JanelaStatus,
+        Record<StatusExecucaoKey, InstituicaoRankingEntry[]>
+    >;
+    rabbit: {
+        queue_name: string;
+        messages_ready: number;
+        messages_unacknowledged: number;
+        messages_total: number;
+        publish_rate: number;
+        deliver_rate: number;
+        timestamp: string;
+    };
 }

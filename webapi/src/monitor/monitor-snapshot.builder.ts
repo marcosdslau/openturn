@@ -1,21 +1,23 @@
 import { Injectable } from '@nestjs/common';
-import { TipoRotina } from '@prisma/client';
+import { StatusExecucao, TipoRotina } from '@prisma/client';
 import { subDays, subHours, startOfDay } from 'date-fns';
 import { PrismaService } from '../common/prisma/prisma.service';
-import type {
-    ExecucoesJanelaCurta,
-    InstituicaoMonitorSnapshot,
-    InstituicaoRankingEntry,
-    JanelaCurta,
-    JanelaDuracao,
-    JanelaStatus,
-    MonitorSnapshotDto,
-    SerieBucket,
-    SeriePeriodo,
-    SeriePlataforma,
-    StatusContagem,
-    StatusExecucaoKey,
-    TopRotina,
+import {
+    MONITOR_INST_DASHBOARD_CACHE_VERSION,
+    type ExecucoesJanelaCurta,
+    type InstituicaoMonitorSnapshot,
+    type InstituicaoRankingEntry,
+    type JanelaCurta,
+    type JanelaDuracao,
+    type JanelaStatus,
+    type MonitorInstituicaoDashboardExtrasCacheDto,
+    type MonitorSnapshotDto,
+    type SerieBucket,
+    type SeriePeriodo,
+    type SeriePlataforma,
+    type StatusContagem,
+    type StatusExecucaoKey,
+    type TopRotina,
 } from './monitor-snapshot.types';
 
 const JANELAS_CURTAS: JanelaCurta[] = ['1h', '4h', '8h', '16h', '24h', '36h'];
@@ -388,6 +390,7 @@ export class MonitorSnapshotBuilder {
             cut5d,
             cut15d,
             cut30d,
+            instituicaoCodigo: undefined,
         });
 
         return {
@@ -432,6 +435,104 @@ export class MonitorSnapshotBuilder {
         return out;
     }
 
+    /** Série cumulativa de execuções apenas para uma instituição (mesmos períodos do monitor global). */
+    async buildSeriesForInstituicao(
+        instituicaoCodigo: number,
+        now: Date,
+        timezone: string,
+    ): Promise<SeriePlataforma[]> {
+        const tz = validateTimezone(timezone);
+        const tzEsc = tz.replace(/'/g, "''");
+        const cut10h = subHours(now, 10);
+        const cut24h = subHours(now, 24);
+        const cut5d = subDays(now, 5);
+        const cut15d = subDays(now, 15);
+        const cut30d = subDays(now, 30);
+        return this.buildSeries({
+            tzEsc,
+            cut10h,
+            cut24h,
+            cut5d,
+            cut15d,
+            cut30d,
+            instituicaoCodigo,
+        });
+    }
+
+    /** Complemento cacheável (Redis): série + contagens e histórico sucesso/erro para a instituição. */
+    async buildInstituicaoDashboardExtras(
+        instituicaoCodigo: number,
+        now: Date,
+        timezone: string,
+    ): Promise<MonitorInstituicaoDashboardExtrasCacheDto> {
+        const tz = validateTimezone(timezone);
+        const startHoje = startOfDay(now);
+        const [
+            serieExecucoesInstituicao,
+            execHoje,
+            execTotal,
+            totalRot,
+            sched,
+            web,
+            equip,
+            completed,
+            failed,
+        ] = await Promise.all([
+            this.buildSeriesForInstituicao(instituicaoCodigo, now, tz),
+            this.prisma.rOTExecucaoLog.count({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    EXEInicio: { gte: startHoje },
+                },
+            }),
+            this.prisma.rOTExecucaoLog.count({
+                where: { INSInstituicaoCodigo: instituicaoCodigo },
+            }),
+            this.prisma.rOTRotina.count({
+                where: { INSInstituicaoCodigo: instituicaoCodigo },
+            }),
+            this.prisma.rOTRotina.count({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    ROTTipo: TipoRotina.SCHEDULE,
+                },
+            }),
+            this.prisma.rOTRotina.count({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    ROTTipo: TipoRotina.WEBHOOK,
+                },
+            }),
+            this.prisma.eQPEquipamento.count({
+                where: { INSInstituicaoCodigo: instituicaoCodigo },
+            }),
+            this.prisma.rOTExecucaoLog.count({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    EXEStatus: StatusExecucao.SUCESSO,
+                },
+            }),
+            this.prisma.rOTExecucaoLog.count({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    EXEStatus: StatusExecucao.ERRO,
+                },
+            }),
+        ]);
+
+        return {
+            version: MONITOR_INST_DASHBOARD_CACHE_VERSION,
+            generatedAt: now.toISOString(),
+            serieExecucoesInstituicao,
+            counts: {
+                execucoes: { hoje: execHoje, total: execTotal },
+                rotinas: { total: totalRot, schedules: sched, webhooks: web },
+                equipamentos: equip,
+            },
+            queueHistory: { completed, failed },
+        };
+    }
+
     private async buildSeries(params: {
         tzEsc: string;
         cut10h: Date;
@@ -439,10 +540,28 @@ export class MonitorSnapshotBuilder {
         cut5d: Date;
         cut15d: Date;
         cut30d: Date;
+        instituicaoCodigo?: number;
     }): Promise<SeriePlataforma[]> {
-        const { tzEsc, cut10h, cut24h, cut5d, cut15d, cut30d } = params;
+        const { tzEsc, cut10h, cut24h, cut5d, cut15d, cut30d, instituicaoCodigo } = params;
 
         const hourQuery = async (since: Date): Promise<{ bucket: string; cnt: bigint }[]> => {
+            if (instituicaoCodigo != null) {
+                return this.prisma.$queryRawUnsafe<{ bucket: string; cnt: bigint }[]>(
+                    `
+                    SELECT to_char(
+                        date_trunc('hour', "EXEInicio" AT TIME ZONE '${tzEsc}'),
+                        'YYYY-MM-DD"T"HH24:00:00'
+                    ) AS bucket,
+                    COUNT(*)::bigint AS cnt
+                    FROM "ROTExecucaoLog"
+                    WHERE "EXEInicio" >= $1 AND "INSInstituicaoCodigo" = $2
+                    GROUP BY 1
+                    ORDER BY 1
+                    `,
+                    since,
+                    instituicaoCodigo,
+                );
+            }
             return this.prisma.$queryRawUnsafe<{ bucket: string; cnt: bigint }[]>(
                 `
                 SELECT to_char(
@@ -460,6 +579,23 @@ export class MonitorSnapshotBuilder {
         };
 
         const dayQuery = async (since: Date): Promise<{ bucket: string; cnt: bigint }[]> => {
+            if (instituicaoCodigo != null) {
+                return this.prisma.$queryRawUnsafe<{ bucket: string; cnt: bigint }[]>(
+                    `
+                    SELECT to_char(
+                        date_trunc('day', "EXEInicio" AT TIME ZONE '${tzEsc}'),
+                        'YYYY-MM-DD'
+                    ) AS bucket,
+                    COUNT(*)::bigint AS cnt
+                    FROM "ROTExecucaoLog"
+                    WHERE "EXEInicio" >= $1 AND "INSInstituicaoCodigo" = $2
+                    GROUP BY 1
+                    ORDER BY 1
+                    `,
+                    since,
+                    instituicaoCodigo,
+                );
+            }
             return this.prisma.$queryRawUnsafe<{ bucket: string; cnt: bigint }[]>(
                 `
                 SELECT to_char(

@@ -329,7 +329,7 @@ const AppSidebar: React.FC = () => {
               {renderMenuItems(navItems, "main")}
             </div>
 
-            <div>
+            {/* <div>
               <h2
                 className={`mb-4 text-xs uppercase flex leading-5 text-gray-400 ${!isExpanded && !isHovered
                   ? "xl:justify-center"
@@ -359,7 +359,7 @@ const AppSidebar: React.FC = () => {
                 )}
               </h2>
               {renderMenuItems(supportItems, "support")}
-            </div>
+            </div> */}
             <div>
               <h2
                 className={`mb-4 text-xs uppercase flex leading-5 text-gray-400 ${!isExpanded && !isHovered
