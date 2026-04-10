@@ -2,7 +2,8 @@
 import Label from "@/components/form/Label";
 import Button from "@/components/ui/button/Button";
 import { EyeCloseIcon, EyeIcon } from "@/icons";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 
 const inputClass =
@@ -14,7 +15,17 @@ export default function SignInForm() {
   const [senha, setSenha] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [resetSuccess, setResetSuccess] = useState(false);
   const { login } = useAuth();
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("reset") === "ok") {
+      setResetSuccess(true);
+      window.history.replaceState({}, "", "/signin");
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,6 +55,11 @@ export default function SignInForm() {
           <div>
             <form onSubmit={handleSubmit}>
               <div className="space-y-6">
+                {resetSuccess && (
+                  <div className="p-3 text-sm text-green-800 bg-green-50 rounded-lg dark:bg-green-900/20 dark:text-green-300">
+                    Senha redefinida com sucesso. Entre com sua nova senha.
+                  </div>
+                )}
                 {error && (
                   <div className="p-3 text-sm text-red-600 bg-red-50 rounded-lg dark:bg-red-900/20 dark:text-red-400">
                     {error}
@@ -62,9 +78,17 @@ export default function SignInForm() {
                   />
                 </div>
                 <div>
-                  <Label>
-                    Senha <span className="text-error-500">*</span>
-                  </Label>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <Label>
+                      Senha <span className="text-error-500">*</span>
+                    </Label>
+                    <Link
+                      href="/reset-password"
+                      className="text-sm text-brand-500 hover:text-brand-600 dark:text-brand-400 shrink-0"
+                    >
+                      Esqueci minha senha
+                    </Link>
+                  </div>
                   <div className="relative">
                     <input
                       type={showPassword ? "text" : "password"}

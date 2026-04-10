@@ -75,7 +75,10 @@ export async function api<T = any>(
         let errorMessage = `API Error: ${res.status}`;
         try {
             const error = await res.json();
-            errorMessage = error.message || errorMessage;
+            const m = error.message;
+            errorMessage = Array.isArray(m)
+                ? m.join(', ')
+                : (typeof m === 'string' ? m : errorMessage);
         } catch {
             // Se falhar ao ler JSON, tenta ler como texto
             const text = await res.text().catch(() => '');

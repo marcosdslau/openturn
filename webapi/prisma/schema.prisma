@@ -178,6 +178,18 @@ model USRUsuario {
   permissoesIa        AIPEPermissaoIa[]
   conversasIa         AICConversaIa[]
   creditosIa          AILCreditoLedger[]
+  senhaResetTokens    USRSenhaResetToken[]
+}
+
+model USRSenhaResetToken {
+  USRSTCodigo       Int        @id @default(autoincrement())
+  USRCodigo         Int
+  usuario           USRUsuario @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  USRTokenHash      String     @unique
+  USRTokenExpiresAt DateTime
+  createdAt         DateTime   @default(now())
+
+  @@index([USRCodigo])
 }
 
 model PESEquipamentoMapeamento {
