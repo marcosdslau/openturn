@@ -257,6 +257,8 @@ export class ExecutionService {
             'pESEquipamentoMapeamento',
             'eRPConfiguracao',
             'iNSInstituicao',
+            'cTLControlidDao',
+            'cTLControlidCatraEvent',
         ];
 
         const schemaDefinition = {
@@ -344,7 +346,50 @@ export class ExecutionService {
                     { name: "EQPCodigo", type: "Int", pk: true, fk: "EQPEquipamento" },
                     { name: "PEQIdNoEquipamento", type: "String" },
                 ]
-            }
+            },
+            CTLControlidDao: {
+                alias: 'ControlIDDao',
+                fields: [
+                    { name: "CTDCodigo", type: "Int", pk: true },
+                    { name: "INSInstituicaoCodigo", type: "Int", fk: "INSInstituicao" },
+                    { name: "deviceId", type: "String" },
+                    { name: "notifyTime", type: "BigInt" },
+                    { name: "ctlObject", type: "String" },
+                    { name: "changeType", type: "String" },
+                    { name: "valuesId", type: "String" },
+                    { name: "valuesTime", type: "String" },
+                    { name: "valuesEvent", type: "String" },
+                    { name: "valuesDeviceId", type: "String" },
+                    { name: "valuesIdentifierId", type: "String" },
+                    { name: "valuesUserId", type: "String" },
+                    { name: "valuesPortalId", type: "String" },
+                    { name: "valuesIdentificationRuleId", type: "String" },
+                    { name: "valuesCardValue", type: "String" },
+                    { name: "valuesQrcodeValue", type: "String" },
+                    { name: "valuesPinValue", type: "String" },
+                    { name: "valuesConfidence", type: "String" },
+                    { name: "valuesMask", type: "String" },
+                    { name: "valuesLogTypeId", type: "String" },
+                    { name: "processed", type: "Boolean" },
+                    { name: "createdAt", type: "DateTime" },
+                ]
+            },
+            CTLControlidCatraEvent: {
+                alias: 'ControlIDCatraEvent',
+                fields: [
+                    { name: "CTCCodigo", type: "Int", pk: true },
+                    { name: "INSInstituicaoCodigo", type: "Int", fk: "INSInstituicao" },
+                    { name: "deviceId", type: "String" },
+                    { name: "notifyTime", type: "BigInt" },
+                    { name: "accessEventId", type: "String" },
+                    { name: "eventType", type: "String" },
+                    { name: "eventName", type: "String" },
+                    { name: "eventTime", type: "BigInt" },
+                    { name: "eventUuid", type: "String" },
+                    { name: "processed", type: "Boolean" },
+                    { name: "createdAt", type: "DateTime" },
+                ]
+            },
         };
 
         const realDb = dbProxy.createDbContext(allowedModels);

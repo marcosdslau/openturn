@@ -1,12 +1,19 @@
 
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EQPEquipamento } from '@prisma/client';
+import {
+    EQPEquipamento,
+    HttpMetodo,
+    TipoRotina,
+    WebhookTokenSource,
+} from '@prisma/client';
+import axios from 'axios';
 import { IHardwareProvider, ControlIDConfig, HardwareBrand } from './interfaces/hardware.types';
 import { ControlIDProvider } from './providers/controlid.provider';
 import { HikvisionProvider } from './providers/hikvision.provider';
 import { WsRelayGateway } from '../connector/ws-relay.gateway';
 import { ConnectorService } from '../connector/connector.service';
+import { TenantService } from '../common/tenant/tenant.service';
 
 @Injectable()
 export class HardwareService {
@@ -16,6 +23,7 @@ export class HardwareService {
         private readonly prisma: PrismaService,
         private readonly wsRelay: WsRelayGateway,
         private readonly connectorService: ConnectorService,
+        private readonly tenantService: TenantService,
     ) { }
 
     instantiate(equipment: EQPEquipamento, overrideHost?: string): IHardwareProvider {
@@ -222,9 +230,198 @@ export class HardwareService {
         return JSON.parse(result.body.toString('utf-8'));
     }
 
+    private ctlStr(v: unknown): string | undefined {
+        if (v === undefined || v === null) return undefined;
+        return String(v);
+    }
 
-    async processAccessLog(instituicaoId: number, event: any) {
-        // ... (existing logic)
+    private ctlBigInt(v: unknown, fallback = 0n): bigint {
+        if (v === undefined || v === null) return fallback;
+        try {
+            return BigInt(String(v));
+        } catch {
+            return fallback;
+        }
+    }
+
+    /**
+     * Persiste payload bruto do webhook Monitor ControlID (DAO / object_changes).
+     */
+    async persistControlidDao(instituicaoCodigo: number, body: any) {
+        if (!body || !Array.isArray(body.object_changes) || body.object_changes.length === 0) {
+            return;
+        }
+        const deviceId = this.ctlStr(body.device_id) ?? '';
+        const notifyTime = this.ctlBigInt(body.time);
+        const rows = body.object_changes.map((change: any) => {
+            const v = change?.values ?? {};
+            return {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                deviceId,
+                notifyTime,
+                ctlObject: this.ctlStr(change?.object) ?? '',
+                changeType: this.ctlStr(change?.type) ?? '',
+                valuesId: this.ctlStr(v.id),
+                valuesTime: this.ctlStr(v.time),
+                valuesEvent: this.ctlStr(v.event),
+                valuesDeviceId: this.ctlStr(v.device_id),
+                valuesIdentifierId: this.ctlStr(v.identifier_id),
+                valuesUserId: this.ctlStr(v.user_id),
+                valuesPortalId: this.ctlStr(v.portal_id),
+                valuesIdentificationRuleId: this.ctlStr(v.identification_rule_id),
+                valuesCardValue: this.ctlStr(v.card_value),
+                valuesQrcodeValue: this.ctlStr(v.qrcode_value),
+                valuesPinValue: this.ctlStr(v.pin_value),
+                valuesConfidence: this.ctlStr(v.confidence),
+                valuesMask: this.ctlStr(v.mask),
+                valuesLogTypeId: this.ctlStr(v.log_type_id),
+            };
+        });
+        await this.tenantService.runWithTenant(instituicaoCodigo, () =>
+            this.prisma.rls.cTLControlidDao.createMany({ data: rows }),
+        );
+        this.maybeTriggerControlidMonitorWebhook(instituicaoCodigo, body);
+    }
+
+    /**
+     * Persiste payload bruto do webhook Monitor ControlID (catra_event).
+     */
+    async persistControlidCatraEvent(instituicaoCodigo: number, body: any) {
+        if (!body) return;
+        const ev = body.event ?? {};
+        const eventTimeRaw = ev.time;
+        await this.tenantService.runWithTenant(instituicaoCodigo, () =>
+            this.prisma.rls.cTLControlidCatraEvent.create({
+                data: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    deviceId: this.ctlStr(body.device_id) ?? '',
+                    notifyTime: this.ctlBigInt(body.time),
+                    accessEventId: this.ctlStr(body.access_event_id) ?? '',
+                    eventType: this.ctlStr(ev.type) ?? '',
+                    eventName: this.ctlStr(ev.name),
+                    eventTime:
+                        eventTimeRaw !== undefined && eventTimeRaw !== null
+                            ? this.ctlBigInt(eventTimeRaw)
+                            : null,
+                    eventUuid: this.ctlStr(ev.uuid),
+                },
+            }),
+        );
+        this.maybeTriggerControlidMonitorWebhook(instituicaoCodigo, body);
+    }
+
+    /**
+     * Dispara webhook da rotina configurada na instituição (HTTP para API_URL), sem bloquear o monitor.
+     */
+    private maybeTriggerControlidMonitorWebhook(instituicaoCodigo: number, rawBody: any) {
+        void this.triggerControlidMonitorWebhook(instituicaoCodigo, rawBody).catch((err) => {
+            this.logger.warn(
+                `[ControlID monitor] Falha ao disparar rotina webhook: ${err?.message || err}`,
+            );
+        });
+    }
+
+    private monitorWebhookPayload(rawBody: any): {
+        device_id: number | string;
+        time: number | string;
+    } | null {
+        if (rawBody?.device_id === undefined || rawBody?.time === undefined) return null;
+        const d = Number(rawBody.device_id);
+        const t = Number(rawBody.time);
+        return {
+            device_id: Number.isFinite(d) ? d : String(rawBody.device_id),
+            time: Number.isFinite(t) ? t : String(rawBody.time),
+        };
+    }
+
+    private async triggerControlidMonitorWebhook(instituicaoCodigo: number, rawBody: any) {
+        const apiUrl = process.env.API_URL?.trim();
+        if (!apiUrl) {
+            this.logger.debug('[ControlID monitor] API_URL não definida; pulando disparo de rotina.');
+            return;
+        }
+
+        const payload = this.monitorWebhookPayload(rawBody);
+        if (!payload) return;
+
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instituicaoCodigo },
+            select: {
+                INSControlidMonitorRotinaAtiva: true,
+                INSControlidMonitorRotinaCodigo: true,
+            },
+        });
+
+        if (!inst?.INSControlidMonitorRotinaAtiva || !inst.INSControlidMonitorRotinaCodigo) return;
+
+        const rotina = await this.prisma.rOTRotina.findFirst({
+            where: {
+                ROTCodigo: inst.INSControlidMonitorRotinaCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+                ROTTipo: TipoRotina.WEBHOOK,
+                ROTAtivo: true,
+            },
+        });
+
+        if (!rotina?.ROTWebhookPath?.trim() || !rotina.ROTWebhookMetodo) return;
+
+        const base = apiUrl.replace(/\/$/, '');
+        const pathSeg = rotina.ROTWebhookPath.startsWith('/')
+            ? rotina.ROTWebhookPath
+            : `/${rotina.ROTWebhookPath}`;
+        const url = `${base}/instituicoes/${instituicaoCodigo}/webhooks${pathSeg}`;
+
+        const tokenKey = rotina.ROTWebhookTokenKey || 'x-webhook-token';
+        const headers: Record<string, string> = {};
+        const tokenSource = rotina.ROTWebhookTokenSource || WebhookTokenSource.HEADER;
+
+        if (rotina.ROTWebhookSeguro && rotina.ROTWebhookToken && tokenSource === WebhookTokenSource.HEADER) {
+            headers[tokenKey] = rotina.ROTWebhookToken;
+        }
+
+        const method = rotina.ROTWebhookMetodo;
+        const params: Record<string, string | number> = {};
+
+        if (method === HttpMetodo.GET) {
+            params.device_id = payload.device_id as string | number;
+            params.time = payload.time as string | number;
+        }
+
+        if (rotina.ROTWebhookSeguro && rotina.ROTWebhookToken && tokenSource === WebhookTokenSource.QUERY) {
+            params[tokenKey] = rotina.ROTWebhookToken;
+        }
+
+        const config: Parameters<typeof axios.request>[0] = {
+            method: method as string,
+            url,
+            timeout: 15_000,
+            headers,
+            validateStatus: () => true,
+        };
+
+        if (method === HttpMetodo.GET) {
+            config.params = params;
+        } else if (
+            method === HttpMetodo.POST ||
+            method === HttpMetodo.PUT ||
+            method === HttpMetodo.PATCH
+        ) {
+            config.data = payload;
+            headers['Content-Type'] = 'application/json';
+            if (Object.keys(params).length > 0) config.params = params;
+        } else {
+            this.logger.warn(
+                `[ControlID monitor] Método HTTP não suportado para disparo: ${String(method)}`,
+            );
+            return;
+        }
+
+        const res = await axios.request(config);
+        if (res.status < 200 || res.status >= 300) {
+            this.logger.warn(
+                `[ControlID monitor] Webhook rotina respondeu ${res.status} para ${url}`,
+            );
+        }
     }
 
     /**

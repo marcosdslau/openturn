@@ -27,6 +27,15 @@ interface Instituicao {
     CLICodigo: number;
     cliente?: { CLINome: string };
     INSConfigHardware?: any;
+    INSControlidMonitorRotinaAtiva?: boolean;
+    INSControlidMonitorRotinaCodigo?: number | null;
+}
+
+interface RotinaListItem {
+    ROTCodigo: number;
+    ROTNome: string;
+    ROTTipo: string;
+    ROTWebhookPath?: string | null;
 }
 
 interface ERPConfig {
@@ -75,6 +84,9 @@ export default function InstitutionERPPage() {
     const [monitorIp, setMonitorIp] = useState("");
     const [monitorPort, setMonitorPort] = useState(80);
     const [monitorPath, setMonitorPath] = useState("");
+    const [monitorRotinaAtiva, setMonitorRotinaAtiva] = useState(false);
+    const [monitorRotinaCodigo, setMonitorRotinaCodigo] = useState<number | null>(null);
+    const [webhookRotinas, setWebhookRotinas] = useState<RotinaListItem[]>([]);
 
     // Connector On-Premise
     const [connector, setConnector] = useState<ConnectorStatus | null>(null);
@@ -85,10 +97,13 @@ export default function InstitutionERPPage() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [instRes, configRes, connStatus] = await Promise.all([
-                apiGet<Instituicao & { INSLogsAutoExcluir: boolean, INSLogsDiasRetencao: number }>(`/instituicoes/${id}`),
+            const [instRes, configRes, connStatus, rotinasRes] = await Promise.all([
+                apiGet<
+                    Instituicao & { INSLogsAutoExcluir: boolean; INSLogsDiasRetencao: number }
+                >(`/instituicoes/${id}`),
                 apiGet<ERPConfig | null>(`/instituicoes/${id}/erp-config`),
                 apiGet<ConnectorStatus>(`/instituicao/${id}/connector/status`).catch(() => ({ paired: false })),
+                apiGet<RotinaListItem[]>(`/instituicao/${id}/rotina`).catch(() => []),
             ]);
             setConnector(connStatus);
 
@@ -101,6 +116,18 @@ export default function InstitutionERPPage() {
             setMonitorIp(hwConfig.controlid?.monitor?.ip || "");
             setMonitorPort(hwConfig.controlid?.monitor?.port || 0);
             setMonitorPath(hwConfig.controlid?.monitor?.path || `/api/instituicao/${instRes.INSCodigo}/monitor/controlid`);
+
+            setMonitorRotinaAtiva(instRes.INSControlidMonitorRotinaAtiva ?? false);
+            setMonitorRotinaCodigo(
+                instRes.INSControlidMonitorRotinaCodigo != null
+                    ? instRes.INSControlidMonitorRotinaCodigo
+                    : null,
+            );
+            setWebhookRotinas(
+                Array.isArray(rotinasRes)
+                    ? rotinasRes.filter((r) => r.ROTTipo === "WEBHOOK")
+                    : [],
+            );
 
             if (configRes) {
                 setSistema(configRes.ERPSistema);
@@ -179,7 +206,9 @@ export default function InstitutionERPPage() {
             const instPromise = apiPut(`/instituicoes/${id}`, {
                 INSLogsAutoExcluir: autoExcluirLogs,
                 INSLogsDiasRetencao: diasRetencao,
-                INSConfigHardware: newConfig
+                INSConfigHardware: newConfig,
+                INSControlidMonitorRotinaAtiva: monitorRotinaAtiva,
+                INSControlidMonitorRotinaCodigo: monitorRotinaAtiva ? monitorRotinaCodigo : null,
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -347,38 +376,93 @@ export default function InstitutionERPPage() {
                     title="Hardware Monitor (ControlID)"
                     desc="Configurações para recepção de eventos online (Push) dos dispositivos ControlID."
                 >
-                    <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
-                        <div>
-                            <Label>IP do Monitor (Servidor)</Label>
-                            <InputField
-                                type="text"
-                                placeholder="Ex: 192.168.1.10"
-                                value={monitorIp}
-                                onChange={(e) => setMonitorIp(e.target.value)}
-                            />
+                    <>
+                        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                            <div>
+                                <Label>IP do Monitor (Servidor)</Label>
+                                <InputField
+                                    type="text"
+                                    placeholder="Ex: 192.168.1.10"
+                                    value={monitorIp}
+                                    onChange={(e) => setMonitorIp(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <Label>Porta</Label>
+                                <InputField
+                                    type="number"
+                                    placeholder="Ex: 8000"
+                                    value={monitorPort.toString()}
+                                    onChange={(e) => setMonitorPort(parseInt(e.target.value) || 0)}
+                                />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <Label>Path Base (Opcional)</Label>
+                                <InputField
+                                    type="text"
+                                    placeholder="Ex: /api/monitor"
+                                    value={monitorPath}
+                                    onChange={(e) => setMonitorPath(e.target.value)}
+                                />
+                                <p className="mt-1 text-xs text-gray-500">
+                                    Caso o monitor esteja atrás de um proxy reverso com prefixo.
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <Label>Porta</Label>
-                            <InputField
-                                type="number"
-                                placeholder="Ex: 8000"
-                                value={monitorPort.toString()}
-                                onChange={(e) => setMonitorPort(parseInt(e.target.value) || 0)}
-                            />
+
+                        <div className="space-y-4 border-t border-gray-200 pt-6 dark:border-gray-700">
+                            <h4 className="text-sm font-semibold text-gray-800 dark:text-white">
+                                Disparo de rotina (WEBHOOK)
+                            </h4>
+                            <label className="flex cursor-pointer items-start gap-3">
+                                <input
+                                    type="checkbox"
+                                    className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-900"
+                                    checked={monitorRotinaAtiva}
+                                    onChange={(e) => {
+                                        const v = e.target.checked;
+                                        setMonitorRotinaAtiva(v);
+                                        if (!v) setMonitorRotinaCodigo(null);
+                                    }}
+                                />
+                                <span className="text-sm leading-snug text-gray-700 dark:text-gray-300">
+                                    Ativar disparo de rotina WEBHOOK ao gravar eventos{" "}
+                                    <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">dao</code> ou{" "}
+                                    <code className="rounded bg-gray-100 px-1 text-xs dark:bg-gray-800">catra_event</code>{" "}
+                                    (requer <code className="text-xs">API_URL</code> na API).
+                                </span>
+                            </label>
+                            <div>
+                                <Label>Rotina WEBHOOK</Label>
+                                <Select
+                                    key={`wr-${String(id)}-${monitorRotinaCodigo ?? "none"}-${webhookRotinas.length}`}
+                                    options={webhookRotinas.map((r) => ({
+                                        value: String(r.ROTCodigo),
+                                        label: `${r.ROTNome}${r.ROTWebhookPath ? ` — ${r.ROTWebhookPath}` : ""}`,
+                                    }))}
+                                    defaultValue={
+                                        monitorRotinaCodigo != null
+                                            ? String(monitorRotinaCodigo)
+                                            : ""
+                                    }
+                                    placeholder={
+                                        webhookRotinas.length
+                                            ? "Selecione a rotina"
+                                            : "Nenhuma rotina WEBHOOK nesta instituição"
+                                    }
+                                    onChange={(v) =>
+                                        setMonitorRotinaCodigo(v ? parseInt(v, 10) : null)
+                                    }
+                                    className={!monitorRotinaAtiva ? "opacity-50 pointer-events-none" : ""}
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Apenas rotinas do tipo WEBHOOK. A API chama{" "}
+                                    <code className="text-xs">API_URL</code> + path do webhook com{" "}
+                                    <code className="text-xs">device_id</code> e <code className="text-xs">time</code>.
+                                </p>
+                            </div>
                         </div>
-                        <div className="sm:col-span-2">
-                            <Label>Path Base (Opcional)</Label>
-                            <InputField
-                                type="text"
-                                placeholder="Ex: /api/monitor"
-                                value={monitorPath}
-                                onChange={(e) => setMonitorPath(e.target.value)}
-                            />
-                            <p className="mt-1 text-xs text-gray-500">
-                                Caso o monitor esteja atrás de um proxy reverso com prefixo.
-                            </p>
-                        </div>
-                    </div>
+                    </>
                 </ComponentCard>
 
                 <ComponentCard

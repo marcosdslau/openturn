@@ -56,8 +56,11 @@ model INSInstituicao {
   INSLogsDiasRetencao Int                   @default(90)
   INSMaxExecucoesSimultaneas Int            @default(8)
   INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
-  INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
-  createdAt           DateTime              @default(now())
+  INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
+  INSControlidMonitorRotinaAtiva    Boolean @default(false)
+  INSControlidMonitorRotinaCodigo   Int?
+  controlidMonitorRotina            ROTRotina?            @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
+  createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
   equipamentos        EQPEquipamento[]
@@ -73,6 +76,8 @@ model INSInstituicao {
   conversasIa         AICConversaIa[]
   mensagensIa         AIMSMensagemIa[]
   creditosIa          AILCreditoLedger[]
+  ctlControlidDaos    CTLControlidDao[]
+  ctlControlidCatraEvents CTLControlidCatraEvent[]
 }
 
 model PESPessoa {
@@ -257,6 +262,55 @@ model CMDComandoFila {
   updatedAt            DateTime       @updatedAt
 }
 
+model CTLControlidDao {
+  CTDCodigo                    Int            @id @default(autoincrement())
+  INSInstituicaoCodigo         Int
+  instituicao                  INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  deviceId                     String         @map("device_id")
+  notifyTime                   BigInt         @map("time")
+  ctlObject                    String         @map("object")
+  changeType                   String         @map("type")
+  valuesId                     String?        @map("values_id")
+  valuesTime                   String?        @map("values_time")
+  valuesEvent                  String?        @map("values_event")
+  valuesDeviceId               String?        @map("values_device_id")
+  valuesIdentifierId           String?        @map("values_identifier_id")
+  valuesUserId                 String?        @map("values_user_id")
+  valuesPortalId               String?        @map("values_portal_id")
+  valuesIdentificationRuleId   String?        @map("values_identification_rule_id")
+  valuesCardValue              String?        @map("values_card_value")
+  valuesQrcodeValue            String?        @map("values_qrcode_value")
+  valuesPinValue               String?        @map("values_pin_value")
+  valuesConfidence             String?        @map("values_confidence")
+  valuesMask                   String?        @map("values_mask")
+  valuesLogTypeId              String?        @map("values_log_type_id")
+  processed                    Boolean        @default(false) @map("processed")
+  createdAt                    DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, notifyTime])
+  @@map("controlid_dao")
+}
+
+model CTLControlidCatraEvent {
+  CTCCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  deviceId             String         @map("device_id")
+  notifyTime           BigInt         @map("time")
+  accessEventId        String         @map("access_event_id")
+  eventType            String         @map("event_type")
+  eventName            String?        @map("event_name")
+  eventTime            BigInt?        @map("event_time")
+  eventUuid            String?        @map("event_uuid")
+  processed            Boolean        @default(false) @map("processed")
+  createdAt            DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, notifyTime])
+  @@map("controlid_catra_event")
+}
+
 // === EXECUTION ENGINE: Rotinas Dinâmicas ===
 
 enum TipoRotina {
@@ -301,8 +355,9 @@ model ROTRotina {
   ROTAtivo              Boolean              @default(true)
   ROTTimeoutSeconds     Int                  @default(30)
   ROTUltimaExecucao     DateTime?
-  INSInstituicaoCodigo  Int
+  INSInstituicaoCodigo Int
   instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  instituicoesControlidMonitor INSInstituicao[] @relation("InstituicaoControlidMonitorRotina")
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   createdBy             Int

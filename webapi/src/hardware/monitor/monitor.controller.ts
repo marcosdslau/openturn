@@ -14,7 +14,7 @@ export class MonitorController {
         @Body() body: any
     ) {
         this.logger.log(`[${codigoInstituicao}] [ControlID] DAO Notification received`);
-        // Handle object changes if necessary (e.g. sync state updates)
+        await this.hardwareService.persistControlidDao(codigoInstituicao, body);
         return {};
     }
 
@@ -24,10 +24,7 @@ export class MonitorController {
         @Body() body: any
     ) {
         this.logger.log(`[${codigoInstituicao}] [ControlID] Catra Event received: ${JSON.stringify(body)}`);
-        // Process access log
-        if (body && body.event) {
-            await this.hardwareService.processAccessLog(codigoInstituicao, body.event);
-        }
+        await this.hardwareService.persistControlidCatraEvent(codigoInstituicao, body);
         return {};
     }
 

@@ -1,5 +1,5 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma, TipoRotina } from '@prisma/client';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dto';
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
@@ -27,7 +27,17 @@ export class InstituicaoService {
     }
 
     async create(dto: CreateInstituicaoDto) {
-        const instituicao = await this.prisma.iNSInstituicao.create({ data: dto });
+        if (dto.INSControlidMonitorRotinaAtiva === true) {
+            throw new BadRequestException(
+                'Configure o disparo do monitor ControlID após criar a instituição.',
+            );
+        }
+        const data: Prisma.INSInstituicaoUncheckedCreateInput = {
+            ...(dto as Prisma.INSInstituicaoUncheckedCreateInput),
+            INSControlidMonitorRotinaAtiva: false,
+            INSControlidMonitorRotinaCodigo: null,
+        };
+        const instituicao = await this.prisma.iNSInstituicao.create({ data });
         await this.publishQueueRefresh(instituicao, 'created');
         return instituicao;
     }
@@ -71,7 +81,46 @@ export class InstituicaoService {
 
     async update(id: number, dto: UpdateInstituicaoDto) {
         await this.findOne(id);
-        const instituicao = await this.prisma.iNSInstituicao.update({ where: { INSCodigo: id }, data: dto });
+
+        const data: Record<string, unknown> = { ...dto };
+
+        if (dto.INSControlidMonitorRotinaAtiva === false) {
+            data.INSControlidMonitorRotinaCodigo = null;
+        }
+
+        if (dto.INSControlidMonitorRotinaAtiva === true) {
+            const codigo = dto.INSControlidMonitorRotinaCodigo;
+            if (codigo == null) {
+                throw new BadRequestException(
+                    'INSControlidMonitorRotinaCodigo é obrigatório quando o disparo do monitor ControlID está ativo.',
+                );
+            }
+            const rotina = await this.prisma.rOTRotina.findFirst({
+                where: {
+                    ROTCodigo: codigo,
+                    INSInstituicaoCodigo: id,
+                    ROTTipo: TipoRotina.WEBHOOK,
+                },
+            });
+            if (!rotina) {
+                throw new BadRequestException(
+                    'Rotina WEBHOOK não encontrada para esta instituição.',
+                );
+            }
+            if (!rotina.ROTAtivo) {
+                throw new BadRequestException('A rotina selecionada está inativa.');
+            }
+            if (!rotina.ROTWebhookPath?.trim() || !rotina.ROTWebhookMetodo) {
+                throw new BadRequestException(
+                    'A rotina deve ter path e método HTTP de webhook configurados.',
+                );
+            }
+        }
+
+        const instituicao = await this.prisma.iNSInstituicao.update({
+            where: { INSCodigo: id },
+            data: data as Prisma.INSInstituicaoUpdateInput,
+        });
         await this.publishQueueRefresh(instituicao, 'updated');
         return instituicao;
     }
