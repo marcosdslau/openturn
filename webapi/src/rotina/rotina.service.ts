@@ -112,6 +112,7 @@ export class RotinaService {
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo ?? true,
+                ROTPermiteParalelismo: data.ROTPermiteParalelismo ?? true,
                 ROTTimeoutSeconds: data.ROTTimeoutSeconds ?? 30,
                 INSInstituicaoCodigo: instituicaoCodigo || data.INSInstituicaoCodigo,
                 createdBy: usuarioCodigo,
@@ -189,6 +190,7 @@ export class RotinaService {
                 ROTWebhookToken: data.ROTWebhookToken,
                 ROTCodigoJS: data.ROTCodigoJS,
                 ROTAtivo: data.ROTAtivo,
+                ROTPermiteParalelismo: data.ROTPermiteParalelismo,
                 ROTTimeoutSeconds:
                     data.ROTTimeoutSeconds === undefined
                         ? undefined
@@ -356,6 +358,17 @@ export class RotinaService {
         }
 
         return { message: 'Execução cancelada', exeId };
+    }
+
+    async clearSerialExecutionLock(rotinaCodigo: number, instituicaoCodigo: number) {
+        const existing = await this.prisma.rOTRotina.findFirst({
+            where: { ROTCodigo: rotinaCodigo, INSInstituicaoCodigo: instituicaoCodigo },
+            select: { ROTCodigo: true },
+        });
+        if (!existing) {
+            throw new NotFoundException('Rotina não encontrada');
+        }
+        return this.rotinaQueueService.clearSerialInflightZset(instituicaoCodigo, rotinaCodigo);
     }
 
     async getExecution(exeId: string, instituicaoCodigo: number) {

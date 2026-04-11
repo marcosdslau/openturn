@@ -31,6 +31,7 @@ interface Equipamento {
     EQPMarca: string | null;
     EQPModelo: string | null;
     EQPEnderecoIp: string | null;
+    deviceId?: string | null;
     EQPAtivo: boolean;
     EQPConfig?: any;
 }
@@ -56,8 +57,9 @@ export default function EquipamentosPage() {
         EQPMarca: string;
         EQPModelo: string;
         EQPEnderecoIp: string;
+        deviceId?: string;
         EQPConfig?: any;
-    }>({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", EQPConfig: {} });
+    }>({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", deviceId: "", EQPConfig: {} });
     const [saving, setSaving] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Equipamento | null>(null);
     const [showPassword, setShowPassword] = useState(false);
@@ -77,7 +79,7 @@ export default function EquipamentosPage() {
 
     const openNew = () => {
         setEditing(null);
-        setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", EQPConfig: { user: 'admin', pass: 'admin', mode: 'standalone' } });
+        setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", deviceId: "", EQPConfig: { user: 'admin', pass: 'admin', mode: 'standalone' } });
         equipmentModal.openModal();
     };
 
@@ -290,10 +292,25 @@ export default function EquipamentosPage() {
                         <input placeholder="Endereço IP" value={form.EQPEnderecoIp} onChange={(e) => setForm({ ...form, EQPEnderecoIp: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
 
+                        {form.EQPMarca === 'ControlID' && (
+                            <input
+                                placeholder="Device ID (Monitor ControlID — equipamento)"
+                                value={form.deviceId || ''}
+                                onChange={(e) => setForm({ ...form, deviceId: e.target.value })}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                            />
+                        )}
+
                         {/* ControlID Config Fields */}
                         {form.EQPMarca === 'ControlID' && (
                             <div className="pt-2 space-y-3 border-t border-gray-100 dark:border-gray-800">
                                 <p className="text-xs font-medium text-gray-500 uppercase">Configuração ControlID</p>
+                                <input
+                                    placeholder="Device ID (host principal / nuvem, EQPConfig)"
+                                    value={(form as any).EQPConfig?.deviceId || ''}
+                                    onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId: e.target.value || undefined } })}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                />
                                 <div className="grid grid-cols-2 gap-3">
                                     <input placeholder="Login (admin)" value={(form as any).EQPConfig?.user || ''}
                                         onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), user: e.target.value } })}
@@ -326,8 +343,14 @@ export default function EquipamentosPage() {
                                     <input placeholder="IP iDFace Entrada" value={(form as any).EQPConfig?.ip_entry || ''}
                                         onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_entry: e.target.value } })}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    <input placeholder="Device ID entrada (Monitor)" value={(form as any).EQPConfig?.deviceId_entry || ''}
+                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_entry: e.target.value || undefined } })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
                                     <input placeholder="IP iDFace Saída" value={(form as any).EQPConfig?.ip_exit || ''}
                                         onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_exit: e.target.value } })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    <input placeholder="Device ID saída (Monitor)" value={(form as any).EQPConfig?.deviceId_exit || ''}
+                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_exit: e.target.value || undefined } })}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
                                 </div>
                             </div>

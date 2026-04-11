@@ -23,6 +23,22 @@ interface Cliente {
 
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
+/** Base pública do backend sem `/api` (o path do monitor já inclui `/api/...` quando necessário). */
+function defaultMonitorServerHost(): string {
+    const raw = process.env.NEXT_PUBLIC_API_URL?.trim() ?? "";
+    if (!raw) return "";
+    return raw.replace(/\/api\/?$/i, "").replace(/\/$/, "");
+}
+
+/** Porta padrão do monitor conforme o esquema da URL do servidor; sem `http(s)://` → 443. */
+function defaultMonitorPortForHost(hostOrUrl: string): number {
+    const raw = hostOrUrl?.trim() ?? "";
+    if (!raw) return 443;
+    if (/^https:\/\//i.test(raw)) return 443;
+    if (/^http:\/\//i.test(raw)) return 80;
+    return 443;
+}
+
 export default function InstituicoesGlobalPage() {
     const { isGlobal, isSuperRoot } = useAuth();
     const [instituicoes, setInstituicoes] = useState<Instituicao[]>([]);
@@ -71,11 +87,22 @@ export default function InstituicoesGlobalPage() {
 
     const openNew = () => {
         setEditing(null);
+        const host = defaultMonitorServerHost();
+        const port = host ? defaultMonitorPortForHost(host) : undefined;
         setForm({
             INSNome: "",
             CLICodigo: clientes[0]?.CLICodigo || 0,
             INSMaxExecucoesSimultaneas: 8,
-            INSConfigHardware: {}
+            INSConfigHardware: host
+                ? {
+                    controlid: {
+                        monitor: {
+                            ip: host,
+                            ...(port !== undefined ? { port } : {}),
+                        },
+                    },
+                }
+                : {},
         });
         setShowModal(true);
     };
@@ -111,11 +138,34 @@ export default function InstituicoesGlobalPage() {
     const handleSave = async () => {
         setSaving(true);
         try {
+            let payload = form;
+            if (!editing) {
+                const envHost = defaultMonitorServerHost();
+                const mon = form.INSConfigHardware?.controlid?.monitor;
+                const ip = mon?.ip?.trim() ?? "";
+                const portNum = typeof mon?.port === "number" ? mon.port : Number(mon?.port);
+                const needsPort = !portNum || portNum === 0;
+
+                if (envHost && !ip) {
+                    const INSConfigHardware = { ...form.INSConfigHardware };
+                    if (!INSConfigHardware.controlid) INSConfigHardware.controlid = {};
+                    if (!INSConfigHardware.controlid.monitor) INSConfigHardware.controlid.monitor = {};
+                    INSConfigHardware.controlid.monitor.ip = envHost;
+                    INSConfigHardware.controlid.monitor.port = defaultMonitorPortForHost(envHost);
+                    payload = { ...form, INSConfigHardware };
+                } else if (ip && needsPort) {
+                    const INSConfigHardware = { ...form.INSConfigHardware };
+                    if (!INSConfigHardware.controlid) INSConfigHardware.controlid = {};
+                    if (!INSConfigHardware.controlid.monitor) INSConfigHardware.controlid.monitor = {};
+                    INSConfigHardware.controlid.monitor.port = defaultMonitorPortForHost(ip);
+                    payload = { ...form, INSConfigHardware };
+                }
+            }
             if (editing) {
-                await apiPatch(`/instituicoes/${editing.INSCodigo}`, form);
+                await apiPatch(`/instituicoes/${editing.INSCodigo}`, payload);
                 setAlert({ type: 'success', message: 'Instituição atualizada com sucesso.' });
             } else {
-                await apiPost("/instituicoes", form);
+                await apiPost("/instituicoes", payload);
                 setAlert({ type: 'success', message: 'Instituição criada com sucesso.' });
             }
             setShowModal(false);

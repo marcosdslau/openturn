@@ -135,7 +135,8 @@ export default function RoutineEditorPage() {
                 ROTWebhookTokenSource: data.ROTWebhookTokenSource,
                 ROTWebhookTokenKey: data.ROTWebhookTokenKey,
                 ROTWebhookToken: data.ROTWebhookToken,
-                ROTAtivo: data.ROTAtivo
+                ROTAtivo: data.ROTAtivo,
+                ROTPermiteParalelismo: data.ROTPermiteParalelismo ?? true,
             });
             const initialCode = data.ROTCodigoJS || "// Escreva seu código aqui...";
             codeRef.current = initialCode;
@@ -985,6 +986,24 @@ export default function RoutineEditorPage() {
                                     )}
                                 </div>
                             )}
+
+                            <div className="flex items-center gap-2 pt-2">
+                                <input
+                                    type="checkbox"
+                                    id="rotPermiteParalelismo"
+                                    checked={settingsForm.ROTPermiteParalelismo ?? rotina.ROTPermiteParalelismo ?? true}
+                                    onChange={(e) =>
+                                        setSettingsForm({ ...settingsForm, ROTPermiteParalelismo: e.target.checked })
+                                    }
+                                    className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                                />
+                                <label
+                                    htmlFor="rotPermiteParalelismo"
+                                    className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer"
+                                >
+                                    Permitir execuções paralelas desta rotina
+                                </label>
+                            </div>
 
                             <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
                                 <input

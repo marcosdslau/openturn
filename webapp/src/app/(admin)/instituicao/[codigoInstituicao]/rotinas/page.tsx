@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import Button from "@/components/ui/button/Button";
 import { Rotina, RotinaService } from "@/services/rotina.service";
-import { ArrowRightIcon, TrashBinIcon, PencilIcon, PlusIcon, AlertIcon, CloseIcon } from "@/icons";
+import { ArrowRightIcon, TrashBinIcon, PencilIcon, PlusIcon, AlertIcon, CloseIcon, RefreshIcon } from "@/icons";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
@@ -16,12 +16,15 @@ export default function RotinasPage() {
     const router = useRouter();
     const { showToast } = useToast();
     const deleteModal = useModal();
+    const clearSerialModal = useModal();
     const [rotinas, setRotinas] = useState<Rotina[]>([]);
     const [activeMap, setActiveMap] = useState<Record<string, { running: boolean; exeId: string }>>({});
     const [loading, setLoading] = useState(true);
     const [executing, setExecuting] = useState<number | null>(null);
     const [stopping, setStopping] = useState<number | null>(null);
     const [deleteTarget, setDeleteTarget] = useState<Rotina | null>(null);
+    const [serialClearTarget, setSerialClearTarget] = useState<Rotina | null>(null);
+    const [clearingSerial, setClearingSerial] = useState(false);
 
     const refreshActiveMap = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -135,6 +138,27 @@ export default function RotinasPage() {
         }
     };
 
+    const handleClearSerialClick = (rotina: Rotina) => {
+        setSerialClearTarget(rotina);
+        clearSerialModal.openModal();
+    };
+
+    const confirmClearSerialLock = async () => {
+        if (!serialClearTarget) return;
+        setClearingSerial(true);
+        try {
+            await RotinaService.clearSerialLock(serialClearTarget.ROTCodigo, codigoInstituicao);
+            showToast("success", "Bloqueio liberado", "O marcador Redis de execução serial foi removido para esta rotina.");
+            clearSerialModal.closeModal();
+            setSerialClearTarget(null);
+        } catch (error: any) {
+            console.error("Erro ao limpar bloqueio serial", error);
+            showToast("error", "Erro", error.message || "Não foi possível limpar o bloqueio no Redis.");
+        } finally {
+            setClearingSerial(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -242,6 +266,24 @@ export default function RotinasPage() {
                                                 </button>
                                             </Tooltip>
                                         )}
+                                        {rotina.ROTPermiteParalelismo === false && (
+                                            <Tooltip
+                                                content="Libera o bloqueio Redis de execução serial (use só se o lock ficou preso; pode permitir duas execuções ao mesmo tempo se a rotina ainda estiver rodando)"
+                                                placement="top"
+                                            >
+                                                <button
+                                                    type="button"
+                                                    disabled={clearingSerial}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleClearSerialClick(rotina);
+                                                    }}
+                                                    className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-amber-50 hover:text-amber-700 disabled:opacity-50 dark:hover:bg-amber-950/30 dark:hover:text-amber-400"
+                                                >
+                                                    <RefreshIcon className="h-4 w-4" />
+                                                </button>
+                                            </Tooltip>
+                                        )}
                                         <button
                                             type="button"
                                             onClick={(e) => {
@@ -303,6 +345,53 @@ export default function RotinasPage() {
                             className="w-full bg-red-600 hover:bg-red-700 sm:w-auto"
                         >
                             Confirmar Exclusão
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={clearSerialModal.isOpen}
+                onClose={() => {
+                    clearSerialModal.closeModal();
+                    setSerialClearTarget(null);
+                }}
+                className="max-w-[480px] p-6 lg:p-8"
+            >
+                <div className="text-center">
+                    <div className="flex items-center justify-center w-16 h-16 mx-auto mb-6 bg-amber-100 rounded-full dark:bg-amber-900/20">
+                        <AlertIcon className="w-8 h-8 text-amber-600 dark:text-amber-500" />
+                    </div>
+                    <h4 className="mb-2 text-xl font-semibold text-gray-800 dark:text-white/90">
+                        Liberar bloqueio de execução serial
+                    </h4>
+                    <p className="text-sm text-gray-500 dark:text-gray-400 text-left">
+                        Esta operação remove no Redis o semáforo que impede execuções paralelas da rotina{" "}
+                        <span className="font-semibold text-gray-800 dark:text-white">
+                            &quot;{serialClearTarget?.ROTNome}&quot;
+                        </span>
+                        . É uma ação <span className="font-semibold text-amber-800 dark:text-amber-300">perigosa</span>:
+                        se a rotina ainda estiver em execução no worker, outra instância pode iniciar em paralelo e
+                        corromper o fluxo esperado. Use apenas quando tiver certeza de que o lock ficou preso por falha.
+                    </p>
+                    <div className="flex items-center justify-center gap-3 mt-8">
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                clearSerialModal.closeModal();
+                                setSerialClearTarget(null);
+                            }}
+                            className="w-full sm:w-auto"
+                            disabled={clearingSerial}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            onClick={() => void confirmClearSerialLock()}
+                            className="w-full bg-amber-600 hover:bg-amber-700 sm:w-auto"
+                            disabled={clearingSerial}
+                        >
+                            {clearingSerial ? "Liberando…" : "Confirmar liberação"}
                         </Button>
                     </div>
                 </div>

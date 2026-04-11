@@ -436,8 +436,38 @@ class RabbitRotinaConsumer {
             return;
         }
 
+        let tenantStillHeld = true;
+        let serialAcquired = false;
         let jobSucceeded = false;
         try {
+            const rotinaMeta = await this.prisma.rOTRotina.findFirst({
+                where: {
+                    ROTCodigo: data.rotinaCodigo,
+                    INSInstituicaoCodigo: data.instituicaoCodigo,
+                },
+                select: { ROTPermiteParalelismo: true },
+            });
+
+            if (rotinaMeta && rotinaMeta.ROTPermiteParalelismo === false) {
+                const gotSerial = await this.tryAcquireRotinaSerialSlot(
+                    data.instituicaoCodigo,
+                    data.rotinaCodigo,
+                    data.exeId,
+                );
+                if (!gotSerial) {
+                    const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
+                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                    tenantStillHeld = false;
+                    if (republished) {
+                        channel.ack(msg);
+                    } else {
+                        channel.nack(msg, false, true);
+                    }
+                    return;
+                }
+                serialAcquired = true;
+            }
+
             await this.clearPendingMarker(data.exeId);
             await this.processJob(data);
             jobSucceeded = true;
@@ -446,9 +476,14 @@ class RabbitRotinaConsumer {
                 workerLogLine(`Job ${data.exeId} error:`),
                 error?.message ?? error,
             );
+        } finally {
+            if (serialAcquired) {
+                await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+            }
+            if (tenantStillHeld) {
+                await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+            }
         }
-
-        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
 
         if (jobSucceeded) {
             channel.ack(msg);
@@ -578,6 +613,48 @@ class RabbitRotinaConsumer {
 
     private async releaseTenantSlot(instituicaoCodigo: number, exeId: string) {
         const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
+        await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
+    }
+
+    /** Contrato com webapi RotinaQueueService.serialRotinaInflightZkey — manter prefixo idêntico. */
+    private serialRotinaInflightZkey(instituicaoCodigo: number, rotinaCodigo: number): string {
+        return `rotina:serial:inflight:z:${instituicaoCodigo}:${rotinaCodigo}`;
+    }
+
+    /** Uma execução por rotina (quando ROTPermiteParalelismo = false): ZSET com limite 1 e lease. */
+    private async tryAcquireRotinaSerialSlot(
+        instituicaoCodigo: number,
+        rotinaCodigo: number,
+        exeId: string,
+    ): Promise<boolean> {
+        const zkey = this.serialRotinaInflightZkey(instituicaoCodigo, rotinaCodigo);
+        const now = Date.now();
+        const until = now + INFLIGHT_LEASE_MS;
+        const result = await this.redis.eval(
+            `local zkey = KEYS[1]
+             local now = tonumber(ARGV[1])
+             local maxv = tonumber(ARGV[2])
+             local exe = ARGV[3]
+             local untilScore = tonumber(ARGV[4])
+             redis.call('ZREMRANGEBYSCORE', zkey, '-inf', now)
+             local n = redis.call('ZCARD', zkey)
+             if n < maxv then
+               redis.call('ZADD', zkey, untilScore, exe)
+               return 1
+             end
+             return 0`,
+            1,
+            zkey,
+            String(now),
+            '1',
+            exeId,
+            String(until),
+        );
+        return Number(result) === 1;
+    }
+
+    private async releaseRotinaSerialSlot(instituicaoCodigo: number, rotinaCodigo: number, exeId: string) {
+        const zkey = this.serialRotinaInflightZkey(instituicaoCodigo, rotinaCodigo);
         await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
     }
 

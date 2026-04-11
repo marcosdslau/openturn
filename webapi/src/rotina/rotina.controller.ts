@@ -87,6 +87,14 @@ export class RotinaController {
         return this.rotinaService.executeManual(id, instituicaoCodigo);
     }
 
+    @Post(':id/serial-lock/clear')
+    async clearSerialLock(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number,
+    ) {
+        return this.rotinaService.clearSerialExecutionLock(id, instituicaoCodigo);
+    }
+
     @Post(':id/execucoes/:exeId/cancel')
     async cancelExecution(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,

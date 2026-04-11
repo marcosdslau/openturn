@@ -24,6 +24,8 @@ export interface Rotina {
     ROTWebhookToken?: string;
     ROTCodigoJS: string;
     ROTAtivo: boolean;
+    /** Quando false, o worker permite no máximo uma execução por vez (semáforo Redis). Omitido = comportamento paralelo (API migra com default true). */
+    ROTPermiteParalelismo?: boolean;
     ROTTimeoutSeconds: number;
     ROTUltimaExecucao?: Date;
     INSInstituicaoCodigo: number;
@@ -99,6 +101,13 @@ export const RotinaService = {
 
     cancelExecution: async (id: number, exeId: string, instituicaoCodigo: number) => {
         return apiPost(`/instituicao/${instituicaoCodigo}/rotina/${id}/execucoes/${exeId}/cancel`, {});
+    },
+
+    clearSerialLock: async (id: number, instituicaoCodigo: number) => {
+        return apiPost<{ ok: boolean }>(
+            `/instituicao/${instituicaoCodigo}/rotina/${id}/serial-lock/clear`,
+            {},
+        );
     },
 
     getVersions: async (id: number, instituicaoCodigo: number) => {

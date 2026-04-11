@@ -39,7 +39,8 @@ export default function NovaRotinaPage() {
     return { message: 'Execução concluída com sucesso' };
 `,
         ROTTimeoutSeconds: 30,
-        ROTAtivo: true
+        ROTAtivo: true,
+        ROTPermiteParalelismo: true,
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -124,6 +125,19 @@ export default function NovaRotinaPage() {
                                 onChange={(e) => setFormData({ ...formData, ROTTimeoutSeconds: Number(e.target.value) })}
                             />
                         </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="permiteParalelismo"
+                            checked={formData.ROTPermiteParalelismo}
+                            onChange={(e) => setFormData({ ...formData, ROTPermiteParalelismo: e.target.checked })}
+                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <label htmlFor="permiteParalelismo" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                            Permitir execuções paralelas desta rotina (várias mensagens na fila podem rodar ao mesmo tempo)
+                        </label>
                     </div>
 
                     {formData.ROTTipo === 'SCHEDULE' && (

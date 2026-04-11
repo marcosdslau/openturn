@@ -125,6 +125,8 @@ model EQPEquipamento {
   EQPMarca             String?
   EQPModelo            String?
   EQPEnderecoIp        String?
+  /// ID do dispositivo no Monitor ControlID (nuvem); coluna dedicada (espelha ou substitui deviceId em EQPConfig quando único)
+  deviceId             String?               @map("EQPDeviceId")
   EQPConfig            Json?
   EQPUltimoSincronismo DateTime?
   EQPUsaAddon          Boolean               @default(false)
@@ -341,6 +343,7 @@ model ROTRotina {
   ROTWebhookToken       String?
   ROTCodigoJS           String
   ROTAtivo              Boolean              @default(true)
+  ROTPermiteParalelismo Boolean              @default(true)
   ROTTimeoutSeconds     Int                  @default(30)
   ROTUltimaExecucao     DateTime?
   INSInstituicaoCodigo Int

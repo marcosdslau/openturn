@@ -25,9 +25,16 @@ export interface ControlIDConfig {
     entry_direction?: 'clockwise' | 'counter_clockwise';
     anti_double_entry?: 'active' | 'inactive';
     door_id?: number | string;
+    /** @deprecated Prefira `deviceId` (mesmo significado que o device_id do Monitor no host principal). */
     onlineServerId?: string;
+    /** device_id do Monitor ControlID associado ao host / equipamento principal (IP em EQPEnderecoIp ou `host`). */
+    deviceId?: string;
     ip_entry?: string; // IP for entry facial reader
+    /** device_id do Monitor no leitor de entrada (par de `ip_entry`). */
+    deviceId_entry?: string;
     ip_exit?: string; // IP for exit facial reader
+    /** device_id do Monitor no leitor de saída (par de `ip_exit`). */
+    deviceId_exit?: string;
 }
 
 export interface HardwareUser {

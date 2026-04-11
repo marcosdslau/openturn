@@ -309,6 +309,28 @@ export class RotinaQueueService {
         return `rotina:inflight:z:${instituicaoCodigo}`;
     }
 
+    /**
+     * ZSET do semáforo de execução serial por rotina (worker: rotina-consumer).
+     * Manter alinhado a worker/src/rotina-consumer.ts.
+     */
+    serialRotinaInflightZkey(instituicaoCodigo: number, rotinaCodigo: number): string {
+        return `rotina:serial:inflight:z:${instituicaoCodigo}:${rotinaCodigo}`;
+    }
+
+    /** Remove o ZSET de semáforo serial da rotina (operação manual se lock ficar preso). */
+    async clearSerialInflightZset(instituicaoCodigo: number, rotinaCodigo: number): Promise<{ ok: boolean }> {
+        if (!this.redis) {
+            throw new ServiceUnavailableException('Redis indisponível');
+        }
+        try {
+            await this.redis.unlink(this.serialRotinaInflightZkey(instituicaoCodigo, rotinaCodigo));
+            return { ok: true };
+        } catch (e) {
+            this.logger.warn(`Falha ao limpar serial inflight (inst=${instituicaoCodigo}, rotina=${rotinaCodigo}):`, e);
+            throw new ServiceUnavailableException('Falha ao limpar bloqueio serial no Redis');
+        }
+    }
+
     /** Execuções em andamento (semáforo Redis) para uma instituição; remove leases expirados antes de contar. */
     async getInflightCountForInstitution(instituicaoCodigo: number): Promise<number> {
         if (!this.redis) return 0;

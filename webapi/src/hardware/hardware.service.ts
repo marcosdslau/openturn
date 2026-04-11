@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import {
     EQPEquipamento,
     HttpMetodo,
+    Prisma,
     TipoRotina,
     WebhookTokenSource,
 } from '@prisma/client';
@@ -244,8 +245,76 @@ export class HardwareService {
         }
     }
 
+    private static readonly INT32_MIN = -2147483648;
+    private static readonly INT32_MAX = 2147483647;
+
+    /**
+     * Resolve a instituição a partir do device_id do webhook ControlID.
+     * 1) Coluna EQPEquipamento.deviceId (EQPDeviceId).
+     * 2) EQPConfig no contrato ControlID: deviceId, deviceId_entry, deviceId_exit; onlineServerId (legado).
+     * 3) Legado: device_id numérico int32 = EQPCodigo.
+     */
+    async resolveInstituicaoCodigoFromControlidDeviceId(deviceId: unknown): Promise<number | null> {
+        const s = this.ctlStr(deviceId);
+        if (s === undefined || s === '') return null;
+
+        const byColumn = await this.prisma.eQPEquipamento.findFirst({
+            where: { deviceId: s },
+            select: { INSInstituicaoCodigo: true },
+        });
+        if (byColumn) return byColumn.INSInstituicaoCodigo;
+
+        const rows = await this.prisma.$queryRaw<{ INSInstituicaoCodigo: number }[]>(
+            Prisma.sql`
+                SELECT e."INSInstituicaoCodigo"
+                FROM "EQPEquipamento" e
+                WHERE e."EQPMarca" = ${HardwareBrand.CONTROLID}
+                  AND e."EQPConfig" IS NOT NULL
+                  AND (
+                    e."EQPConfig"->>'deviceId' = ${s}
+                    OR e."EQPConfig"->>'deviceId_entry' = ${s}
+                    OR e."EQPConfig"->>'deviceId_exit' = ${s}
+                    OR e."EQPConfig"->>'onlineServerId' = ${s}
+                  )
+                LIMIT 1
+            `,
+        );
+        if (rows[0]?.INSInstituicaoCodigo != null) return rows[0].INSInstituicaoCodigo;
+
+        if (/^-?\d+$/.test(s)) {
+            try {
+                const bi = BigInt(s);
+                if (
+                    bi >= BigInt(HardwareService.INT32_MIN) &&
+                    bi <= BigInt(HardwareService.INT32_MAX)
+                ) {
+                    const eq = await this.prisma.eQPEquipamento.findFirst({
+                        where: { EQPCodigo: Number(bi) },
+                        select: { INSInstituicaoCodigo: true },
+                    });
+                    if (eq) return eq.INSInstituicaoCodigo;
+                }
+            } catch {
+                /* não é inteiro válido para BigInt */
+            }
+        }
+
+        return null;
+    }
+
+    private daoChangeDedupKey(ctlObject: string, changeType: string, valuesId: string | undefined) {
+        return `${ctlObject}\0${changeType}\0${valuesId ?? ''}`;
+    }
+
+    private catraEventDedupKey(accessEventId: string, eventUuid: string | undefined | null) {
+        return `${accessEventId}\0${eventUuid ?? ''}`;
+    }
+
     /**
      * Persiste payload bruto do webhook Monitor ControlID (DAO / object_changes).
+     * Por tenant + (deviceId, notifyTime): atualiza linhas cuja chave (object, type, values.id)
+     * já existe (mantém CTDCodigo, processed, createdAt); insere apenas alterações novas;
+     * remove linhas do mesmo trio que deixaram de vir no payload.
      */
     async persistControlidDao(instituicaoCodigo: number, body: any) {
         if (!body || !Array.isArray(body.object_changes) || body.object_changes.length === 0) {
@@ -253,60 +322,176 @@ export class HardwareService {
         }
         const deviceId = this.ctlStr(body.device_id) ?? '';
         const notifyTime = this.ctlBigInt(body.time);
-        const rows = body.object_changes.map((change: any) => {
+        const changesByKey = new Map<string, any>();
+        for (const change of body.object_changes) {
             const v = change?.values ?? {};
-            return {
-                INSInstituicaoCodigo: instituicaoCodigo,
-                deviceId,
-                notifyTime,
-                ctlObject: this.ctlStr(change?.object) ?? '',
-                changeType: this.ctlStr(change?.type) ?? '',
-                valuesId: this.ctlStr(v.id),
-                valuesTime: this.ctlStr(v.time),
-                valuesEvent: this.ctlStr(v.event),
-                valuesDeviceId: this.ctlStr(v.device_id),
-                valuesIdentifierId: this.ctlStr(v.identifier_id),
-                valuesUserId: this.ctlStr(v.user_id),
-                valuesPortalId: this.ctlStr(v.portal_id),
-                valuesIdentificationRuleId: this.ctlStr(v.identification_rule_id),
-                valuesCardValue: this.ctlStr(v.card_value),
-                valuesQrcodeValue: this.ctlStr(v.qrcode_value),
-                valuesPinValue: this.ctlStr(v.pin_value),
-                valuesConfidence: this.ctlStr(v.confidence),
-                valuesMask: this.ctlStr(v.mask),
-                valuesLogTypeId: this.ctlStr(v.log_type_id),
-            };
+            const ctlObject = this.ctlStr(change?.object) ?? '';
+            const changeType = this.ctlStr(change?.type) ?? '';
+            const valuesId = this.ctlStr(v.id);
+            changesByKey.set(this.daoChangeDedupKey(ctlObject, changeType, valuesId), change);
+        }
+
+        await this.tenantService.runWithTenant(instituicaoCodigo, async () => {
+            const existingRows = await this.prisma.rls.cTLControlidDao.findMany({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    deviceId,
+                    notifyTime,
+                },
+            });
+            const byKey = new Map<string, (typeof existingRows)[number]>();
+            for (const row of existingRows) {
+                byKey.set(
+                    this.daoChangeDedupKey(row.ctlObject, row.changeType, row.valuesId ?? undefined),
+                    row,
+                );
+            }
+            const incomingKeys = new Set<string>(changesByKey.keys());
+            const toCreate: Prisma.CTLControlidDaoCreateManyInput[] = [];
+
+            for (const change of changesByKey.values()) {
+                const v = change?.values ?? {};
+                const ctlObject = this.ctlStr(change?.object) ?? '';
+                const changeType = this.ctlStr(change?.type) ?? '';
+                const valuesId = this.ctlStr(v.id);
+                const key = this.daoChangeDedupKey(ctlObject, changeType, valuesId);
+                incomingKeys.add(key);
+
+                const valuesPayload = {
+                    valuesTime: this.ctlStr(v.time),
+                    valuesEvent: this.ctlStr(v.event),
+                    valuesDeviceId: this.ctlStr(v.device_id),
+                    valuesIdentifierId: this.ctlStr(v.identifier_id),
+                    valuesUserId: this.ctlStr(v.user_id),
+                    valuesPortalId: this.ctlStr(v.portal_id),
+                    valuesIdentificationRuleId: this.ctlStr(v.identification_rule_id),
+                    valuesCardValue: this.ctlStr(v.card_value),
+                    valuesQrcodeValue: this.ctlStr(v.qrcode_value),
+                    valuesPinValue: this.ctlStr(v.pin_value),
+                    valuesConfidence: this.ctlStr(v.confidence),
+                    valuesMask: this.ctlStr(v.mask),
+                    valuesLogTypeId: this.ctlStr(v.log_type_id),
+                };
+
+                const found = byKey.get(key);
+                if (found) {
+                    await this.prisma.rls.cTLControlidDao.update({
+                        where: { CTDCodigo: found.CTDCodigo },
+                        data: {
+                            ctlObject,
+                            changeType,
+                            valuesId: valuesId ?? null,
+                            ...valuesPayload,
+                        },
+                    });
+                } else {
+                    toCreate.push({
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        deviceId,
+                        notifyTime,
+                        ctlObject,
+                        changeType,
+                        valuesId: valuesId ?? null,
+                        ...valuesPayload,
+                        processed: false,
+                    });
+                }
+            }
+
+            const orphanIds = existingRows
+                .filter(
+                    (r) =>
+                        !incomingKeys.has(
+                            this.daoChangeDedupKey(r.ctlObject, r.changeType, r.valuesId ?? undefined),
+                        ),
+                )
+                .map((r) => r.CTDCodigo);
+            if (orphanIds.length > 0) {
+                await this.prisma.rls.cTLControlidDao.deleteMany({
+                    where: { CTDCodigo: { in: orphanIds } },
+                });
+            }
+            if (toCreate.length > 0) {
+                await this.prisma.rls.cTLControlidDao.createMany({ data: toCreate });
+            }
         });
-        await this.tenantService.runWithTenant(instituicaoCodigo, () =>
-            this.prisma.rls.cTLControlidDao.createMany({ data: rows }),
-        );
         this.maybeTriggerControlidMonitorWebhook(instituicaoCodigo, body);
     }
 
     /**
      * Persiste payload bruto do webhook Monitor ControlID (catra_event).
+     * Por tenant + (deviceId, notifyTime): atualiza se já existir a mesma chave
+     * (access_event_id + event.uuid); cria se novo; remove órfãos do mesmo trio.
      */
     async persistControlidCatraEvent(instituicaoCodigo: number, body: any) {
         if (!body) return;
         const ev = body.event ?? {};
         const eventTimeRaw = ev.time;
-        await this.tenantService.runWithTenant(instituicaoCodigo, () =>
-            this.prisma.rls.cTLControlidCatraEvent.create({
-                data: {
+        const deviceId = this.ctlStr(body.device_id) ?? '';
+        const notifyTime = this.ctlBigInt(body.time);
+        const accessEventId = this.ctlStr(body.access_event_id) ?? '';
+        const eventUuid = this.ctlStr(ev.uuid);
+        const key = this.catraEventDedupKey(accessEventId, eventUuid);
+
+        const eventPayload = {
+            eventType: this.ctlStr(ev.type) ?? '',
+            eventName: this.ctlStr(ev.name),
+            eventTime:
+                eventTimeRaw !== undefined && eventTimeRaw !== null
+                    ? this.ctlBigInt(eventTimeRaw)
+                    : null,
+            eventUuid: eventUuid ?? null,
+        };
+
+        await this.tenantService.runWithTenant(instituicaoCodigo, async () => {
+            const existingRows = await this.prisma.rls.cTLControlidCatraEvent.findMany({
+                where: {
                     INSInstituicaoCodigo: instituicaoCodigo,
-                    deviceId: this.ctlStr(body.device_id) ?? '',
-                    notifyTime: this.ctlBigInt(body.time),
-                    accessEventId: this.ctlStr(body.access_event_id) ?? '',
-                    eventType: this.ctlStr(ev.type) ?? '',
-                    eventName: this.ctlStr(ev.name),
-                    eventTime:
-                        eventTimeRaw !== undefined && eventTimeRaw !== null
-                            ? this.ctlBigInt(eventTimeRaw)
-                            : null,
-                    eventUuid: this.ctlStr(ev.uuid),
+                    deviceId,
+                    notifyTime,
                 },
-            }),
-        );
+            });
+            const byKey = new Map<string, (typeof existingRows)[number]>();
+            for (const row of existingRows) {
+                byKey.set(
+                    this.catraEventDedupKey(row.accessEventId, row.eventUuid),
+                    row,
+                );
+            }
+            const incomingKeys = new Set<string>([key]);
+            const found = byKey.get(key);
+            if (found) {
+                await this.prisma.rls.cTLControlidCatraEvent.update({
+                    where: { CTCCodigo: found.CTCCodigo },
+                    data: {
+                        accessEventId,
+                        ...eventPayload,
+                    },
+                });
+            } else {
+                await this.prisma.rls.cTLControlidCatraEvent.create({
+                    data: {
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        deviceId,
+                        notifyTime,
+                        accessEventId,
+                        ...eventPayload,
+                        processed: false,
+                    },
+                });
+            }
+            const orphanIds = existingRows
+                .filter(
+                    (r) =>
+                        !incomingKeys.has(this.catraEventDedupKey(r.accessEventId, r.eventUuid)),
+                )
+                .map((r) => r.CTCCodigo);
+            if (orphanIds.length > 0) {
+                await this.prisma.rls.cTLControlidCatraEvent.deleteMany({
+                    where: { CTCCodigo: { in: orphanIds } },
+                });
+            }
+        });
         this.maybeTriggerControlidMonitorWebhook(instituicaoCodigo, body);
     }
 
