@@ -119,6 +119,32 @@ async function main() {
     }
     console.log(`✅ Equipamentos: ${equipamentos.length} criados`);
 
+    // 5.5 AI MVP - Providers & Models
+    const providerOpenAI = await prisma.aIPProvedorIa.upsert({
+        where: { AIPCodigo: 1 },
+        update: {},
+        create: {
+            AIPCodigo: 1,
+            AIPNome: 'OpenAI',
+            AIPAtivo: true,
+        },
+    });
+
+    const aiModels = [
+        { AIMCodigo: 1, AIPCodigo: providerOpenAI.AIPCodigo, AIMNome: 'gpt-3.5-turbo', AIMProviderModelId: 'gpt-3.5-turbo', AIMCustoInput1k: 0.0005, AIMCustoOutput1k: 0.0015, AIMMaxTokens: 16384 },
+        { AIMCodigo: 2, AIPCodigo: providerOpenAI.AIPCodigo, AIMNome: 'gpt-4-turbo', AIMProviderModelId: 'gpt-4-turbo', AIMCustoInput1k: 0.01, AIMCustoOutput1k: 0.03, AIMMaxTokens: 128000 },
+        { AIMCodigo: 3, AIPCodigo: providerOpenAI.AIPCodigo, AIMNome: 'gpt-4o-mini', AIMProviderModelId: 'gpt-4o-mini', AIMCustoInput1k: 0.00015, AIMCustoOutput1k: 0.0006, AIMMaxTokens: 128000 },
+    ];
+
+    for (const m of aiModels) {
+        await prisma.aIMModeloIa.upsert({
+            where: { AIMCodigo: m.AIMCodigo },
+            update: {},
+            create: { ...m, AIMAtivo: true },
+        });
+    }
+    console.log(`✅ AI: ${aiModels.length} modelos de IA criados`);
+
     // 6. Reset all sequences to start at 100 (prevents autoincrement conflicts)
     const sequences = [
         { table: 'CLICliente', column: 'CLICodigo' },
@@ -131,6 +157,12 @@ async function main() {
         { table: 'USRAcesso', column: 'UACCodigo' },
         { table: 'REGRegistroPassagem', column: 'REGCodigo' },
         { table: 'CMDComandoFila', column: 'CMDCodigo' },
+        { table: 'AIPProvedorIa', column: 'AIPCodigo' },
+        { table: 'AIMModeloIa', column: 'AIMCodigo' },
+        { table: 'AIPEPermissaoIa', column: 'AIPECodigo' },
+        { table: 'AICConversaIa', column: 'AICCodigo' },
+        { table: 'AIMSMensagemIa', column: 'AIMSCodigo' },
+        { table: 'AILCreditoLedger', column: 'AILCodigo' },
     ];
 
     for (const seq of sequences) {

@@ -10,6 +10,11 @@ import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
 import { AlertIcon, UserCircleIcon } from "@/icons";
+import PessoasFiltros, {
+    PESSOA_FILTROS_VAZIOS,
+    buildPessoaListQuery,
+    type PessoaFiltrosAplicados,
+} from "./components/PessoasFiltros";
 
 interface Pessoa {
     PESCodigo: number;
@@ -25,6 +30,17 @@ interface Pessoa {
     PESAtivo: boolean;
 }
 
+interface Mapeamento {
+    PEQCodigo: number;
+    PEQIdNoEquipamento: string;
+    EQPCodigo: number;
+    equipamento: {
+        EQPDescricao: string;
+        EQPMarca: string;
+        EQPModelo: string;
+    };
+}
+
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
 export default function PessoasPage() {
@@ -36,35 +52,57 @@ export default function PessoasPage() {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
-    const [search, setSearch] = useState("");
+    const [filtrosAplicados, setFiltrosAplicados] = useState<PessoaFiltrosAplicados>(
+        PESSOA_FILTROS_VAZIOS
+    );
+    const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
 
     // Modals
     const personModal = useModal();
     const deactivateModal = useModal();
+    const mappingModal = useModal();
 
     const [form, setForm] = useState({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
     const [saving, setSaving] = useState(false);
     const [deactivateTarget, setDeactivateTarget] = useState<Pessoa | null>(null);
     const [editing, setEditing] = useState<Pessoa | null>(null);
 
+    const [mappingTarget, setMappingTarget] = useState<Pessoa | null>(null);
+    const [mappings, setMappings] = useState<Mapeamento[]>([]);
+    const [loadingMappings, setLoadingMappings] = useState(false);
+
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
         setLoading(true);
         try {
-            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/pessoa?page=${page}&limit=${limit}`);
-            let data = res.data || [];
-            if (search) {
-                const s = search.toLowerCase();
-                data = data.filter((p) => p.PESNome?.toLowerCase().includes(s) || p.PESDocumento?.toLowerCase().includes(s));
-            }
-            setPessoas(data);
+            const qs = buildPessoaListQuery(page, limit, filtrosAplicados);
+            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(
+                `/instituicao/${codigoInstituicao}/pessoa?${qs}`
+            );
+            setPessoas(res.data || []);
             setMeta(res.meta);
         } catch (error: any) {
             showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as pessoas.");
         } finally { setLoading(false); }
-    }, [codigoInstituicao, page, limit, search, showToast]);
+    }, [codigoInstituicao, page, limit, filtrosAplicados, showToast]);
 
     useEffect(() => { load(); }, [load]);
+
+    const loadGrupos = useCallback(async () => {
+        if (!codigoInstituicao) return;
+        try {
+            const list = await apiGet<string[]>(
+                `/instituicao/${codigoInstituicao}/pessoa/grupos`
+            );
+            setGruposDisponiveis(Array.isArray(list) ? list : []);
+        } catch {
+            setGruposDisponiveis([]);
+        }
+    }, [codigoInstituicao]);
+
+    useEffect(() => {
+        loadGrupos();
+    }, [loadGrupos]);
 
     const openNew = () => {
         setForm({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
@@ -83,6 +121,7 @@ export default function PessoasPage() {
             }
             personModal.closeModal();
             load();
+            loadGrupos();
         } catch (error: any) {
             showToast("error", "Erro ao salvar", error.message || "Ocorreu um erro ao processar a solicitação.");
         } finally { setSaving(false); }
@@ -101,9 +140,25 @@ export default function PessoasPage() {
             showToast("success", "Pessoa desativada", "O registro foi desativado com sucesso.");
             deactivateModal.closeModal();
             load();
+            loadGrupos();
         } catch (error: any) {
             showToast("error", "Erro ao desativar", error.message || "Não foi possível desativar a pessoa.");
         } finally { setSaving(false); }
+    };
+
+    const handleMappingClick = async (p: Pessoa) => {
+        setMappingTarget(p);
+        setMappings([]);
+        mappingModal.openModal();
+        setLoadingMappings(true);
+        try {
+            const data = await apiGet<Mapeamento[]>(`/instituicao/${codigoInstituicao}/pessoa/${p.PESCodigo}/mappings`);
+            setMappings(data);
+        } catch (error: any) {
+            showToast("error", "Erro ao carregar mapeamentos", error.message || "Não foi possível carregar os IDs de hardware.");
+        } finally {
+            setLoadingMappings(false);
+        }
     };
 
     return (
@@ -113,11 +168,17 @@ export default function PessoasPage() {
                 <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
             </div>
 
-            {/* Search */}
-            <input
-                type="text" placeholder="Buscar por nome ou documento..."
-                value={search} onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+            <PessoasFiltros
+                aplicados={filtrosAplicados}
+                gruposDisponiveis={gruposDisponiveis}
+                onAplicar={(f) => {
+                    setFiltrosAplicados(f);
+                    setPage(1);
+                }}
+                onLimpar={() => {
+                    setFiltrosAplicados(PESSOA_FILTROS_VAZIOS);
+                    setPage(1);
+                }}
             />
 
             {/* Table */}
@@ -171,9 +232,18 @@ export default function PessoasPage() {
                                     <button
                                         onClick={(e) => {
                                             e.stopPropagation();
+                                            handleMappingClick(p);
+                                        }}
+                                        className="text-xs text-brand-500 hover:underline px-2 py-1 rounded bg-brand-50 dark:bg-brand-900/10"
+                                    >
+                                        Mapeamento
+                                    </button>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             handleDeactivateClick(p);
                                         }}
-                                        className="text-xs text-red-500 hover:underline"
+                                        className="text-xs text-red-500 hover:underline px-2 py-1"
                                     >
                                         Desativar
                                     </button>
@@ -271,6 +341,72 @@ export default function PessoasPage() {
                         <Button size="sm" className="bg-amber-500 hover:bg-amber-600 text-white border-transparent" onClick={confirmDeactivate} disabled={saving}>
                             {saving ? "Desativando..." : "Sim, Desativar"}
                         </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Mapping Modal */}
+            <Modal
+                isOpen={mappingModal.isOpen}
+                onClose={mappingModal.closeModal}
+                className="max-w-lg p-6"
+            >
+                <div className="space-y-4">
+                    <div>
+                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                            Mapeamento de Hardware
+                        </h3>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                            IDs de <strong>{mappingTarget?.PESNome}</strong> nos equipamentos sincronizados.
+                        </p>
+                    </div>
+
+                    <div className="mt-4 border border-gray-100 dark:border-gray-800 rounded-xl overflow-hidden">
+                        <table className="w-full text-sm text-left">
+                            <thead className="bg-gray-50 dark:bg-white/[0.02]">
+                                <tr>
+                                    <th className="px-4 py-2 font-medium text-gray-500 dark:text-gray-400">Equipamento</th>
+                                    <th className="px-4 py-2 font-medium text-gray-500 dark:text-gray-400 text-center">ID no Hardware</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                                {loadingMappings ? (
+                                    <tr>
+                                        <td colSpan={2} className="px-4 py-8 text-center text-gray-400">
+                                            Carregando IDs...
+                                        </td>
+                                    </tr>
+                                ) : mappings.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={2} className="px-4 py-8 text-center text-gray-400">
+                                            Nenhum mapeamento encontrado.
+                                        </td>
+                                    </tr>
+                                ) : (
+                                    mappings.map((m) => (
+                                        <tr key={m.PEQCodigo}>
+                                            <td className="px-4 py-3">
+                                                <div className="font-medium text-gray-800 dark:text-white/90">
+                                                    {m.equipamento.EQPDescricao}
+                                                </div>
+                                                <div className="text-xs text-gray-500">
+                                                    {m.equipamento.EQPMarca} - {m.equipamento.EQPModelo}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-3 text-center">
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-md text-xs font-mono font-medium bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border border-gray-200 dark:border-gray-700">
+                                                    {m.PEQIdNoEquipamento}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    ))
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div className="flex justify-end pt-2">
+                        <Button size="sm" onClick={mappingModal.closeModal}>Fechar</Button>
                     </div>
                 </div>
             </Modal>

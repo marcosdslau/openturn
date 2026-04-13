@@ -7,281 +7,7 @@ interface RoutineHelperProps {
     onInsertSnippet: (snippet: string) => void;
 }
 
-// Helper to generate snippets from schema
-const generateSchemaSnippets = () => {
-    return ROUTINE_SCHEMA.flatMap(table => {
-        const alias = table.name; // Use Real Name (PascalCase, e.g. PESPessoa)
-        const friendly = table.alias; // Friendly alias (e.g. Pessoa)
-        const capitalName = friendly.charAt(0).toUpperCase() + friendly.slice(1);
-        const pkField = table.fields.find(f => f.pk)?.name || 'id';
-
-        return [
-            {
-                label: `${capitalName} - Buscar Vários`,
-                detail: `Lista registros de ${friendly} com filtro`,
-                code: `const lista${capitalName} = await context.db.${alias}.findMany({
-    where: {
-        // Ex: Nome: { contains: 'Maria' }
-    },
-    take: 10,
-    orderBy: {
-        ${pkField}: 'desc'
-    }
-});
-console.log(\`Encontrados \${lista${capitalName}.length} registros de ${friendly}\`);
-
-`
-            },
-            {
-                label: `${capitalName} - Buscar Um (por ID)`,
-                detail: `Busca um único registro de ${friendly}`,
-                code: `const ${alias} = await context.db.${alias}.findFirst({
-    where: {
-        ${pkField}: 1
-    }
-});
-if (${alias}) {
-    console.log('${friendly} encontrada:', ${alias});
-} else {
-    console.log('${friendly} não encontrada');
-}
-    `
-            },
-            {
-                label: `${capitalName} - Criar Novo`,
-                detail: `Insere um novo registro de ${friendly}`,
-                code: `const novo${capitalName} = await context.db.${alias}.create({
-    data: {
-        // Preencha os campos obrigatórios aqui
-        // Ex: Nome: 'Novo Registro'
-    }
-});
-console.log('${friendly} criada com ID:', novo${capitalName}.${pkField});
-
-`
-            },
-            {
-                label: `${capitalName} - Atualizar (por ID)`,
-                detail: `Atualiza um registro de ${friendly}`,
-                code: `const atualizado = await context.db.${alias}.update({
-    where: {
-        ${pkField}: 1
-    },
-    data: {
-        // Campos para atualizar
-    }
-});
-console.log('${friendly} atualizada!');
-
-`
-            }
-        ];
-    });
-};
-
-const STATIC_SNIPPETS = [
-    {
-        label: 'Log Info',
-        detail: 'Registra uma mensagem de informação no console',
-        code: `console.info('Message');`,
-    },
-    {
-        label: 'Log Error',
-        detail: 'Registra uma mensagem de erro no console',
-        code: `console.error('Error message');`,
-    },
-    {
-        label: 'Iterar Equipamentos',
-        detail: 'Percorre todos os equipamentos ativos',
-        code: `for (const eqp of context.adapters.equipamentos) {
-    console.log(\`Processando equipamento: \${eqp.descricao} (\${eqp.ip})\`);
-    // Sua lógica aqui
-}`,
-    },
-    {
-        label: 'Consultar Banco de Dados (Buscar Vários)',
-        detail: 'Busca pessoas acessíveis',
-        code: `const pessoas = await context.db.PESPessoa.findMany({
-    where: {
-        PESNome: { contains: 'Maria' }
-    },
-    take: 10
-});
-console.log(\`Encontradas \${pessoas.length} pessoas\`);`,
-    },
-    {
-        label: 'Consultar Banco de Dados (Criar)',
-        detail: 'Cria um novo registro',
-        code: `const novaPessoa = await context.db.PESPessoa.create({
-    data: {
-        PESNome: 'Nova Pessoa',
-        // ... outros campos
-    }
-});
-`,
-    },
-    {
-        label: 'Requisição HTTP (Axios)',
-        detail: 'Faz uma requisição HTTP externa',
-        code: `// Nota: Axios está disponível como 'axios' se injetado
-// const response = await axios.get('https://api.example.com/data');
-// console.log(response.data);`,
-    },
-];
-
-const PRISMA_SNIPPETS = [
-    {
-        label: 'Prisma - Where (Operadores)',
-        detail: 'Exemplos de filtros: equals, contains, in, gt, lt',
-        code: `const resultados = await context.db.PESPessoa.findMany({
-    where: {
-        // Igualdade exata
-        PESAtivo: true,
-        
-        // Contém texto (Case insensitive)
-        PESNome: { contains: 'Silva', mode: 'insensitive' },
-        
-        // Maior/Menor que
-        PESCodigo: { gt: 100 }, // Maior que
-        // PESCodigo: { gte: 100 }, // Maior ou igual
-        // PESCodigo: { lt: 50 },   // Menor que
-        
-        // Dentro de uma lista (IN)
-        PESGrupo: { in: ['ALUNO', 'PROFESSOR'] },
-        
-        // Negação (NOT)
-        PESEmail: { not: null }
-    }
-});
-`,
-    },
-    {
-        label: 'Prisma - Operadores Lógicos (AND/OR)',
-        detail: 'Combinação de condições com AND e OR',
-        code: `const resultados = await context.db.PESPessoa.findMany({
-    where: {
-        OR: [
-            { PESNome: { contains: 'João' } },
-            { PESEmail: { contains: 'joao@' } }
-        ],
-        AND: [
-            { PESAtivo: true },
-            { PESGrupo: 'ALUNO' }
-        ]
-    }
-});
-`,
-    },
-    {
-        label: 'Prisma - Ordenação (OrderBy)',
-        detail: 'Ordenação de resultados (asc/desc)',
-        code: `const resultados = await context.db.MATMatricula.findMany({
-    orderBy: [
-        { MATCurso: 'asc' },   // A-Z
-        { createdAt: 'desc' }  // Mais recente primeiro
-    ]
-});
-`,
-    },
-    {
-        label: 'Prisma - Paginação',
-        detail: 'Skip e Take para paginar resultados',
-        code: `const pagina2 = await context.db.REGRegistroPassagem.findMany({
-    skip: 10, // Pula os 10 primeiros
-    take: 10, // Pega os próximos 10
-    orderBy: { REGTimestamp: 'desc' }
-});
-`,
-    },
-    {
-        label: 'Prisma - Relacionamentos (Include/Join)',
-        detail: 'Traz dados de tabelas relacionadas',
-        code: `const matriculas = await context.db.MATMatricula.findMany({
-    where: { MATAtivo: true },
-    include: {
-        pessoa: true, // Traz os dados da Pessoa relacionada
-        // instituicao: true // Se disponível
-    }
-});
-// Acesso: matriculas[0].pessoa.PESNome`,
-    },
-    {
-        label: 'Prisma - Seleção de Campos (Select)',
-        detail: 'Retorna apenas campos específicos (Otimização)',
-        code: `const nomes = await context.db.PESPessoa.findMany({
-    select: {
-        PESNome: true,
-        PESEmail: true,
-        // Relacionamentos também podem ser selecionados
-        matriculas: {
-            select: { MATCurso: true }
-        }
-    }
-});
-`,
-    },
-    {
-        label: 'Prisma - Agrupamento (GroupBy)',
-        detail: 'Agrupa resultados (Ex: Contagem por Grupo)',
-        code: `// Nota: groupBy pode não estar disponível em todos os proxies
-// Verifique a documentação do ORM
-const estatisticas = await context.db.PESPessoa.groupBy({
-    by: ['PESGrupo'],
-    _count: {
-        PESCodigo: true
-    }
-});
-`,
-    },
-];
-
-const WEBHOOK_SNIPPETS = [
-    {
-        label: 'Webhook - Acessar Body',
-        detail: 'Recupera dados enviados no corpo da requisição POST/PUT',
-        code: `const body = context.request?.body;
-console.log('Dados recebidos:', body);
-// Ex: const nome = body?.cliente?.nome;
-`,
-    },
-    {
-        label: 'Webhook - Acessar Query Params',
-        detail: 'Recupera parâmetros da URL (ex: ?id=123)',
-        code: `const query = context.request?.query;
-const id = query?.id;
-console.log('Query ID:', id);
-`,
-    },
-    {
-        label: 'Webhook - Acessar Headers',
-        detail: 'Recupera cabeçalhos HTTP da requisição',
-        code: `const headers = context.request?.headers;
-const contentType = headers?.['content-type'];
-console.log('Content-Type:', contentType);
-`,
-    },
-    {
-        label: 'Webhook - Verificar Método HTTP',
-        detail: 'Identifica se é GET, POST, DELETE, etc.',
-        code: `const method = context.request?.method;
-if (method === 'POST') {
-    console.log('Processando criação...');
-}
-`,
-    },
-    {
-        label: 'Webhook - Parâmetros de Rota (Slug)',
-        detail: 'Acessa o slug da rota e parâmetros dinâmicos',
-        code: `const path = context.request?.path;
-console.log('Acessado via rota:', path);
-
-// Se a rota tiver parâmetros extras configurados no sistema:
-const params = context.request?.params;
-`,
-    },
-];
-
-const SNIPPETS = [...STATIC_SNIPPETS, ...PRISMA_SNIPPETS, ...WEBHOOK_SNIPPETS, ...generateSchemaSnippets()];
+import { ALL_SNIPPETS as SNIPPETS } from './RoutineSnippets';
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');
@@ -299,7 +25,7 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     }, [visualizerOpen]);
 
     return (
-        <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 w-80">
+        <div className="h-full flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 w-full">
             <div className="p-4 border-b border-gray-200 dark:border-gray-800">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Assistente de Rotina</h3>
                 <div className="flex gap-2 mt-3">
@@ -335,8 +61,16 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                     <span className="text-gray-600 dark:text-gray-400">Prisma Client (Isolado)</span>
                                 </li>
                                 <li className="flex items-start gap-2">
+                                    <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.hardware</code>
+                                    <span className="text-gray-600 dark:text-gray-400">Controle de Equipamentos (Unified)</span>
+                                </li>
+                                <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
-                                    <span className="text-gray-600 dark:text-gray-400">Adaptadores Hardware</span>
+                                    <span className="text-gray-600 dark:text-gray-400">Adaptadores Legados</span>
+                                </li>
+                                <li className="flex items-start gap-2">
+                                    <code className="text-green-600 dark:text-green-400 font-mono text-xs bg-green-50 dark:bg-green-900/20 px-1 py-0.5 rounded">logger</code>
+                                    <span className="text-gray-600 dark:text-gray-400">Log em Arquivo (.txt diário)</span>
                                 </li>
                             </ul>
                         </div>

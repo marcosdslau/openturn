@@ -1,4 +1,13 @@
-import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, MaxLength } from 'class-validator';
+import { Transform } from 'class-transformer';
+import { PaginationDto } from '../../common/dto/pagination.dto';
+
+function trimOrUndefined({ value }: { value: unknown }) {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== 'string') return value;
+    const t = value.trim();
+    return t === '' ? undefined : t;
+}
 
 export class CreatePessoaDto {
     @IsString()
@@ -85,4 +94,46 @@ export class UpdatePessoaDto {
     @IsOptional()
     @IsBoolean()
     PESAtivo?: boolean;
+}
+
+export class QueryPessoaDto extends PaginationDto {
+    @IsOptional()
+    @Transform(trimOrUndefined)
+    @IsString()
+    @MaxLength(200)
+    nome?: string;
+
+    @IsOptional()
+    @Transform(trimOrUndefined)
+    @IsString()
+    @MaxLength(64)
+    documento?: string;
+
+    @IsOptional()
+    @Transform(trimOrUndefined)
+    @IsString()
+    @MaxLength(320)
+    email?: string;
+
+    @IsOptional()
+    @Transform(trimOrUndefined)
+    @IsString()
+    @MaxLength(120)
+    grupo?: string;
+
+    @IsOptional()
+    @Transform(trimOrUndefined)
+    @IsString()
+    @MaxLength(120)
+    cartaoTag?: string;
+
+    @IsOptional()
+    @Transform(({ value }) => {
+        if (value === undefined || value === null || value === '') return undefined;
+        if (value === true || value === 'true') return true;
+        if (value === false || value === 'false') return false;
+        return value;
+    })
+    @IsBoolean()
+    ativo?: boolean;
 }

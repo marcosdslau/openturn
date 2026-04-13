@@ -6,6 +6,8 @@
  * - context: objeto com adapters, db, instituicao, etc
  */
 
+import { FileLogger } from './file-logger';
+
 const pendingRpcs = new Map<string, { resolve: (value: any) => void, reject: (reason: any) => void }>();
 
 // Escuta mensagens do processo pai
@@ -27,12 +29,21 @@ process.on('message', async (message: any) => {
                 context.db = createDbProxy(dbConfig.models);
             }
 
+            // Setup Hardware Proxy
+            context.hardware = createHardwareProxy();
+
+            // Cria logger de arquivo (.txt)
+            const logger = new FileLogger(context.instituicaoCodigo, context.logsDir);
+
+            // Importa axios para injetar no sandbox
+            const axios = require('axios');
+
             // Cria função assíncrona com o código da rotina
             const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
-            const fn = new AsyncFunction('context', 'console', code);
+            const fn = new AsyncFunction('context', 'console', 'logger', 'axios', code);
 
             // Executa a rotina
-            const result = await fn(context, console);
+            const result = await fn(context, console, logger, axios);
 
             // Envia resultado de sucesso
             process.send?.({
@@ -90,6 +101,19 @@ function createDbProxy(models: string[]) {
     }
 
     return db;
+}
+
+/**
+ * Cria Proxy para hardware que encaminha chamadas via RPC
+ */
+function createHardwareProxy() {
+    return new Proxy({}, {
+        get: (target, prop: string) => {
+            return (equipmentId: number, ...args: any[]) => {
+                return sendRpc('hardware.exec', { equipmentId, method: prop, args });
+            };
+        }
+    });
 }
 
 /**

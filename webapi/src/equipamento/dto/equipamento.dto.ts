@@ -18,6 +18,13 @@ export class CreateEquipamentoDto {
     EQPEnderecoIp?: string;
 
     @IsOptional()
+    @IsString()
+    deviceId?: string;
+
+    @IsOptional()
+    EQPConfig?: any;
+
+    @IsOptional()
     @IsBoolean()
     EQPUsaAddon?: boolean;
 
@@ -42,6 +49,10 @@ export class UpdateEquipamentoDto {
     @IsOptional()
     @IsString()
     EQPEnderecoIp?: string;
+
+    @IsOptional()
+    @IsString()
+    deviceId?: string;
 
     @IsOptional()
     @IsBoolean()

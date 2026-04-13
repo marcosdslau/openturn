@@ -5,7 +5,7 @@ import PasswordChangeCard from "@/components/user-profile/PasswordChangeCard";
 import { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Perfil | OpenTurn",
+  title: "Perfil | SchoolGuard",
   description: "Gerencie suas informações de perfil",
 };
 

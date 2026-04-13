@@ -1,0 +1,268 @@
+# Planejamento Técnico MVP: Assistente de Inteligência Artificial para Editor de Rotinas
+
+Este documento descreve a arquitetura, modelagem de dados e plano de execução para introduzir o chat de IA no editor de código do sistema. Todo o desenho considera a regra **Multi-Tenant (RLS)** e foi pensado para facilitar a futura expansão para outros provedores (Anthropic, Gemini, Grok).
+
+## 1. Visão Geral da Arquitetura
+
+### Frontend (TailAdmin + React)
+- **Painel Lateral de Chat**: Embutido ou flutuante (drawer/sidebar) ao lado do *Monaco Editor* (ou variante usada no sistema).
+- **Gerenciamento de Estado**: Armazenar múltiplas janelas/guias de conversas no estado global ou local da página da rotina. 
+- **Seleção de Modelo**: Dropdown visível no chat listando os modelos permitidos para aquele usuário.
+- **Streaming UI**: Consumo da resposta da API usando [Server-Sent Events (SSE)] ou `fetch` com leitor de `ReadableStream` para simular o efeito "máquina de escrever" (streaming).
+
+### Backend (NestJS / Node.js Express)
+- **Controller API REST/SSE**: Endpoints padrão REST para histórico e permissões, e endpoint SSE para chamadas de predição em streaming.
+- **Service Layer Modular**: Design com padrão *Adapter/Factory*. A interface do provedor (LlmProvider) é abstraída para que no futuro bastem novas classes AnthropicAdapter, etc.
+- **Gerenciamento de Contexto do Sistema**: Injeção da documentação das *Rotinas de Integração* (snippets, helpers, context object) diretamente na *System Message* do request, limitando o escopo estritamente à ajuda com código.
+
+### Bancos de Dados, Provider Layer, Usage & Permission
+- **Database (PostgreSQL via Prisma)**: Regras globais de Tenant aplicadas rigorosamente via `INSInstituicaoCodigo`.
+- **Provider Layer**: Somente `openai.provider` ativo no MVP. Recebe input genérico (ChatRequest) e converte para padrão OpenAI.
+- **Usage/Billing Layer**: Após a resposta, de forma assíncrona, salva o consumo real em ledger e atualiza o saldo/cota. Verifica antes do envio se há cota.
+- **Permission Layer**: Guarda quais modelos o usuário pode ver, e se ele tem permissão de usar IA dentro da Instituição ativa.
+
+---
+
+## 2. Modelagem de Banco de Dados (Prisma)
+
+As tabelas utilizam nomes consistentes com as padronizações já aplicadas de prefixos e camelCase.
+
+```prisma
+// Global - Provedores habilitados na plataforma
+model AIPProvedorIa {
+  AIPCodigo   Int      @id @default(autoincrement())
+  AIPNome     String   // ex: "OpenAI", "Anthropic"
+  AIPAtivo    Boolean  @default(true)
+  modelos     AIMModeloIa[]
+}
+
+// Global - Tabela de preços por modelo
+model AIMModeloIa {
+  AIMCodigo            Int      @id @default(autoincrement())
+  AIPCodigo            Int
+  provedor             AIPProvedorIa @relation(fields: [AIPCodigo], references: [AIPCodigo])
+  AIMNome              String   // ex: "gpt-4-turbo", "gpt-3.5-turbo"
+  AIMProviderModelId   String   // ID do modelo na API de destino via provedor
+  AIMCustoInput1k      Float    // Custo a cada 1000 tokens de entrada (em USD)
+  AIMCustoOutput1k     Float    // Custo a cada 1000 tokens de saída (em USD)
+  AIMMaxTokens         Int      // Limite de contexto do modelo (ex: 128000)
+  AIMAtivo             Boolean  @default(true)
+  conversas            AICConversaIa[]
+  creditosLedger       AILCreditoLedger[]
+}
+
+// Tenant - Regras de Permissões e Cotas por Instituição/Usuário
+model AIPEPermissaoIa {
+  AIPECodigo           Int            @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  
+  AIPEHabilitado       Boolean        @default(false)
+  AIPEModelosPermitidos String?       // Array de IDs permitidos em JSON (referência AIMCodigo)
+  AIPELimiteTokensDia  Int            @default(100000) // Cota diária do plano atual
+  createdAt            DateTime       @default(now())
+
+  @@unique([USRCodigo, INSInstituicaoCodigo])
+}
+
+// Tenant - Conversas (Agrupamento dos históricos)
+model AICConversaIa {
+  AICCodigo            Int            @id @default(autoincrement())
+  AICTitulo            String
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  ROTCodigo            Int?           // Atrelar historicamente com a edição específica
+  rotina               ROTRotina?     @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  AIMCodigo            Int
+  modelo               AIMModeloIa    @relation(fields: [AIMCodigo], references: [AIMCodigo])
+  
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?      // Soft delete para auditoria e histórico de logs
+  mensagens            AIMSMensagemIa[]
+}
+
+// Tenant - Mensagens Individuais e Consumo
+model AIMSMensagemIa {
+  AIMSCodigo           Int            @id @default(autoincrement())
+  AICCodigo            Int
+  conversa             AICConversaIa  @relation(fields: [AICCodigo], references: [AICCodigo], onDelete: Cascade)
+  
+  AIMSRole             String         // "user", "assistant", "system"
+  AIMSContent          String         // Texto da conversa JSON array
+  AIMSIsContextFile    Boolean        @default(false) // Se for apenas config anexado contextual
+  
+  AIMSInputTokens      Int            @default(0)
+  AIMSOutputTokens     Int            @default(0)
+  AIMSCostUsd          Float          @default(0.0)
+  
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+// Tenant - Tabela Contábil de Uso
+model AILCreditoLedger {
+  AILCodigo            Int            @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo])
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  
+  AILTipoLog           String         // "DEBIT_CONSUMO", "CREDIT_COMPRA"
+  AILTokensInput       Int            @default(0)
+  AILTokensOutput      Int            @default(0)
+  AIMCodigo            Int?
+  modelo               AIMModeloIa?   @relation(fields: [AIMCodigo], references: [AIMCodigo])
+  
+  AILValorUsd          Float          // Positivo se Custo (Débito da cota). Negativo se crédito.
+  createdAt            DateTime       @default(now())
+}
+```
+
+---
+
+## 3. Fluxo Funcional Completo (Ponta a Ponta)
+
+1. **Abertura do Chat:** O front (TailAdmin) carrega a Sidebar de chat ao entrar no *editor de rotina*. Consome API para obter os modelos disponíveis e seu histórico do dia.
+2. **Setup de Contexto Local:** Caso tenha uma documentação de API JSON, o usuário aperta o ícone de Anexo, o arquivo sobe em text-plain e vira uma `AIMSMensagemIa` c/ role `user` e flag `AIMSIsContextFile=true`.
+3. **Envio de Mensagem Base:** Usuário insere sua dúvida. 
+4. **Validar Permissões (Backend):**
+   - Extrai do JWT a Instituição Atual (`current_tenant`);
+   - Puxa o DB na tabela `AIPEPermissaoIa`. Falha com HTTP 403 se desabilitado.
+   - Puxa o saldo total de "tokens" consumidos hoje no Ledger e avalia contra `AIPELimiteTokensDia`.
+5. **Montagem do Payload:** Adiciona dinamicamente um System Prompt ("Você é o bot do OpenTurn. Helpers em JS são: (...)"). Anexa array do BD de histórico recente.
+6. **Streaming e Request:** Orquestrador instiga o LlmAdapter e transmite Server Sent Events chunk-by-chunk de volta ao Cliente (simulando Cursor).
+7. **Finalização Assíncrona:** A API da OpenAI manda header/footer indicando Tokes Processados Totais. Salva a resposta no BD e faz inserção no `AILCreditoLedger` consumindo a cota exata.
+
+---
+
+## 4. Regras de Permissão e Governança
+
+- **Toggle Manual e Habilitador:**
+  - O uso não é aberto de imediato. Será exigido logado como perfil de grupo `SUPER_ROOT` ou `SUPER_ADMIN` na página central do sistema (Instituição Admin view) para chamar o endpoint de Habilitar Ia para X usuários.
+- **Gateway Futuro:** `AILCreditoLedger` servirá como conta-corrente. Quando o cliente final pagar USD no portal futuro, insere um registro manual `CREDIT_COMPRA` de saldo -USD de tokens.
+- **Allowed Models:** Determinados na `AIPEPermissaoIa` individual do usuário. O plano Free pode ver apenas `gpt-4o-mini`, o pagante `gpt-4-turbo`.
+- **Limites Diários:** Contados via sum aggregator por hora/dia garantindo estabilidade financeira ao provedor real da openai. Receber `HTTP 402 Payment Required` quando bloqueio ativa.
+
+---
+
+## 5. Estratégia de Billing e Créditos
+
+**Processo Prático**:
+1. Não faça emulação por TikTokenizer local (difícil manutenção na fase de MVP). Dependa obrigatoriamente da resposta da contagem de tokens do response final da API (Ex: `response.usage`).
+2. Calcule Custo apenas APÓS o stream de dados com base na interface de histórico. 
+   - Multiplicação direta em *Dólares*: `(InputTokens / 1000 * AIMCustoInput1k) + (OutputTokens / 1000 * AIMCustoOutput1k)`.
+3. Grava-se no `AIMSMensagemIa` (apenas p/ tela transacional) e emite-se um balanço em `AILCreditoLedger` vinculando o user+cliente.
+4. **Dash Consumo**: Ao acessar a view "Consumo de API", a API responde a soma aglutinada `group-by Date` de custoUsd ou tokens direto do ledger.
+
+---
+
+## 6. Estrutura de Código Backend
+
+Típico aninhamento voltado para Clean Architecture num backend NodeJS/Express ou NestJS:
+
+```text
+/src/modules/ai/
+  ├── ai.controller.ts (Rotas públicas do Tenant)
+  ├── admin-ai.controller.ts (Acesso via Roles avançadas)
+  ├── services/
+  │    ├── llm-orchestrator.service.ts  (Controle global de envios e injeção do SystemPrompt)
+  │    ├── ai-conversation.service.ts   (Manipulação de histórico e validação)
+  │    ├── ai-permission.service.ts     (Cache e controle diário de acesso por Usuário)
+  │    ├── ai-usage.service.ts          (Inserção atômica no Contábil de uso)
+  │    └── ai-pricing.service.ts        (Cálculos de modelos e fallback values)
+  └── providers/
+       ├── LlmProvider.interface.ts 
+       └── openai.adapter.ts            (SDK Oficial)
+```
+
+---
+
+## 7. Contratos e Interfaces (TypeScript)
+
+**Contratos Chave de Adapter e Request**:
+
+```typescript
+export interface ChatMessageRequest {
+  role: 'system' | 'user' | 'assistant';
+  content: string;
+}
+
+export interface UsageRecord {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  costUsd: number;
+}
+
+export interface StreamChunkOutput {
+  id: string;
+  chunkText: string;
+  isDone: boolean;
+  usage?: UsageRecord;
+}
+
+export interface ILlmProviderAdapter {
+  providerCode: string; // 'OPENAI', 'ANTHROPIC'
+  predictStream(
+    modelId: string, 
+    systemContext: string,
+    messages: ChatMessageRequest[], 
+    onChunk: (chunk: StreamChunkOutput) => void
+  ): Promise<void>;
+  
+  estimateTokens?(text: string): number; // Auxiliar se preciso fase 2
+}
+```
+
+---
+
+## 8. Endpoints da API REST
+
+Endpoints isolados com o prefixo obrigatoriamente injetando e validando o `INSInstituicaoCodigo` no param.
+
+* `GET /api/instituicoes/:codIns/ia/models` - Modelos listados de acordo com permissão.
+* `POST /api/instituicoes/:codIns/ia/conversations` - Criar o wrapper do Titulo do chat.
+* `GET /api/instituicoes/:codIns/ia/conversations` - Historico visual por rotina (`?rotinaId=1`).
+* `GET /api/instituicoes/:codIns/ia/conversations/:chatId/messages` 
+* `POST /api/instituicoes/:codIns/ia/conversations/:chatId/stream` - Executa a inferência propriamente dita. Streaming text/event-stream de volta.
+* `GET /api/instituicoes/:codIns/ia/billing/usage` - Dados pro gráfico doughnut.
+* `PUT /api/admin/ia/permissions/:userId` - Toggle Habilitar/Desabilitar. (Exige escopo SUPER_ADMIN)
+
+---
+
+## 9. MVP vs Fase 2
+
+| Escopo | Obrigatório MVP | Fase 2 | Preparado (Arquitetura Inicial) |
+| - | - | - | - |
+| **Provider** | Apenas OpenAI Adapter | Ligar API da Anthropic, Grok e Gemini | Interface de DI (Dependency Injection) usando `ILlmProviderAdapter` |
+| **Contextos**| Documento via anexo Manual (.txt ou .json) pelo painel | Múltiplos repositórios Git anexados via RAG embedders | Propriedade `AIMSIsContextFile` definida p/ carregar oculto p/ LLM |
+| **Financeiro** | Controlar limite de quantia por Token de uso Dia | Venda ativa via API de Banco / Gateway | Banco `AILCreditoLedger` agindo por double-entry account ledger |
+| **Modelos** | Global populados por Seed | Ajuste em Backoffice dos Preços | Relação de preço na `AIMModeloIa` não-engessada separando In/Out/USD. |
+
+---
+
+## 10. Plano de Execução (Backlog)
+
+1. **Etapa 1: Infraestrutura DB (1 Sprint)**
+   - Modelagem das 6 tabelas no Prisma e migrações aplicando e testando as diretrizes RLS.
+   - Seed Inicial `AIPProvedorIa` e `AIMModeloIa` fixando os GPT-3.5 e GPT-4 Turbo com preços vigentes.
+2. **Etapa 2: Base Services (1.5 Sprint)**
+   - Implementar Interface Adaptadora de Conexão `openai.adapter.ts`.
+   - Setup dos endpoints em express.
+3. **Etapa 3: Governança de Negócios (0.5 Sprint)**
+   - Proteções restritas de Permission Service e Ledger Service. Lógica de Daily Cap Validation.
+4. **Etapa 4: Frontend Componentization (1 Sprint)**
+   - Criar Componente Sidebar com Hook simulando `useChat` da lib AI. Integrar o parsing SSE para aparecer escrevendo.
+5. **Critérios de Aceite**:
+   - Respostas do GPT cospem de volta os Helpers corretos emulando *Antigravity Docs injection*.
+   - Se consumir mais que o limite do DB, resposta deve travar no primeiro post de tentativa com Erro de Creditos 402.
+
+**Riscos no Período Técnico**:
+- Abortar streams prematuramente pode impedir leitura da linha de Usage Record causando falha no Billing. Tratar evento de abort control no Adapter do Servidor para checar status pendentes no meio.
+- RLS em queries do ledger devem assegurar que `current_tenant` está ativo na chain do Prisma. Evite cross-tenant reading global.

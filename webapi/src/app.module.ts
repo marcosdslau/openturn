@@ -18,6 +18,8 @@ import { UsuarioModule } from './usuario/usuario.module';
 import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
 import { RotinaModule } from './rotina/rotina.module';
 import { ConnectorModule } from './connector/connector.module';
+import { AiModule } from './modules/ai/ai.module';
+import { MonitorModule } from './monitor/monitor.module';
 
 @Module({
   imports: [
@@ -37,6 +39,8 @@ import { ConnectorModule } from './connector/connector.module';
     AdminUsuarioModule,
     RotinaModule,
     ConnectorModule,
+    AiModule,
+    MonitorModule,
   ],
   controllers: [AppController],
   providers: [

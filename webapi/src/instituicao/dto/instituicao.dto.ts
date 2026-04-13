@@ -1,5 +1,5 @@
 
-import { IsString, IsOptional, IsBoolean, IsInt, IsObject } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, IsObject, Min, ValidateIf } from 'class-validator';
 
 export class CreateInstituicaoDto {
     @IsInt()
@@ -25,8 +25,26 @@ export class CreateInstituicaoDto {
     INSLogsDiasRetencao?: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(1)
+    INSMaxExecucoesSimultaneas?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
+
+    @IsOptional()
+    @IsBoolean()
+    INSControlidMonitorRotinaAtiva?: boolean;
+
+    @IsOptional()
+    @ValidateIf((_, v) => v !== null && v !== undefined)
+    @IsInt()
+    INSControlidMonitorRotinaCodigo?: number | null;
 }
 
 export class UpdateInstituicaoDto {
@@ -51,6 +69,29 @@ export class UpdateInstituicaoDto {
     INSLogsDiasRetencao?: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(1)
+    INSMaxExecucoesSimultaneas?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    INSWorkerAtivo?: boolean;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
+
+    @IsOptional()
+    @IsBoolean()
+    INSControlidMonitorRotinaAtiva?: boolean;
+
+    @IsOptional()
+    @ValidateIf((_, v) => v !== null && v !== undefined)
+    @IsInt()
+    INSControlidMonitorRotinaCodigo?: number | null;
+}
+
+export class SetWorkerStatusBodyDto {
+    @IsBoolean()
+    active: boolean;
 }

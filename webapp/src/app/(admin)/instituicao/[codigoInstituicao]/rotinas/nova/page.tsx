@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { RotinaService } from "@/services/rotina.service";
+import { RotinaService, ROTINA_TIMEOUT_SECONDS_MAX, clampRotinaTimeoutSeconds } from "@/services/rotina.service";
 import Button from "@/components/ui/button/Button";
 import { useTenant } from "@/context/TenantContext";
 import { ChevronLeftIcon, InfoIcon, AlertIcon, RefreshIcon, EyeIcon, EyeCloseIcon } from "@/icons";
@@ -29,7 +29,7 @@ export default function NovaRotinaPage() {
  * Rotina de Exemplo
  * context: { db, adapters, console }
  */
-export default async function(context, console) {
+
     console.log('Iniciando execução...');
     
     // Exemplo: Listar equipamentos
@@ -37,9 +37,10 @@ export default async function(context, console) {
     console.info(\`Equipamentos ativos: \${equipamentos.length}\`);
     
     return { message: 'Execução concluída com sucesso' };
-}`,
+`,
         ROTTimeoutSeconds: 30,
-        ROTAtivo: true
+        ROTAtivo: true,
+        ROTPermiteParalelismo: true,
     });
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -48,6 +49,7 @@ export default async function(context, console) {
         try {
             const newRotina = await RotinaService.create({
                 ...formData,
+                ROTTimeoutSeconds: clampRotinaTimeoutSeconds(formData.ROTTimeoutSeconds),
                 INSInstituicaoCodigo: codigoInstituicao
             } as any);
 
@@ -61,7 +63,7 @@ export default async function(context, console) {
     };
 
     return (
-        <div className="max-w-3xl mx-auto space-y-6">
+        <div className="w-[90%] mx-auto space-y-6">
             <div className="flex items-center gap-3">
                 <button
                     onClick={() => router.back()}
@@ -117,12 +119,25 @@ export default async function(context, console) {
                             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (segundos)</label>
                             <input
                                 type="number"
-                                min="1" max="2000"
+                                min="1" max={ROTINA_TIMEOUT_SECONDS_MAX}
                                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                                 value={formData.ROTTimeoutSeconds}
                                 onChange={(e) => setFormData({ ...formData, ROTTimeoutSeconds: Number(e.target.value) })}
                             />
                         </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="checkbox"
+                            id="permiteParalelismo"
+                            checked={formData.ROTPermiteParalelismo}
+                            onChange={(e) => setFormData({ ...formData, ROTPermiteParalelismo: e.target.checked })}
+                            className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500"
+                        />
+                        <label htmlFor="permiteParalelismo" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                            Permitir execuções paralelas desta rotina (várias mensagens na fila podem rodar ao mesmo tempo)
+                        </label>
                     </div>
 
                     {formData.ROTTipo === 'SCHEDULE' && (
@@ -145,7 +160,7 @@ export default async function(context, console) {
                                     <label className="block text-sm font-medium text-purple-900 dark:text-purple-300 mb-1">Caminho do Webhook</label>
                                     <div className="flex">
                                         <span className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg text-gray-500 text-sm flex items-center">
-                                            /api/webhooks
+                                            {`/api/instituicoes/${codigoInstituicao}/webhooks`}
                                         </span>
                                         <input
                                             type="text"
@@ -174,12 +189,12 @@ export default async function(context, console) {
                                 {formData.ROTWebhookPath && (
                                     <div className="mt-2 text-xs text-gray-500 flex items-center gap-2">
                                         <span className="font-mono bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded">
-                                            {process.env.NEXT_PUBLIC_API_URL}/webhooks{formData.ROTWebhookPath}
+                                            {process.env.NEXT_PUBLIC_API_URL}/instituicoes/{codigoInstituicao}/webhooks{formData.ROTWebhookPath}
                                         </span>
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/webhooks${formData.ROTWebhookPath}`;
+                                                const url = `${process.env.NEXT_PUBLIC_API_URL}/instituicoes/${codigoInstituicao}/webhooks${formData.ROTWebhookPath}`;
                                                 navigator.clipboard.writeText(url);
                                                 // Assuming simple alert or toast if available, but NovaRotinaPage doesn't import useToast. 
                                                 // Using simple console log or visual feedback might be better if toast isn't set up.

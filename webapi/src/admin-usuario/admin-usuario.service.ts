@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
 import { CreateAdminUsuarioDto, UpdateAdminUsuarioDto, ResetPasswordDto } from './dto/admin-usuario.dto';
@@ -69,32 +69,43 @@ export class AdminUsuarioService {
             );
         }
 
-        const existing = await this.prisma.uSRUsuario.findUnique({
+        let usuario = await this.prisma.uSRUsuario.findUnique({
             where: { USREmail: dto.email },
+            include: { acessos: true },
         });
 
-        if (existing) {
-            throw new ConflictException('Email já cadastrado');
+        const isExisting = !!usuario;
+
+        if (!usuario) {
+            if (!dto.senha) {
+                throw new BadRequestException('Senha é obrigatória para novo usuário');
+            }
+            const senhaHash = await this.authService.hashSenha(dto.senha);
+            usuario = await this.prisma.uSRUsuario.create({
+                data: {
+                    USRNome: dto.nome,
+                    USREmail: dto.email,
+                    USRSenha: senhaHash,
+                },
+                include: { acessos: true },
+            });
         }
 
-        const senhaHash = await this.authService.hashSenha(dto.senha);
+        // Check if already has this super-role (global access = INSInstituicaoCodigo null)
+        const alreadyHasRole = usuario.acessos.some(
+            (a) => a.grupo === dto.grupo && a.INSInstituicaoCodigo === null,
+        );
 
-        const usuario = await this.prisma.uSRUsuario.create({
-            data: {
-                USRNome: dto.nome,
-                USREmail: dto.email,
-                USRSenha: senhaHash,
-            },
-        });
-
-        await this.prisma.uSRAcesso.create({
-            data: {
-                USRCodigo: usuario.USRCodigo,
-                grupo: dto.grupo,
-                CLICodigo: null,
-                INSInstituicaoCodigo: null,
-            },
-        });
+        if (!alreadyHasRole) {
+            await this.prisma.uSRAcesso.create({
+                data: {
+                    USRCodigo: usuario.USRCodigo,
+                    grupo: dto.grupo,
+                    CLICodigo: null,
+                    INSInstituicaoCodigo: null,
+                },
+            });
+        }
 
         return {
             USRCodigo: usuario.USRCodigo,
@@ -102,6 +113,7 @@ export class AdminUsuarioService {
             USREmail: usuario.USREmail,
             USRAtivo: usuario.USRAtivo,
             grupo: dto.grupo,
+            reused: isExisting,
         };
     }
 
@@ -163,9 +175,18 @@ export class AdminUsuarioService {
     async remove(id: number) {
         const usuario = await this.prisma.uSRUsuario.findUnique({
             where: { USRCodigo: id },
+            include: { acessos: { where: { grupo: { in: ADMIN_GROUPS } } } },
         });
         if (!usuario) throw new NotFoundException(`Usuário ${id} não encontrado`);
 
-        return this.prisma.uSRUsuario.delete({ where: { USRCodigo: id } });
+        // Only remove super-role accesses, preserve the user and institution-level accesses
+        await this.prisma.uSRAcesso.deleteMany({
+            where: {
+                USRCodigo: id,
+                grupo: { in: ADMIN_GROUPS },
+            },
+        });
+
+        return { message: 'Acessos administrativos removidos com sucesso' };
     }
 }

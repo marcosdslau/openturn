@@ -8,9 +8,10 @@ export class CreateAdminUsuarioDto {
     @IsEmail({}, { message: 'Email inválido' })
     email: string;
 
+    @IsOptional()
     @IsString({ message: 'Senha deve ser uma string' })
     @MinLength(6, { message: 'Senha deve ter no mínimo 6 caracteres' })
-    senha: string;
+    senha?: string;
 
     @IsEnum(GrupoAcesso, { message: 'Grupo inválido' })
     grupo: GrupoAcesso;

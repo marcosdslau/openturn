@@ -54,8 +54,13 @@ model INSInstituicao {
   INSAtivo            Boolean               @default(true)
   INSLogsAutoExcluir  Boolean               @default(true)
   INSLogsDiasRetencao Int                   @default(90)
-  INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
-  createdAt           DateTime              @default(now())
+  INSMaxExecucoesSimultaneas Int            @default(8)
+  INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
+  INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
+  INSControlidMonitorRotinaAtiva    Boolean @default(false)
+  INSControlidMonitorRotinaCodigo   Int?
+  controlidMonitorRotina            ROTRotina?            @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
+  createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
   equipamentos        EQPEquipamento[]
@@ -67,6 +72,12 @@ model INSInstituicao {
   rotexecucaoLogs     ROTExecucaoLog[]
   connector           CONConnector?
   sessoesRemotas      RMTSessaoRemota[]
+  permissoesIa        AIPEPermissaoIa[]
+  conversasIa         AICConversaIa[]
+  mensagensIa         AIMSMensagemIa[]
+  creditosIa          AILCreditoLedger[]
+  ctlControlidDaos    CTLControlidDao[]
+  ctlControlidCatraEvents CTLControlidCatraEvent[]
 }
 
 model PESPessoa {
@@ -74,7 +85,7 @@ model PESPessoa {
   PESIdExterno         String?
   PESNome              String
   PESNomeSocial        String?
-  PESDocumento         String?               @unique
+  PESDocumento         String?
   PESEmail             String?
   PESTelefone          String?
   PESCelular           String?
@@ -91,6 +102,7 @@ model PESPessoa {
   deletedAt            DateTime?
   matriculas           MATMatricula[]
   passagens            REGRegistroPassagem[]
+  mapeamentos          PESEquipamentoMapeamento[]
 }
 
 model MATMatricula {
@@ -113,6 +125,8 @@ model EQPEquipamento {
   EQPMarca             String?
   EQPModelo            String?
   EQPEnderecoIp        String?
+  /// ID do dispositivo no Monitor ControlID (nuvem); coluna dedicada (espelha ou substitui deviceId em EQPConfig quando único)
+  deviceId             String?               @map("EQPDeviceId")
   EQPConfig            Json?
   EQPUltimoSincronismo DateTime?
   EQPUsaAddon          Boolean               @default(false)
@@ -123,6 +137,7 @@ model EQPEquipamento {
   passagens            REGRegistroPassagem[]
   cmdcomandoFilas      CMDComandoFila[]
   sessoesRemotas       RMTSessaoRemota[]
+  mapeamentos          PESEquipamentoMapeamento[]
 }
 
 model ERPConfiguracao {
@@ -162,11 +177,40 @@ model USRUsuario {
   USRTaxId  String?
 
   createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  updatedAt            DateTime             @updatedAt
   acessos             USRAcesso[]
   rotrotinas          ROTRotina[]
   rothistoricoVersaos ROTHistoricoVersao[]
   sessoesRemotas      RMTSessaoRemota[]
+  permissoesIa        AIPEPermissaoIa[]
+  conversasIa         AICConversaIa[]
+  creditosIa          AILCreditoLedger[]
+  senhaResetTokens    USRSenhaResetToken[]
+}
+
+model USRSenhaResetToken {
+  USRSTCodigo       Int        @id @default(autoincrement())
+  USRCodigo         Int
+  usuario           USRUsuario @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  USRTokenHash      String     @unique
+  USRTokenExpiresAt DateTime
+  createdAt         DateTime   @default(now())
+
+  @@index([USRCodigo])
+}
+
+model PESEquipamentoMapeamento {
+  PEQCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+  PEQIdNoEquipamento   String         // ID no hardware (ex: "100")
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([PESCodigo, EQPCodigo])
+  @@unique([EQPCodigo, PEQIdNoEquipamento])
 }
 
 model USRAcesso {
@@ -220,6 +264,55 @@ model CMDComandoFila {
   updatedAt            DateTime       @updatedAt
 }
 
+model CTLControlidDao {
+  CTDCodigo                    Int            @id @default(autoincrement())
+  INSInstituicaoCodigo         Int
+  instituicao                  INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  deviceId                     String         @map("device_id")
+  notifyTime                   BigInt         @map("time")
+  ctlObject                    String         @map("object")
+  changeType                   String         @map("type")
+  valuesId                     String?        @map("values_id")
+  valuesTime                   String?        @map("values_time")
+  valuesEvent                  String?        @map("values_event")
+  valuesDeviceId               String?        @map("values_device_id")
+  valuesIdentifierId           String?        @map("values_identifier_id")
+  valuesUserId                 String?        @map("values_user_id")
+  valuesPortalId               String?        @map("values_portal_id")
+  valuesIdentificationRuleId   String?        @map("values_identification_rule_id")
+  valuesCardValue              String?        @map("values_card_value")
+  valuesQrcodeValue            String?        @map("values_qrcode_value")
+  valuesPinValue               String?        @map("values_pin_value")
+  valuesConfidence             String?        @map("values_confidence")
+  valuesMask                   String?        @map("values_mask")
+  valuesLogTypeId              String?        @map("values_log_type_id")
+  processed                    Boolean        @default(false) @map("processed")
+  createdAt                    DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, notifyTime])
+  @@map("controlid_dao")
+}
+
+model CTLControlidCatraEvent {
+  CTCCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  deviceId             String         @map("device_id")
+  notifyTime           BigInt         @map("time")
+  accessEventId        String         @map("access_event_id")
+  eventType            String         @map("event_type")
+  eventName            String?        @map("event_name")
+  eventTime            BigInt?        @map("event_time")
+  eventUuid            String?        @map("event_uuid")
+  processed            Boolean        @default(false) @map("processed")
+  createdAt            DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, notifyTime])
+  @@map("controlid_catra_event")
+}
+
 // === EXECUTION ENGINE: Rotinas Dinâmicas ===
 
 enum TipoRotina {
@@ -240,9 +333,11 @@ enum HttpMetodo {
 }
 
 enum StatusExecucao {
+  EM_EXECUCAO
   SUCESSO
   ERRO
   TIMEOUT
+  CANCELADO
 }
 
 model ROTRotina {
@@ -260,20 +355,26 @@ model ROTRotina {
   ROTWebhookToken       String?
   ROTCodigoJS           String
   ROTAtivo              Boolean              @default(true)
+  ROTPermiteParalelismo Boolean              @default(true)
   ROTTimeoutSeconds     Int                  @default(30)
   ROTUltimaExecucao     DateTime?
-  INSInstituicaoCodigo  Int
+  INSInstituicaoCodigo Int
   instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  instituicoesControlidMonitor INSInstituicao[] @relation("InstituicaoControlidMonitorRotina")
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   createdBy             Int
   criador               USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
   execucoes             ROTExecucaoLog[]
   versoes               ROTHistoricoVersao[]
+  conversasIa           AICConversaIa[]
+
+  // @@unique constraint removed (handled in service layer)
 }
 
 model ROTExecucaoLog {
   EXECodigo            Int            @id @default(autoincrement())
+  EXEIdExterno         String         @unique @default(uuid())
   ROTCodigo            Int
   rotina               ROTRotina      @relation(fields: [ROTCodigo], references: [ROTCodigo])
   EXEStatus            StatusExecucao
@@ -338,4 +439,101 @@ model RMTSessaoRemota {
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
+}
+
+// === MVP IA ASSISTANT ===
+
+// Global - Provedores habilitados na plataforma
+model AIPProvedorIa {
+  AIPCodigo   Int      @id @default(autoincrement())
+  AIPNome     String   // ex: "OpenAI", "Anthropic"
+  AIPAtivo    Boolean  @default(true)
+  modelos     AIMModeloIa[]
+}
+
+// Global - Tabela de preços por modelo
+model AIMModeloIa {
+  AIMCodigo            Int      @id @default(autoincrement())
+  AIPCodigo            Int
+  provedor             AIPProvedorIa @relation(fields: [AIPCodigo], references: [AIPCodigo])
+  AIMNome              String   // ex: "gpt-4-turbo", "gpt-3.5-turbo"
+  AIMProviderModelId   String   // ID do modelo na API de destino via provedor
+  AIMCustoInput1k      Float    // Custo a cada 1000 tokens de entrada (em USD)
+  AIMCustoOutput1k     Float    // Custo a cada 1000 tokens de saída (em USD)
+  AIMMaxTokens         Int      // Limite de contexto do modelo (ex: 128000)
+  AIMAtivo             Boolean  @default(true)
+  conversas            AICConversaIa[]
+  creditosLedger       AILCreditoLedger[]
+}
+
+// Tenant - Regras de Permissões e Cotas por Instituição/Usuário
+model AIPEPermissaoIa {
+  AIPECodigo           Int            @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  
+  AIPEHabilitado       Boolean        @default(false)
+  AIPEModelosPermitidos String?       // Array de IDs permitidos em JSON (referência AIMCodigo)
+  AIPELimiteTokensDia  Int            @default(100000) // Cota diária do plano atual
+  createdAt            DateTime       @default(now())
+
+  @@unique([USRCodigo, INSInstituicaoCodigo])
+}
+
+// Tenant - Conversas (Agrupamento dos históricos)
+model AICConversaIa {
+  AICCodigo            Int            @id @default(autoincrement())
+  AICTitulo            String
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  ROTCodigo            Int?           
+  rotina               ROTRotina?     @relation(fields: [ROTCodigo], references: [ROTCodigo], onDelete: Cascade)
+  AIMCodigo            Int
+  modelo               AIMModeloIa    @relation(fields: [AIMCodigo], references: [AIMCodigo])
+  
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+  deletedAt            DateTime?      
+  mensagens            AIMSMensagemIa[]
+}
+
+// Tenant - Mensagens Individuais e Consumo
+model AIMSMensagemIa {
+  AIMSCodigo           Int            @id @default(autoincrement())
+  AICCodigo            Int
+  conversa             AICConversaIa  @relation(fields: [AICCodigo], references: [AICCodigo], onDelete: Cascade)
+  
+  AIMSRole             String         // "user", "assistant", "system"
+  AIMSContent          String         // Texto da conversa JSON array
+  AIMSIsContextFile    Boolean        @default(false) // Se for apenas config anexado contextual
+  
+  AIMSInputTokens      Int            @default(0)
+  AIMSOutputTokens     Int            @default(0)
+  AIMSCostUsd          Float          @default(0.0)
+  
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime       @default(now())
+}
+
+// Tenant - Tabela Contábil de Uso
+model AILCreditoLedger {
+  AILCodigo            Int            @id @default(autoincrement())
+  USRCodigo            Int
+  usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  
+  AILTipoLog           String         // "DEBIT_CONSUMO", "CREDIT_COMPRA"
+  AILTokensInput       Int            @default(0)
+  AILTokensOutput      Int            @default(0)
+  AIMCodigo            Int?
+  modelo               AIMModeloIa?   @relation(fields: [AIMCodigo], references: [AIMCodigo])
+  
+  AILValorUsd          Float          // Positivo se Custo (Débito da cota). Negativo se crédito.
+  createdAt            DateTime       @default(now())
 }

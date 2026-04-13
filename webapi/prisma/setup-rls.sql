@@ -49,6 +49,16 @@ ALTER TABLE "ROTExecucaoLog" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_exe ON "ROTExecucaoLog"
   USING ("INSInstituicaoCodigo" = current_tenant());
 
+-- Política para controlid_dao (notificações DAO / object_changes)
+ALTER TABLE "controlid_dao" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_ctl_dao ON "controlid_dao"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+-- Política para controlid_catra_event
+ALTER TABLE "controlid_catra_event" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_ctl_catra ON "controlid_catra_event"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
 -- Bypass RLS para o usuário da aplicação (usado pelo Prisma via SET app.current_tenant)
 -- O Prisma seta o tenant manualmente via $extends, então o owner do schema precisa fazer bypass
 -- Nota: Executar APENAS se o user do banco for diferente do owner das tabelas

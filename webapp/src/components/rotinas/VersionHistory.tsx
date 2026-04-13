@@ -53,7 +53,7 @@ export function VersionHistory({
     };
 
     return (
-        <div className="h-full flex flex-col bg-gray-50 dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 w-80">
+        <div className="h-full flex-1 flex flex-col bg-gray-50 dark:bg-gray-900 w-full">
             <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center">
                 <div>
                     <h3 className="font-semibold text-gray-900 dark:text-white">Histórico</h3>

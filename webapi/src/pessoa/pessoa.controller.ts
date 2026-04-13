@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { PessoaService } from './pessoa.service';
-import { CreatePessoaDto, UpdatePessoaDto } from './dto/pessoa.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { CreatePessoaDto, UpdatePessoaDto, QueryPessoaDto } from './dto/pessoa.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -24,9 +23,14 @@ export class PessoaController {
     @Get()
     findAll(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-        @Query() query: PaginationDto
+        @Query() query: QueryPessoaDto
     ) {
         return this.service.findAll(instituicaoCodigo, query);
+    }
+
+    @Get('grupos')
+    listGrupos(@Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number) {
+        return this.service.findDistinctGrupos(instituicaoCodigo);
     }
 
     @Get(':id')
@@ -61,5 +65,13 @@ export class PessoaController {
         @Param('id', ParseIntPipe) id: number
     ) {
         return this.service.remove(instituicaoCodigo, id);
+    }
+
+    @Get(':id/mappings')
+    getMappings(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+        @Param('id', ParseIntPipe) id: number
+    ) {
+        return this.service.findMappings(instituicaoCodigo, id);
     }
 }

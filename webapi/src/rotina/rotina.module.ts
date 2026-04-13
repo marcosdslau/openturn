@@ -1,16 +1,30 @@
 import { Module } from '@nestjs/common';
 import { RotinaController } from './rotina.controller';
+import { RotinaExecutionController } from './rotina-execution.controller';
 import { RotinaWebhookController } from './rotina-webhook.controller';
 import { RotinaService } from './rotina.service';
+import { RotinaExecutionService } from './rotina-execution.service';
 import { SchedulerService } from './scheduler.service';
 import { ExecutionService } from './engine/execution.service';
+import { ProcessManager } from './engine/process-manager';
 import { ConsoleGateway } from './console.gateway';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { LogCleanupService } from './log-cleanup.service';
+import { RotinaQueueService } from './queue/rotina-queue.service';
 
 @Module({
-    controllers: [RotinaController, RotinaWebhookController],
-    providers: [RotinaService, SchedulerService, ExecutionService, ConsoleGateway, PrismaService, LogCleanupService],
-    exports: [RotinaService, ExecutionService],
+    controllers: [RotinaController, RotinaExecutionController, RotinaWebhookController],
+    providers: [
+        RotinaService,
+        RotinaExecutionService,
+        SchedulerService,
+        ExecutionService,
+        ProcessManager,
+        ConsoleGateway,
+        PrismaService,
+        LogCleanupService,
+        RotinaQueueService,
+    ],
+    exports: [RotinaService, ExecutionService, ProcessManager, RotinaQueueService],
 })
 export class RotinaModule { }
