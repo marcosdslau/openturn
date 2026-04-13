@@ -10,6 +10,11 @@ import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
 import { AlertIcon, UserCircleIcon } from "@/icons";
+import PessoasFiltros, {
+    PESSOA_FILTROS_VAZIOS,
+    buildPessoaListQuery,
+    type PessoaFiltrosAplicados,
+} from "./components/PessoasFiltros";
 
 interface Pessoa {
     PESCodigo: number;
@@ -47,7 +52,10 @@ export default function PessoasPage() {
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
-    const [search, setSearch] = useState("");
+    const [filtrosAplicados, setFiltrosAplicados] = useState<PessoaFiltrosAplicados>(
+        PESSOA_FILTROS_VAZIOS
+    );
+    const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
 
     // Modals
     const personModal = useModal();
@@ -67,20 +75,34 @@ export default function PessoasPage() {
         if (!codigoInstituicao) return;
         setLoading(true);
         try {
-            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/pessoa?page=${page}&limit=${limit}`);
-            let data = res.data || [];
-            if (search) {
-                const s = search.toLowerCase();
-                data = data.filter((p) => p.PESNome?.toLowerCase().includes(s) || p.PESDocumento?.toLowerCase().includes(s));
-            }
-            setPessoas(data);
+            const qs = buildPessoaListQuery(page, limit, filtrosAplicados);
+            const res = await apiGet<{ data: Pessoa[]; meta: Meta }>(
+                `/instituicao/${codigoInstituicao}/pessoa?${qs}`
+            );
+            setPessoas(res.data || []);
             setMeta(res.meta);
         } catch (error: any) {
             showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as pessoas.");
         } finally { setLoading(false); }
-    }, [codigoInstituicao, page, limit, search, showToast]);
+    }, [codigoInstituicao, page, limit, filtrosAplicados, showToast]);
 
     useEffect(() => { load(); }, [load]);
+
+    const loadGrupos = useCallback(async () => {
+        if (!codigoInstituicao) return;
+        try {
+            const list = await apiGet<string[]>(
+                `/instituicao/${codigoInstituicao}/pessoa/grupos`
+            );
+            setGruposDisponiveis(Array.isArray(list) ? list : []);
+        } catch {
+            setGruposDisponiveis([]);
+        }
+    }, [codigoInstituicao]);
+
+    useEffect(() => {
+        loadGrupos();
+    }, [loadGrupos]);
 
     const openNew = () => {
         setForm({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
@@ -99,6 +121,7 @@ export default function PessoasPage() {
             }
             personModal.closeModal();
             load();
+            loadGrupos();
         } catch (error: any) {
             showToast("error", "Erro ao salvar", error.message || "Ocorreu um erro ao processar a solicitação.");
         } finally { setSaving(false); }
@@ -117,6 +140,7 @@ export default function PessoasPage() {
             showToast("success", "Pessoa desativada", "O registro foi desativado com sucesso.");
             deactivateModal.closeModal();
             load();
+            loadGrupos();
         } catch (error: any) {
             showToast("error", "Erro ao desativar", error.message || "Não foi possível desativar a pessoa.");
         } finally { setSaving(false); }
@@ -144,11 +168,17 @@ export default function PessoasPage() {
                 <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
             </div>
 
-            {/* Search */}
-            <input
-                type="text" placeholder="Buscar por nome ou documento..."
-                value={search} onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+            <PessoasFiltros
+                aplicados={filtrosAplicados}
+                gruposDisponiveis={gruposDisponiveis}
+                onAplicar={(f) => {
+                    setFiltrosAplicados(f);
+                    setPage(1);
+                }}
+                onLimpar={() => {
+                    setFiltrosAplicados(PESSOA_FILTROS_VAZIOS);
+                    setPage(1);
+                }}
             />
 
             {/* Table */}
