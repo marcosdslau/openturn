@@ -9,7 +9,12 @@ import {
     WebhookTokenSource,
 } from '@prisma/client';
 import axios from 'axios';
-import { IHardwareProvider, ControlIDConfig, HardwareBrand } from './interfaces/hardware.types';
+import {
+    IHardwareProvider,
+    ControlIDConfig,
+    HardwareBrand,
+    ControlidDeviceMatchField,
+} from './interfaces/hardware.types';
 import { ControlIDProvider } from './providers/controlid.provider';
 import { HikvisionProvider } from './providers/hikvision.provider';
 import { WsRelayGateway } from '../connector/ws-relay.gateway';
@@ -293,6 +298,79 @@ export class HardwareService {
                         select: { INSInstituicaoCodigo: true },
                     });
                     if (eq) return eq.INSInstituicaoCodigo;
+                }
+            } catch {
+                /* não é inteiro válido para BigInt */
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Resolve o equipamento ControlID e o campo que casou com `device_id` do webhook Monitor.
+     * Ordem alinhada a `resolveInstituicaoCodigoFromControlidDeviceId`.
+     */
+    async resolveEquipamentoFromControlidDeviceId(
+        deviceId: unknown,
+    ): Promise<{ equipamento: EQPEquipamento; matchedField: ControlidDeviceMatchField } | null> {
+        const s = this.ctlStr(deviceId);
+        if (s === undefined || s === '') return null;
+
+        const byColumn = await this.prisma.eQPEquipamento.findFirst({
+            where: { deviceId: s },
+        });
+        if (byColumn) {
+            return { equipamento: byColumn, matchedField: 'EQPDeviceId' };
+        }
+
+        const cfgRows = await this.prisma.$queryRaw<{ EQPCodigo: number; matchedField: string }[]>(
+            Prisma.sql`
+                SELECT e."EQPCodigo",
+                  CASE
+                    WHEN e."EQPConfig"->>'deviceId' = ${s} THEN 'EQPConfig.deviceId'
+                    WHEN e."EQPConfig"->>'deviceId_entry' = ${s} THEN 'EQPConfig.deviceId_entry'
+                    WHEN e."EQPConfig"->>'deviceId_exit' = ${s} THEN 'EQPConfig.deviceId_exit'
+                    WHEN e."EQPConfig"->>'onlineServerId' = ${s} THEN 'EQPConfig.onlineServerId'
+                  END AS "matchedField"
+                FROM "EQPEquipamento" e
+                WHERE e."EQPMarca" = ${HardwareBrand.CONTROLID}
+                  AND e."EQPConfig" IS NOT NULL
+                  AND (
+                    e."EQPConfig"->>'deviceId' = ${s}
+                    OR e."EQPConfig"->>'deviceId_entry' = ${s}
+                    OR e."EQPConfig"->>'deviceId_exit' = ${s}
+                    OR e."EQPConfig"->>'onlineServerId' = ${s}
+                  )
+                LIMIT 1
+            `,
+        );
+        const cfgHit = cfgRows[0];
+        if (cfgHit?.EQPCodigo != null && cfgHit.matchedField) {
+            const equipamento = await this.prisma.eQPEquipamento.findUnique({
+                where: { EQPCodigo: cfgHit.EQPCodigo },
+            });
+            if (equipamento) {
+                return {
+                    equipamento,
+                    matchedField: cfgHit.matchedField as ControlidDeviceMatchField,
+                };
+            }
+        }
+
+        if (/^-?\d+$/.test(s)) {
+            try {
+                const bi = BigInt(s);
+                if (
+                    bi >= BigInt(HardwareService.INT32_MIN) &&
+                    bi <= BigInt(HardwareService.INT32_MAX)
+                ) {
+                    const eq = await this.prisma.eQPEquipamento.findFirst({
+                        where: { EQPCodigo: Number(bi) },
+                    });
+                    if (eq) {
+                        return { equipamento: eq, matchedField: 'legacy_EQPCodigo' };
+                    }
                 }
             } catch {
                 /* não é inteiro válido para BigInt */

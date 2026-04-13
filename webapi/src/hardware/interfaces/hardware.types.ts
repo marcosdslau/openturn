@@ -14,6 +14,18 @@ export enum ControlIDMode {
     ONLINE_ENTERPRISE = 'enterprise',
 }
 
+/** Sentido de entrada no cadastro (agnóstico de fabricante). Mapeamento para eventos do hardware fica por marca/modelo. */
+export type EntrySide = 'left' | 'right';
+
+/** Campo do equipamento que casou com `device_id` do webhook ControlID Monitor. */
+export type ControlidDeviceMatchField =
+    | 'EQPDeviceId'
+    | 'EQPConfig.deviceId'
+    | 'EQPConfig.deviceId_entry'
+    | 'EQPConfig.deviceId_exit'
+    | 'EQPConfig.onlineServerId'
+    | 'legacy_EQPCodigo';
+
 export interface ControlIDConfig {
     host: string;
     port: number;
@@ -22,6 +34,17 @@ export interface ControlIDConfig {
     mode: ControlIDMode;
     model?: string; // e.g., 'iDBlock', 'iDAccess'
     rotation_type?: 'both_controlled' | 'entry_free_exit_controlled' | 'entry_controlled_exit_free' | 'both_free';
+    /**
+     * Sentido físico de entrada configurado na instalação (Direita/Esquerda).
+     * Preferido em relação a `entry_direction` para novos cadastros.
+     */
+    entry_side?: EntrySide;
+    /**
+     * Se true, ENTRADA/SAÍDA no Monitor é derivado comparando o giro com `entry_side` (via mapper ControlID).
+     * Se false, usa a convenção nativa do equipamento (ex.: ControlID 7 = entrada, 8 = saída).
+     */
+    entry_direction_applied_by_equipment?: boolean;
+    /** Legado / detalhe ControlID; pode ser derivado de `entry_side` ao salvar no painel. */
     entry_direction?: 'clockwise' | 'counter_clockwise';
     anti_double_entry?: 'active' | 'inactive';
     door_id?: number | string;

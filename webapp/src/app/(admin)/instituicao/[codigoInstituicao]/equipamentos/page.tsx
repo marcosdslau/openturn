@@ -79,16 +79,30 @@ export default function EquipamentosPage() {
 
     const openNew = () => {
         setEditing(null);
-        setForm({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", deviceId: "", EQPConfig: { user: 'admin', pass: 'admin', mode: 'standalone' } });
+               setForm({
+            EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", deviceId: "",
+            EQPConfig: {
+                user: 'admin', pass: 'admin', mode: 'standalone',
+                entry_side: 'right',
+                entry_direction_applied_by_equipment: false,
+                entry_direction: 'clockwise',
+            },
+        });
         equipmentModal.openModal();
     };
 
     const openEdit = (e: Equipamento) => {
         setEditing(e);
+        const cfg = e.EQPConfig || { user: 'admin', pass: 'admin', mode: 'standalone' };
         setForm({
             EQPDescricao: e.EQPDescricao || "", EQPMarca: e.EQPMarca || "",
             EQPModelo: e.EQPModelo || "", EQPEnderecoIp: e.EQPEnderecoIp || "",
-            EQPConfig: e.EQPConfig || { user: 'admin', pass: 'admin', mode: 'standalone' }
+            deviceId: e.deviceId || '',
+            EQPConfig: {
+                ...cfg,
+                entry_side: cfg.entry_side ?? (cfg.entry_direction === 'counter_clockwise' ? 'left' : 'right'),
+                entry_direction_applied_by_equipment: cfg.entry_direction_applied_by_equipment ?? false,
+            },
         });
         equipmentModal.openModal();
     };
@@ -227,7 +241,7 @@ export default function EquipamentosPage() {
             <Modal
                 isOpen={equipmentModal.isOpen}
                 onClose={equipmentModal.closeModal}
-                className="max-w-md p-6"
+                className="max-w-lg p-6"
             >
                 <div className="space-y-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
@@ -311,6 +325,46 @@ export default function EquipamentosPage() {
                                     onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId: e.target.value || undefined } })}
                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                 />
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Sentido de entrada (catraca)</label>
+                                        <select
+                                            value={(form as any).EQPConfig?.entry_side === 'left' ? 'left' : 'right'}
+                                            onChange={(e) => {
+                                                const side = e.target.value as 'left' | 'right';
+                                                setForm({
+                                                    ...form,
+                                                    EQPConfig: {
+                                                        ...(form.EQPConfig || {}),
+                                                        entry_side: side,
+                                                        entry_direction: side === 'left' ? 'counter_clockwise' : 'clockwise',
+                                                    },
+                                                });
+                                            }}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                        >
+                                            <option value="right">Direita</option>
+                                            <option value="left">Esquerda</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1 flex flex-col justify-end">
+                                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400">Sentido definido por</label>
+                                        <select
+                                            value={(form as any).EQPConfig?.entry_direction_applied_by_equipment ? 'equipment' : 'native'}
+                                            onChange={(e) => setForm({
+                                                ...form,
+                                                EQPConfig: {
+                                                    ...(form.EQPConfig || {}),
+                                                    entry_direction_applied_by_equipment: e.target.value === 'equipment',
+                                                },
+                                            })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                        >
+                                            <option value="native">Nativo da catraca (Monitor)</option>
+                                            <option value="equipment">Instalação / equipamento</option>
+                                        </select>
+                                    </div>
+                                </div>
                                 <div className="grid grid-cols-2 gap-3">
                                     <input placeholder="Login (admin)" value={(form as any).EQPConfig?.user || ''}
                                         onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), user: e.target.value } })}
@@ -339,20 +393,28 @@ export default function EquipamentosPage() {
                         {form.EQPMarca === 'ControlID' && (form.EQPModelo === 'iDBlock Facial' || form.EQPModelo === 'iDBlock Next') && (
                             <div className="pt-2 space-y-3 border-t border-gray-100 dark:border-gray-800">
                                 <p className="text-xs font-medium text-gray-500 uppercase">Configuração iDFace (Entrada/Saída)</p>
-                                <div className="grid grid-cols-2 gap-3">
-                                    <input placeholder="IP iDFace Entrada" value={(form as any).EQPConfig?.ip_entry || ''}
-                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_entry: e.target.value } })}
-                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                                    <input placeholder="Device ID entrada (Monitor)" value={(form as any).EQPConfig?.deviceId_entry || ''}
-                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_entry: e.target.value || undefined } })}
-                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                                    <input placeholder="IP iDFace Saída" value={(form as any).EQPConfig?.ip_exit || ''}
-                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_exit: e.target.value } })}
-                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                                    <input placeholder="Device ID saída (Monitor)" value={(form as any).EQPConfig?.deviceId_exit || ''}
-                                        onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_exit: e.target.value || undefined } })}
-                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                                </div>
+                                <fieldset className="space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                                    <legend className="text-xs font-semibold text-gray-700 dark:text-gray-300 px-1">Entrada (entry)</legend>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <input placeholder="IP iDFace Entrada" value={(form as any).EQPConfig?.ip_entry || ''}
+                                            onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_entry: e.target.value } })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                        <input placeholder="Device ID Monitor (entrada)" value={(form as any).EQPConfig?.deviceId_entry || ''}
+                                            onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_entry: e.target.value || undefined } })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    </div>
+                                </fieldset>
+                                <fieldset className="space-y-2 rounded-lg border border-gray-200 dark:border-gray-700 p-3">
+                                    <legend className="text-xs font-semibold text-gray-700 dark:text-gray-300 px-1">Saída (exit)</legend>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <input placeholder="IP iDFace Saída" value={(form as any).EQPConfig?.ip_exit || ''}
+                                            onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), ip_exit: e.target.value } })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                        <input placeholder="Device ID Monitor (saída)" value={(form as any).EQPConfig?.deviceId_exit || ''}
+                                            onChange={(e) => setForm({ ...form, EQPConfig: { ...(form.EQPConfig || {}), deviceId_exit: e.target.value || undefined } })}
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                                    </div>
+                                </fieldset>
                             </div>
                         )}
                     </div>

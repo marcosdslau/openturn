@@ -79,7 +79,15 @@ export default function ControlIDConfigPage() {
 
             const res = await apiGet<Equipamento>(`/instituicao/${codigoInstituicao}/equipamento/${codigoEquipamento}`);
             setEquipment(res);
-            setForm(res.EQPConfig || {});
+            const cfg = res.EQPConfig || {};
+            setForm({
+                ...cfg,
+                entry_side:
+                    cfg.entry_side ??
+                    (cfg.entry_direction === 'counter_clockwise' ? 'left' : 'right'),
+                entry_direction_applied_by_equipment:
+                    cfg.entry_direction_applied_by_equipment ?? false,
+            });
             setUsaAddon(res.EQPUsaAddon || false);
             setRemoteTargetIp(res.EQPEnderecoIp || "");
             loadSessions();
@@ -253,14 +261,40 @@ export default function ControlIDConfigPage() {
                             </div>
 
                             <div className="space-y-2">
-                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Sentido de Entrada</label>
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Sentido de entrada (catraca)</label>
                                 <select
-                                    value={form.entry_direction || 'clockwise'}
-                                    onChange={(e) => setForm({ ...form, entry_direction: e.target.value })}
+                                    value={form.entry_side === 'left' ? 'left' : 'right'}
+                                    onChange={(e) => {
+                                        const side = e.target.value as 'left' | 'right';
+                                        setForm({
+                                            ...form,
+                                            entry_side: side,
+                                            entry_direction:
+                                                side === 'left' ? 'counter_clockwise' : 'clockwise',
+                                        });
+                                    }}
                                     className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
                                 >
-                                    <option value="clockwise">Horário</option>
-                                    <option value="counter_clockwise">Anti-Horário</option>
+                                    <option value="right">Direita</option>
+                                    <option value="left">Esquerda</option>
+                                </select>
+                            </div>
+
+                            <div className="space-y-2">
+                                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Interpretação do giro (Monitor)</label>
+                                <select
+                                    value={form.entry_direction_applied_by_equipment ? 'equipment' : 'native'}
+                                    onChange={(e) =>
+                                        setForm({
+                                            ...form,
+                                            entry_direction_applied_by_equipment:
+                                                e.target.value === 'equipment',
+                                        })
+                                    }
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                >
+                                    <option value="native">Nativo da catraca</option>
+                                    <option value="equipment">Pela instalação / equipamento</option>
                                 </select>
                             </div>
 
@@ -293,26 +327,62 @@ export default function ControlIDConfigPage() {
                         {(equipment.EQPModelo === 'iDBlock Facial' || equipment.EQPModelo === 'iDBlock Next') && (
                             <div className="pt-4 mt-4 border-t border-gray-200 dark:border-gray-700 space-y-4">
                                 <h4 className="text-sm font-medium text-gray-900 dark:text-white">Configuração {equipment.EQPModelo} (3 IPs)</h4>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">IP iDFace Entrada</label>
-                                        <input
-                                            placeholder="Ex: 192.168.1.101"
-                                            value={form.ip_entry || ''}
-                                            onChange={(e) => setForm({ ...form, ip_entry: e.target.value })}
-                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
-                                        />
+                                <fieldset className="rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3">
+                                    <legend className="text-sm font-semibold text-gray-800 dark:text-gray-200 px-1">Entrada (entry)</legend>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">IP iDFace Entrada</label>
+                                            <input
+                                                placeholder="Ex: 192.168.1.101"
+                                                value={form.ip_entry || ''}
+                                                onChange={(e) => setForm({ ...form, ip_entry: e.target.value })}
+                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Device ID Monitor (entrada)</label>
+                                            <input
+                                                placeholder="device_id do Monitor — leitor entrada"
+                                                value={form.deviceId_entry || ''}
+                                                onChange={(e) =>
+                                                    setForm({
+                                                        ...form,
+                                                        deviceId_entry: e.target.value || undefined,
+                                                    })
+                                                }
+                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            />
+                                        </div>
                                     </div>
-                                    <div className="space-y-2">
-                                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">IP iDFace Saída</label>
-                                        <input
-                                            placeholder="Ex: 192.168.1.102"
-                                            value={form.ip_exit || ''}
-                                            onChange={(e) => setForm({ ...form, ip_exit: e.target.value })}
-                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
-                                        />
+                                </fieldset>
+                                <fieldset className="rounded-lg border border-gray-200 dark:border-gray-600 p-4 space-y-3">
+                                    <legend className="text-sm font-semibold text-gray-800 dark:text-gray-200 px-1">Saída (exit)</legend>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">IP iDFace Saída</label>
+                                            <input
+                                                placeholder="Ex: 192.168.1.102"
+                                                value={form.ip_exit || ''}
+                                                onChange={(e) => setForm({ ...form, ip_exit: e.target.value })}
+                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Device ID Monitor (saída)</label>
+                                            <input
+                                                placeholder="device_id do Monitor — leitor saída"
+                                                value={form.deviceId_exit || ''}
+                                                onChange={(e) =>
+                                                    setForm({
+                                                        ...form,
+                                                        deviceId_exit: e.target.value || undefined,
+                                                    })
+                                                }
+                                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                            />
+                                        </div>
                                     </div>
-                                </div>
+                                </fieldset>
                             </div>
                         )}
 

@@ -115,34 +115,6 @@ export class ControlidMonitorController {
         return this.syncService.syncPessoasToEquipamento(equipamentoCodigo, instituicaoCodigo);
     }
 
-    @Post('catra_event')
-    async catraEvent(
-        @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
-        @Body() body: any,
-    ) {
-        const instEquip = await this.hardwareService.resolveInstituicaoCodigoFromControlidDeviceId(
-            body?.device_id,
-        );
-        if (instEquip == null) {
-            this.logger.warn(
-                `[${codigoInstituicao}] [ControlID] catra_event: equipamento device_id=${body?.device_id} não encontrado; ignorando`,
-            );
-            return {};
-        }
-        if (instEquip !== codigoInstituicao) {
-            this.logger.warn(
-                `[${codigoInstituicao}] [ControlID] catra_event: device_id=${body?.device_id} pertence à instituição ${instEquip}, não ${codigoInstituicao}; ignorando`,
-            );
-            return {};
-        }
-        this.logger.log(
-            `[${codigoInstituicao}] [ControlID] Catra Event received: device=${body?.device_id} user=${body?.user_id}`,
-        );
-        await this.hardwareService.persistControlidCatraEvent(codigoInstituicao, body);
-        await this.controlidService.registrarPassagem(body);
-        return {};
-    }
-
     @Post('door')
     doorEvent(
         @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
@@ -197,6 +169,34 @@ export class ControlidMonitorController {
         return {};
     }
 
+    @Post('catra_event')
+    async catraEvent(
+        @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
+        @Body() body: any,
+    ) {
+        const instEquip = await this.hardwareService.resolveInstituicaoCodigoFromControlidDeviceId(
+            body?.device_id,
+        );
+        if (instEquip == null) {
+            this.logger.warn(
+                `[${codigoInstituicao}] [ControlID] catra_event: equipamento device_id=${body?.device_id} não encontrado; ignorando`,
+            );
+            return {};
+        }
+        if (instEquip !== codigoInstituicao) {
+            this.logger.warn(
+                `[${codigoInstituicao}] [ControlID] catra_event: device_id=${body?.device_id} pertence à instituição ${instEquip}, não ${codigoInstituicao}; ignorando`,
+            );
+            return {};
+        }
+        this.logger.log(
+            `[${codigoInstituicao}] [ControlID] Catra Event received: device=${body?.device_id} time=${body?.time}`,
+        );
+        await this.hardwareService.persistControlidCatraEvent(codigoInstituicao, body);
+        await this.controlidService.registrarPassagem(body);
+        return {};
+    }
+
     @Post('dao')
     async daoNotification(
         @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
@@ -219,6 +219,7 @@ export class ControlidMonitorController {
         }
         this.logger.log(`[${codigoInstituicao}] [ControlID] DAO Notification received`);
         await this.hardwareService.persistControlidDao(codigoInstituicao, body);
+        await this.controlidService.tryRegisterPassagemAfterControlidDao(codigoInstituicao, body);
         return {};
     }
 }
