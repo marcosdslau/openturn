@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import Redis from 'ioredis';
 import type { RedisOptions } from 'ioredis';
 import { routineTimeoutSecondsFromCadastro } from './routine-timeout.util';
+import { channelConsole } from '../redis-keys';
 
 export interface LogEntry {
     level: 'log' | 'info' | 'warn' | 'error';
@@ -30,7 +31,7 @@ export class WorkerProcessManager {
     }
 
     private publishLog(rotinaCodigo: number, exeId: string, log: LogEntry) {
-        this.redisPub.publish('rotina:console', JSON.stringify({
+        this.redisPub.publish(channelConsole(), JSON.stringify({
             type: 'log',
             rotinaCodigo,
             exeId,
@@ -39,7 +40,7 @@ export class WorkerProcessManager {
     }
 
     private publishExecutionStart(rotinaCodigo: number, exeId: string) {
-        this.redisPub.publish('rotina:console', JSON.stringify({
+        this.redisPub.publish(channelConsole(), JSON.stringify({
             type: 'execution:start',
             rotinaCodigo,
             exeId,
@@ -48,7 +49,7 @@ export class WorkerProcessManager {
     }
 
     private publishExecutionEnd(rotinaCodigo: number, exeId: string, result: { success: boolean; duration: number; error?: string }) {
-        this.redisPub.publish('rotina:console', JSON.stringify({
+        this.redisPub.publish(channelConsole(), JSON.stringify({
             type: 'execution:end',
             rotinaCodigo,
             exeId,

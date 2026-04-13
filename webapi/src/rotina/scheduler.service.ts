@@ -6,6 +6,7 @@ import { RotinaQueueService } from './queue/rotina-queue.service';
 import { TipoRotina } from '@prisma/client';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { redisCronLockKey } from '../common/redis/redis-keys';
 
 @Injectable()
 export class SchedulerService implements OnModuleInit {
@@ -33,7 +34,7 @@ export class SchedulerService implements OnModuleInit {
 
     private async acquireCronLock(rotinaId: number): Promise<boolean> {
         if (!this.redis) return true;
-        const lockKey = `cron-lock:${rotinaId}:${Math.floor(Date.now() / 60000)}`;
+        const lockKey = redisCronLockKey(rotinaId);
         const result = await this.redis.set(lockKey, '1', 'EX', 120, 'NX');
         return result === 'OK';
     }

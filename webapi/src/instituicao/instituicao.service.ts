@@ -5,6 +5,7 @@ import { CreateInstituicaoDto, UpdateInstituicaoDto } from './dto/instituicao.dt
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { channelInstituicaoRefresh } from '../common/redis/redis-keys';
 
 @Injectable()
 export class InstituicaoService {
@@ -166,7 +167,7 @@ export class InstituicaoService {
         });
 
         try {
-            await this.redisPub.publish('openturn:instituicao:queue:refresh', payload);
+            await this.redisPub.publish(channelInstituicaoRefresh(), payload);
         } catch (error) {
             this.logger.warn(`Falha ao publicar refresh de instituição ${instituicao.INSCodigo}: ${(error as Error).message}`);
         }
@@ -176,7 +177,7 @@ export class InstituicaoService {
         if (!this.redisPub) return;
         try {
             await this.redisPub.publish(
-                'openturn:instituicao:queue:refresh',
+                channelInstituicaoRefresh(),
                 JSON.stringify({ reconcileAll: true }),
             );
         } catch (error) {

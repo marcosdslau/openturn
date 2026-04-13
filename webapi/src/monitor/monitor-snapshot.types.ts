@@ -1,14 +1,18 @@
+import {
+    redisMonitorInstDashboard,
+    redisMonitorInstDashboardPattern,
+} from '../common/redis/redis-keys';
+
 /** Contrato snapshot monitor (Redis). version bump ao alterar forma do JSON. */
 export const MONITOR_SNAPSHOT_VERSION = 1;
-export const REDIS_KEY_MONITOR_SNAPSHOT = 'monitor:global:snapshot:v1';
-export const REDIS_KEY_MONITOR_REFRESH_LOCK = 'monitor:global:snapshot:refresh:lock';
 
 /** Complemento Redis do dashboard por instituição (série + contagens). Bump ao alterar JSON. */
 export const MONITOR_INST_DASHBOARD_CACHE_VERSION = 1;
 
-export function redisKeyMonitorInstDashboard(instituicaoCodigo: number): string {
-    return `monitor:instituicao:${instituicaoCodigo}:dashboard:v1`;
-}
+export {
+    redisMonitorInstDashboard as redisKeyMonitorInstDashboard,
+    redisMonitorInstDashboardPattern,
+};
 
 /** Payload gravado em `redisKeyMonitorInstDashboard` (read-through). */
 export interface MonitorInstituicaoDashboardExtrasCacheDto {

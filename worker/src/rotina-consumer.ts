@@ -9,15 +9,22 @@ import { WorkerProcessManager } from './engine/process-manager';
 import {
     getRabbitUrl,
     getMainQueueName,
-    GLOBAL_RETRY_QUEUE,
-    INSTITUICAO_REFRESH_CHANNEL,
-    JOBS_DLX_EXCHANGE,
-    JOBS_DLX_QUEUE,
-    JOBS_EXCHANGE,
-    JOBS_RETRY_EXCHANGE,
+    getGlobalRetryQueue,
+    getJobsDlxExchange,
+    getJobsDlxQueue,
+    getJobsExchange,
+    getJobsRetryExchange,
     RETRY_DLX_ROUTING_KEY,
 } from './rabbit-connection';
 import { workerLogLine } from './worker-log';
+import {
+    channelCancel,
+    channelFinished,
+    channelInstituicaoRefresh,
+    redisPendingKey,
+    redisInflightZkey,
+    redisSerialInflightZkey,
+} from './redis-keys';
 
 export interface RotinaJobData {
     exeId: string;
@@ -197,7 +204,7 @@ class RabbitRotinaConsumer {
             if (this.channel) await this.channel.cancel(tag);
             this.consumerTags.delete(inst);
         }
-        await this.redisSub.unsubscribe(INSTITUICAO_REFRESH_CHANNEL, 'rotina:cancel');
+        await this.redisSub.unsubscribe(channelInstituicaoRefresh(), channelCancel());
         await this.redisSub.quit();
         await this.redis.quit();
         if (this.retryChannel) await this.retryChannel.close();
@@ -207,19 +214,19 @@ class RabbitRotinaConsumer {
 
     private async setupGlobalTopology() {
         if (!this.channel || !this.retryChannel) return;
-        await this.channel.assertExchange(JOBS_EXCHANGE, 'direct', { durable: true });
-        await this.channel.assertExchange(JOBS_RETRY_EXCHANGE, 'direct', { durable: true });
-        await this.channel.assertExchange(JOBS_DLX_EXCHANGE, 'direct', { durable: true });
-        await this.channel.assertQueue(JOBS_DLX_QUEUE, { durable: true });
-        await this.channel.bindQueue(JOBS_DLX_QUEUE, JOBS_DLX_EXCHANGE, 'final');
+        await this.channel.assertExchange(getJobsExchange(), 'direct', { durable: true });
+        await this.channel.assertExchange(getJobsRetryExchange(), 'direct', { durable: true });
+        await this.channel.assertExchange(getJobsDlxExchange(), 'direct', { durable: true });
+        await this.channel.assertQueue(getJobsDlxQueue(), { durable: true });
+        await this.channel.bindQueue(getJobsDlxQueue(), getJobsDlxExchange(), 'final');
 
-        await this.retryChannel.assertQueue(GLOBAL_RETRY_QUEUE, { durable: true });
-        await this.retryChannel.bindQueue(GLOBAL_RETRY_QUEUE, JOBS_RETRY_EXCHANGE, RETRY_DLX_ROUTING_KEY);
+        await this.retryChannel.assertQueue(getGlobalRetryQueue(), { durable: true });
+        await this.retryChannel.bindQueue(getGlobalRetryQueue(), getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY);
     }
 
     private async startGlobalRetryConsumer() {
         if (!this.retryChannel) return;
-        await this.retryChannel.consume(GLOBAL_RETRY_QUEUE, (msg) => {
+        await this.retryChannel.consume(getGlobalRetryQueue(), (msg) => {
             this.onRetryQueueMessage(msg).catch((err) => {
                 console.error(workerLogLine('retry consumer error:'), err);
             });
@@ -262,12 +269,12 @@ class RabbitRotinaConsumer {
             timestamp: Date.now(),
         };
 
-        ch.publish(JOBS_EXCHANGE, String(data.instituicaoCodigo), msg.content, properties);
+        ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
         ch.ack(msg);
     }
 
     private async startCancelListener() {
-        await this.redisSub.subscribe('rotina:cancel');
+        await this.redisSub.subscribe(channelCancel());
         this.redisSub.on('message', (_channel: string, message: string) => {
             try {
                 const { exeId } = JSON.parse(message);
@@ -279,9 +286,9 @@ class RabbitRotinaConsumer {
     }
 
     private async startRefreshListener() {
-        await this.redisSub.subscribe(INSTITUICAO_REFRESH_CHANNEL);
+        await this.redisSub.subscribe(channelInstituicaoRefresh());
         this.redisSub.on('message', (channel, message) => {
-            if (channel !== INSTITUICAO_REFRESH_CHANNEL) return;
+            if (channel !== channelInstituicaoRefresh()) return;
             this.handleRefreshMessage(message).catch((err) => {
                 console.error(workerLogLine('refresh handler error:'), err);
             });
@@ -349,11 +356,11 @@ class RabbitRotinaConsumer {
         await this.channel.assertQueue(mainQueue, {
             durable: true,
             arguments: {
-                'x-dead-letter-exchange': JOBS_RETRY_EXCHANGE,
+                'x-dead-letter-exchange': getJobsRetryExchange(),
                 'x-dead-letter-routing-key': RETRY_DLX_ROUTING_KEY,
             },
         });
-        await this.channel.bindQueue(mainQueue, JOBS_EXCHANGE, routingKey);
+        await this.channel.bindQueue(mainQueue, getJobsExchange(), routingKey);
     }
 
     private async ensureTenantConsumer(instituicao: InstituicaoAtiva) {
@@ -542,7 +549,7 @@ class RabbitRotinaConsumer {
             data: { ROTUltimaExecucao: fim },
         });
 
-        await this.redis.publish(`rotina:finished:${exeId}`, JSON.stringify({
+        await this.redis.publish(channelFinished(exeId), JSON.stringify({
             success: result.success,
             result: result.result,
             error: result.error,
@@ -573,7 +580,7 @@ class RabbitRotinaConsumer {
 
     private async clearPendingMarker(exeId: string): Promise<void> {
         try {
-            await this.redis.del(`rotina:pending:${exeId}`);
+            await this.redis.del(redisPendingKey(exeId));
         } catch {
             /* ignore */
         }
@@ -585,7 +592,7 @@ class RabbitRotinaConsumer {
         limit: number,
         exeId: string,
     ): Promise<boolean> {
-        const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
+        const zkey = redisInflightZkey(instituicaoCodigo);
         const now = Date.now();
         const until = now + INFLIGHT_LEASE_MS;
         const result = await this.redis.eval(
@@ -612,13 +619,12 @@ class RabbitRotinaConsumer {
     }
 
     private async releaseTenantSlot(instituicaoCodigo: number, exeId: string) {
-        const zkey = `rotina:inflight:z:${instituicaoCodigo}`;
+        const zkey = redisInflightZkey(instituicaoCodigo);
         await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
     }
 
-    /** Contrato com webapi RotinaQueueService.serialRotinaInflightZkey — manter prefixo idêntico. */
-    private serialRotinaInflightZkey(instituicaoCodigo: number, rotinaCodigo: number): string {
-        return `rotina:serial:inflight:z:${instituicaoCodigo}:${rotinaCodigo}`;
+    private serialRotinaInflightZkeyFor(instituicaoCodigo: number, rotinaCodigo: number): string {
+        return redisSerialInflightZkey(instituicaoCodigo, rotinaCodigo);
     }
 
     /** Uma execução por rotina (quando ROTPermiteParalelismo = false): ZSET com limite 1 e lease. */
@@ -627,7 +633,7 @@ class RabbitRotinaConsumer {
         rotinaCodigo: number,
         exeId: string,
     ): Promise<boolean> {
-        const zkey = this.serialRotinaInflightZkey(instituicaoCodigo, rotinaCodigo);
+        const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
         const now = Date.now();
         const until = now + INFLIGHT_LEASE_MS;
         const result = await this.redis.eval(
@@ -654,7 +660,7 @@ class RabbitRotinaConsumer {
     }
 
     private async releaseRotinaSerialSlot(instituicaoCodigo: number, rotinaCodigo: number, exeId: string) {
-        const zkey = this.serialRotinaInflightZkey(instituicaoCodigo, rotinaCodigo);
+        const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
         await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
     }
 
@@ -672,7 +678,7 @@ class RabbitRotinaConsumer {
             contentType: msg.properties.contentType || 'application/json',
             timestamp: Date.now(),
         };
-        return ch.publish(JOBS_EXCHANGE, String(instituicaoCodigo), msg.content, properties);
+        return ch.publish(getJobsExchange(), String(instituicaoCodigo), msg.content, properties);
     }
 
     private getRetryCount(msg: ConsumeMessage): number {
@@ -693,7 +699,7 @@ class RabbitRotinaConsumer {
             correlationId: msg.properties.correlationId || data.exeId,
             contentType: 'application/json',
         };
-        pubChannel.publish(JOBS_DLX_EXCHANGE, 'final', msg.content, options);
+        pubChannel.publish(getJobsDlxExchange(), 'final', msg.content, options);
     }
 }
 

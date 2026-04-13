@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE } from './rabbit-connection';
+import { getGlobalRetryQueue, getJobsDlxQueue } from './rabbit-connection';
 
 export interface RabbitOverviewDto {
     queues: number;
@@ -78,8 +78,8 @@ export class RabbitManagementService {
                 messages_unacknowledged: messagesUnacked,
                 publish_rate: overview.message_stats?.publish_details?.rate || 0,
                 deliver_rate: overview.message_stats?.deliver_details?.rate || 0,
-                dlq_messages: findQueueDepth(JOBS_DLX_QUEUE),
-                retry_queue_messages: findQueueDepth(GLOBAL_RETRY_QUEUE),
+                dlq_messages: findQueueDepth(getJobsDlxQueue()),
+                retry_queue_messages: findQueueDepth(getGlobalRetryQueue()),
                 timestamp: new Date().toISOString(),
             };
         } catch (error) {

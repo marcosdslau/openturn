@@ -11,6 +11,7 @@ import { Logger } from '@nestjs/common';
 import { createAdapter } from '@socket.io/redis-adapter';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { channelConsole, socketIoKeyPrefix } from '../common/redis/redis-keys';
 
 @WebSocketGateway({
     cors: {
@@ -40,7 +41,7 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect,
 
             void Promise.all([pubClient.connect(), subClient.connect()])
                 .then(() => {
-                    server.adapter(createAdapter(pubClient, subClient) as any);
+                    server.adapter(createAdapter(pubClient, subClient, { key: socketIoKeyPrefix() }) as any);
                     this.logger.log('Socket.IO Redis adapter configured');
                 })
                 .catch((err: Error) => {
@@ -69,11 +70,11 @@ export class ConsoleGateway implements OnGatewayConnection, OnGatewayDisconnect,
                 .connect()
                 .then(async () => {
                     try {
-                        await client.subscribe('rotina:console');
+                        await client.subscribe(channelConsole());
                     } catch (err: any) {
                         const msg = err?.message ?? String(err);
                         this.logger.warn(
-                            `Worker console bridge: subscribe rotina:console falhou (${msg}). ` +
+                            `Worker console bridge: subscribe ${channelConsole()} falhou (${msg}). ` +
                                 'No redis-cli (ACL): acrescente permissão de canais ao utilizador, p.ex. &rotina:* ou &*. Ver comentário em .env.example.',
                         );
                         await client.quit().catch(() => {});

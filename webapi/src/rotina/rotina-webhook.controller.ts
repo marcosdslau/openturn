@@ -4,6 +4,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { channelFinished } from '../common/redis/redis-keys';
 import { routineTimeoutSecondsFromCadastro } from './engine/routine-timeout.util';
 
 @Controller('instituicoes/:instituicaoCodigo/webhooks')
@@ -97,7 +98,7 @@ export class RotinaWebhookController {
     }
 
     private async waitForResultViaRedis(exeId: string, timeoutMs: number): Promise<any> {
-        const channel = `rotina:finished:${exeId}`;
+        const channel = channelFinished(exeId);
         const sub = new Redis({ ...getRedisConnectionOptions(), lazyConnect: true });
         await sub.connect();
         await sub.subscribe(channel);

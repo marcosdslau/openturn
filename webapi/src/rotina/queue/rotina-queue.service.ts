@@ -4,7 +4,15 @@ import { Prisma, StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
 import type { Options } from 'amqplib';
 import Redis from 'ioredis';
-import { JOBS_EXCHANGE, getRabbitUrl, getMainQueueName, GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE } from '../../common/rabbit/rabbit-connection';
+import { getJobsExchange, getRabbitUrl, getMainQueueName, getGlobalRetryQueue, getJobsDlxQueue } from '../../common/rabbit/rabbit-connection';
+import {
+    redisPendingKey,
+    redisInflightZkey as redisInflightZkeyFn,
+    redisSerialInflightZkey as redisSerialInflightZkeyFn,
+    redisInflightPattern,
+    redisInflightRegex,
+    channelCancel,
+} from '../../common/redis/redis-keys';
 
 const ROTINA_RETRY_HEADER = 'x-rotina-retry-count';
 
@@ -80,7 +88,7 @@ export class RotinaQueueService {
     }
 
     private pendingKey(exeId: string) {
-        return `rotina:pending:${exeId}`;
+        return redisPendingKey(exeId);
     }
 
     /** Marcador opcional (UX): worker remove ao consumir. TTL evita chave órfã se o Redis da API reiniciar. */
@@ -120,7 +128,7 @@ export class RotinaQueueService {
     async sendCancelSignal(exeId: string): Promise<void> {
         if (!this.redis) return;
         try {
-            await this.redis.publish('rotina:cancel', JSON.stringify({ exeId }));
+            await this.redis.publish(channelCancel(), JSON.stringify({ exeId }));
         } catch (e) {
             this.logger.debug(`Erro ao publicar sinal de cancelamento (${exeId}): ${(e as Error)?.message ?? e}`);
         }
@@ -134,14 +142,14 @@ export class RotinaQueueService {
     async reprocessDeadLetterQueue(): Promise<ReprocessDeadLetterResult> {
         const MAX_MESSAGES = Math.max(1, parseInt(process.env.ROTINA_DLQ_REPROCESS_MAX || '5000', 10));
         const channel = await this.getChannel();
-        await channel.assertQueue(JOBS_DLX_QUEUE, { durable: true });
+        await channel.assertQueue(getJobsDlxQueue(), { durable: true });
 
         let republished = 0;
         let skippedInvalid = 0;
         const errors: string[] = [];
 
         for (let n = 0; n < MAX_MESSAGES; n++) {
-            const msg = await channel.get(JOBS_DLX_QUEUE, { noAck: false });
+            const msg = await channel.get(getJobsDlxQueue(), { noAck: false });
             if (!msg) break;
 
             let data: RotinaJobData;
@@ -194,7 +202,7 @@ export class RotinaQueueService {
             };
 
             const ok = channel.publish(
-                JOBS_EXCHANGE,
+                getJobsExchange(),
                 String(data.instituicaoCodigo),
                 msg.content,
                 properties,
@@ -239,7 +247,7 @@ export class RotinaQueueService {
             }
 
             // Adiciona filas globais
-            for (const qName of [GLOBAL_RETRY_QUEUE, JOBS_DLX_QUEUE]) {
+            for (const qName of [getGlobalRetryQueue(), getJobsDlxQueue()]) {
                 try {
                     const qInfo = await checkChannel.checkQueue(qName);
                     waitingCount += qInfo.messageCount;
@@ -256,10 +264,9 @@ export class RotinaQueueService {
         let redisActiveCount = 0;
         if (this.redis) {
             try {
-                const keys = await this.redis.keys('rotina:inflight:z:*');
+                const inflightKeys = await this.redis.keys(redisInflightPattern());
                 const now = Date.now();
-                for (const key of keys) {
-                    // Limpa leases expirados para precisão no monitor
+                for (const key of inflightKeys) {
                     await this.redis.zremrangebyscore(key, '-inf', now);
                     const card = await this.redis.zcard(key);
                     redisActiveCount += card;
@@ -306,7 +313,7 @@ export class RotinaQueueService {
     }
 
     private inflightZkey(instituicaoCodigo: number): string {
-        return `rotina:inflight:z:${instituicaoCodigo}`;
+        return redisInflightZkeyFn(instituicaoCodigo);
     }
 
     /**
@@ -314,7 +321,7 @@ export class RotinaQueueService {
      * Manter alinhado a worker/src/rotina-consumer.ts.
      */
     serialRotinaInflightZkey(instituicaoCodigo: number, rotinaCodigo: number): string {
-        return `rotina:serial:inflight:z:${instituicaoCodigo}:${rotinaCodigo}`;
+        return redisSerialInflightZkeyFn(instituicaoCodigo, rotinaCodigo);
     }
 
     /** Remove o ZSET de semáforo serial da rotina (operação manual se lock ficar preso). */
@@ -349,11 +356,11 @@ export class RotinaQueueService {
     async getInflightCounts(): Promise<{ instituicaoCodigo: number; inflight: number }[]> {
         if (!this.redis) return [];
         try {
-            const keys = await this.redis.keys('rotina:inflight:z:*');
+            const inflightKeys = await this.redis.keys(redisInflightPattern());
             const now = Date.now();
             const items: { instituicaoCodigo: number; inflight: number }[] = [];
-            for (const key of keys) {
-                const m = /^rotina:inflight:z:(\d+)$/.exec(key);
+            for (const key of inflightKeys) {
+                const m = redisInflightRegex().exec(key);
                 if (!m) continue;
                 const instituicaoCodigo = parseInt(m[1], 10);
                 await this.redis.zremrangebyscore(key, '-inf', now);
@@ -395,14 +402,14 @@ export class RotinaQueueService {
         };
 
         const payload = Buffer.from(JSON.stringify(data));
-        channel.publish(JOBS_EXCHANGE, String(data.instituicaoCodigo), payload, properties);
+        channel.publish(getJobsExchange(), String(data.instituicaoCodigo), payload, properties);
     }
 
     private async getChannel(): Promise<amqp.Channel> {
         if (!this.channelPromise) {
             this.channelPromise = this.getConnection().then(async (connection) => {
                 const channel = await connection.createChannel();
-                await channel.assertExchange(JOBS_EXCHANGE, 'direct', { durable: true });
+                await channel.assertExchange(getJobsExchange(), 'direct', { durable: true });
                 return channel;
             });
         }

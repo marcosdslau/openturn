@@ -8,11 +8,11 @@ import {
     MONITOR_INST_DASHBOARD_CACHE_VERSION,
     MONITOR_SNAPSHOT_VERSION,
     type MonitorInstituicaoDashboardExtrasCacheDto,
-    REDIS_KEY_MONITOR_REFRESH_LOCK,
-    REDIS_KEY_MONITOR_SNAPSHOT,
     MonitorSnapshotDto,
     redisKeyMonitorInstDashboard,
+    redisMonitorInstDashboardPattern,
 } from './monitor-snapshot.types';
+import { redisMonitorSnapshot, redisMonitorRefreshLock } from '../common/redis/redis-keys';
 
 const LOCK_TTL_SEC = 300;
 
@@ -46,7 +46,7 @@ export class MonitorSnapshotService {
     async loadFromRedis(): Promise<MonitorSnapshotDto | null> {
         if (!this.redis) return null;
         try {
-            const raw = await this.redis.get(REDIS_KEY_MONITOR_SNAPSHOT);
+            const raw = await this.redis.get(redisMonitorSnapshot());
             if (!raw) return null;
             return JSON.parse(raw) as MonitorSnapshotDto;
         } catch (e) {
@@ -62,7 +62,7 @@ export class MonitorSnapshotService {
     private async invalidateInstituicaoDashboardCaches(): Promise<void> {
         if (!this.redis) return;
         try {
-            const keys = await this.redis.keys('monitor:instituicao:*:dashboard:v1');
+            const keys = await this.redis.keys(redisMonitorInstDashboardPattern());
             if (keys.length > 0) {
                 await this.redis.del(...keys);
                 this.logger.debug(`Caches dashboard instituição invalidados (${keys.length})`);
@@ -115,7 +115,7 @@ export class MonitorSnapshotService {
         if (!this.redis) return;
         try {
             const body = JSON.stringify(dto);
-            await this.redis.set(REDIS_KEY_MONITOR_SNAPSHOT, body);
+            await this.redis.set(redisMonitorSnapshot(), body);
             this.logger.log(`Snapshot monitor gravado (${Math.round(body.length / 1024)} KiB)`);
             await this.invalidateInstituicaoDashboardCaches();
         } catch (e) {
@@ -126,7 +126,7 @@ export class MonitorSnapshotService {
     private async tryAcquireLock(): Promise<boolean> {
         if (!this.redis) return true;
         try {
-            const ok = await this.redis.set(REDIS_KEY_MONITOR_REFRESH_LOCK, '1', 'EX', LOCK_TTL_SEC, 'NX');
+            const ok = await this.redis.set(redisMonitorRefreshLock(), '1', 'EX', LOCK_TTL_SEC, 'NX');
             return ok === 'OK';
         } catch {
             return false;
@@ -136,7 +136,7 @@ export class MonitorSnapshotService {
     private async releaseLock(): Promise<void> {
         if (!this.redis) return;
         try {
-            await this.redis.del(REDIS_KEY_MONITOR_REFRESH_LOCK);
+            await this.redis.del(redisMonitorRefreshLock());
         } catch {
             // ignore
         }
