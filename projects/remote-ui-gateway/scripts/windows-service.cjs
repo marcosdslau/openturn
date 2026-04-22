@@ -42,7 +42,7 @@ if (nodeEnv !== 'PRD' && nodeEnv !== 'DEV') {
   process.exit(1);
 }
 
-const serviceName = `SG_remote-ui-gateway_${nodeEnv}`;
+const serviceName = `${nodeEnv}_SG_remote-ui-gateway`;
 
 const execPath = process.env.NODE_EXE
   ? path.resolve(process.env.NODE_EXE)
@@ -51,7 +51,7 @@ const execPath = process.env.NODE_EXE
 function createService() {
   const svc = new Service({
     name: serviceName,
-    description: `OpenTurn Remote UI Gateway (${nodeEnv}) Porta ${port}`,
+    description: `SG Remote UI Gateway (${nodeEnv}) Porta ${port}`,
     script: path.join(root, 'dist', 'index.js'),
     workingDirectory: root,
     execPath,

@@ -336,6 +336,7 @@ export class ExecutionService {
                     { name: "INSCodigo", type: "Int", pk: true },
                     { name: "INSNome", type: "String" },
                     { name: "INSAtivo", type: "Boolean" },
+                    { name: "INSFusoHorario", type: "Int" },
                     { name: "INSConfigHardware", type: "Json" },
                 ]
             },
@@ -353,6 +354,7 @@ export class ExecutionService {
                     { name: "CTDCodigo", type: "Int", pk: true },
                     { name: "INSInstituicaoCodigo", type: "Int", fk: "INSInstituicao" },
                     { name: "deviceId", type: "String" },
+                    { name: "originTime", type: "BigInt" },
                     { name: "notifyTime", type: "BigInt" },
                     { name: "ctlObject", type: "String" },
                     { name: "changeType", type: "String" },
@@ -380,6 +382,7 @@ export class ExecutionService {
                     { name: "CTCCodigo", type: "Int", pk: true },
                     { name: "INSInstituicaoCodigo", type: "Int", fk: "INSInstituicao" },
                     { name: "deviceId", type: "String" },
+                    { name: "originTime", type: "BigInt" },
                     { name: "notifyTime", type: "BigInt" },
                     { name: "accessEventId", type: "String" },
                     { name: "eventType", type: "String" },

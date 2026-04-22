@@ -20,6 +20,10 @@ import { HikvisionProvider } from './providers/hikvision.provider';
 import { WsRelayGateway } from '../connector/ws-relay.gateway';
 import { ConnectorService } from '../connector/connector.service';
 import { TenantService } from '../common/tenant/tenant.service';
+import {
+    applyInstitutionFusoHorarioToNotifyTime,
+    parseControlidBodyTimeToBigIntSeconds,
+} from '../controlid/controlid-notify-time.util';
 
 @Injectable()
 export class HardwareService {
@@ -388,9 +392,17 @@ export class HardwareService {
         return `${accessEventId}\0${eventUuid ?? ''}`;
     }
 
+    private async getInsFusoHorarioForControlid(instituicaoCodigo: number): Promise<number> {
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instituicaoCodigo },
+            select: { INSFusoHorario: true },
+        });
+        return inst?.INSFusoHorario ?? -3;
+    }
+
     /**
      * Persiste payload bruto do webhook Monitor ControlID (DAO / object_changes).
-     * Por tenant + (deviceId, notifyTime): atualiza linhas cuja chave (object, type, values.id)
+     * Por tenant + (deviceId, originTime): atualiza linhas cuja chave (object, type, values.id)
      * já existe (mantém CTDCodigo, processed, createdAt); insere apenas alterações novas;
      * remove linhas do mesmo trio que deixaram de vir no payload.
      */
@@ -399,7 +411,12 @@ export class HardwareService {
             return;
         }
         const deviceId = this.ctlStr(body.device_id) ?? '';
-        const notifyTime = this.ctlBigInt(body.time);
+        const originTime = parseControlidBodyTimeToBigIntSeconds(body?.time);
+        if (originTime === null) {
+            return;
+        }
+        const offsetHoras = await this.getInsFusoHorarioForControlid(instituicaoCodigo);
+        const notifyTime = applyInstitutionFusoHorarioToNotifyTime(originTime, offsetHoras);
         const changesByKey = new Map<string, any>();
         for (const change of body.object_changes) {
             const v = change?.values ?? {};
@@ -414,7 +431,7 @@ export class HardwareService {
                 where: {
                     INSInstituicaoCodigo: instituicaoCodigo,
                     deviceId,
-                    notifyTime,
+                    originTime,
                 },
             });
             const byKey = new Map<string, (typeof existingRows)[number]>();
@@ -466,6 +483,7 @@ export class HardwareService {
                     toCreate.push({
                         INSInstituicaoCodigo: instituicaoCodigo,
                         deviceId,
+                        originTime,
                         notifyTime,
                         ctlObject,
                         changeType,
@@ -498,7 +516,7 @@ export class HardwareService {
 
     /**
      * Persiste payload bruto do webhook Monitor ControlID (catra_event).
-     * Por tenant + (deviceId, notifyTime): atualiza se já existir a mesma chave
+     * Por tenant + (deviceId, originTime): atualiza se já existir a mesma chave
      * (access_event_id + event.uuid); cria se novo; remove órfãos do mesmo trio.
      */
     async persistControlidCatraEvent(instituicaoCodigo: number, body: any) {
@@ -506,7 +524,12 @@ export class HardwareService {
         const ev = body.event ?? {};
         const eventTimeRaw = ev.time;
         const deviceId = this.ctlStr(body.device_id) ?? '';
-        const notifyTime = this.ctlBigInt(body.time);
+        const originTime = parseControlidBodyTimeToBigIntSeconds(body?.time);
+        if (originTime === null) {
+            return;
+        }
+        const offsetHoras = await this.getInsFusoHorarioForControlid(instituicaoCodigo);
+        const notifyTime = applyInstitutionFusoHorarioToNotifyTime(originTime, offsetHoras);
         const accessEventId = this.ctlStr(body.access_event_id) ?? '';
         const eventUuid = this.ctlStr(ev.uuid);
         const key = this.catraEventDedupKey(accessEventId, eventUuid);
@@ -526,7 +549,7 @@ export class HardwareService {
                 where: {
                     INSInstituicaoCodigo: instituicaoCodigo,
                     deviceId,
-                    notifyTime,
+                    originTime,
                 },
             });
             const byKey = new Map<string, (typeof existingRows)[number]>();
@@ -551,6 +574,7 @@ export class HardwareService {
                     data: {
                         INSInstituicaoCodigo: instituicaoCodigo,
                         deviceId,
+                        originTime,
                         notifyTime,
                         accessEventId,
                         ...eventPayload,

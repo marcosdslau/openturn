@@ -12,6 +12,7 @@ interface Instituicao {
     CLICodigo: number;
     INSAtivo: boolean;
     INSMaxExecucoesSimultaneas: number;
+    INSFusoHorario?: number;
     INSConfigHardware?: any;
     cliente?: { CLINome: string };
 }
@@ -51,10 +52,17 @@ export default function InstituicoesGlobalPage() {
     // Modal state
     const [showModal, setShowModal] = useState(false);
     const [editing, setEditing] = useState<Instituicao | null>(null);
-    const [form, setForm] = useState<{ INSNome: string; CLICodigo: number; INSMaxExecucoesSimultaneas: number; INSConfigHardware?: any }>({
+    const [form, setForm] = useState<{
+        INSNome: string;
+        CLICodigo: number;
+        INSMaxExecucoesSimultaneas: number;
+        INSFusoHorario: number;
+        INSConfigHardware?: any;
+    }>({
         INSNome: "",
         CLICodigo: 0,
-        INSMaxExecucoesSimultaneas: 8
+        INSMaxExecucoesSimultaneas: 8,
+        INSFusoHorario: -3,
     });
     const [saving, setSaving] = useState(false);
 
@@ -93,6 +101,7 @@ export default function InstituicoesGlobalPage() {
             INSNome: "",
             CLICodigo: clientes[0]?.CLICodigo || 0,
             INSMaxExecucoesSimultaneas: 8,
+            INSFusoHorario: -3,
             INSConfigHardware: host
                 ? {
                     controlid: {
@@ -130,6 +139,7 @@ export default function InstituicoesGlobalPage() {
             INSNome: i.INSNome,
             CLICodigo: i.CLICodigo,
             INSMaxExecucoesSimultaneas: i.INSMaxExecucoesSimultaneas || 8,
+            INSFusoHorario: i.INSFusoHorario ?? -3,
             INSConfigHardware: newConfig
         });
         setShowModal(true);
@@ -344,6 +354,21 @@ export default function InstituicoesGlobalPage() {
                                 />
                                 <p className="mt-1 text-[10px] text-gray-400">
                                     Define o limite de workers paralelos para esta instituição.
+                                </p>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fuso horário (UTC, horas)</label>
+                                <input
+                                    type="number"
+                                    min={-12}
+                                    max={14}
+                                    value={form.INSFusoHorario}
+                                    onChange={(e) => setForm({ ...form, INSFusoHorario: parseInt(e.target.value, 10) || 0 })}
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                />
+                                <p className="mt-1 text-[10px] text-gray-400">
+                                    Offset em relação ao UTC (ex.: -3 para Brasília). Usado ao gravar eventos ControlID.
                                 </p>
                             </div>
 

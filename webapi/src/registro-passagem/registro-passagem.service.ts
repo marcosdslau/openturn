@@ -3,6 +3,7 @@ import { PrismaService } from '../common/prisma/prisma.service';
 import { CreatePassagemDto, QueryPassagemDto } from './dto/passagem.dto';
 import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
+import { resizeBase64Image } from '../common/utils/image.utils';
 
 @Injectable()
 export class RegistroPassagemService {
@@ -44,7 +45,15 @@ export class RegistroPassagemService {
                 skip,
                 take: limit,
                 include: {
-                    pessoa: { select: { PESCodigo: true, PESNome: true, PESDocumento: true } },
+                    pessoa: {
+                        select: {
+                            PESCodigo: true,
+                            PESNome: true,
+                            PESDocumento: true,
+                            PESFotoBase64: true,
+                            PESFotoExtensao: true,
+                        },
+                    },
                     equipamento: { select: { EQPCodigo: true, EQPDescricao: true } },
                 },
                 orderBy: { REGDataHora: 'desc' },
@@ -52,11 +61,30 @@ export class RegistroPassagemService {
             this.prisma.rls.rEGRegistroPassagem.count({ where }),
         ]);
 
-        // Serialize BigInt for JSON response
-        const serialized = data.map((d: any) => ({
-            ...d,
-            REGTimestamp: Number(d.REGTimestamp),
-        }));
+        const serialized = await Promise.all(
+            data.map(async (d: any) => {
+                const pes = d.pessoa;
+                if (!pes) {
+                    return { ...d, REGTimestamp: Number(d.REGTimestamp) };
+                }
+                let PESFotoThumbnailBase64: string | null = null;
+                let PESFotoExtensao: string | null = pes.PESFotoExtensao ?? null;
+                if (pes.PESFotoBase64) {
+                    PESFotoThumbnailBase64 = await resizeBase64Image(pes.PESFotoBase64, 48, 48);
+                    if (!PESFotoExtensao) PESFotoExtensao = 'jpg';
+                }
+                const { PESFotoBase64: _omit, ...pessoaRest } = pes;
+                return {
+                    ...d,
+                    REGTimestamp: Number(d.REGTimestamp),
+                    pessoa: {
+                        ...pessoaRest,
+                        PESFotoExtensao,
+                        PESFotoThumbnailBase64,
+                    },
+                };
+            }),
+        );
 
         return {
             data: serialized,

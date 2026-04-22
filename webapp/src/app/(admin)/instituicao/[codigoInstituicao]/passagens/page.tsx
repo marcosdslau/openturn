@@ -9,8 +9,27 @@ interface Passagem {
     REGCodigo: number;
     REGAcao: string;
     REGDataHora: string;
-    pessoa: { PESNome: string; PESDocumento: string | null };
+    pessoa: {
+        PESNome: string;
+        PESDocumento: string | null;
+        PESFotoExtensao?: string | null;
+        PESFotoThumbnailBase64?: string | null;
+    };
     equipamento: { EQPDescricao: string | null };
+}
+
+function fotoDataUrl(p: Passagem["pessoa"]): string | null {
+    if (!p?.PESFotoThumbnailBase64) return null;
+    const ext = (p.PESFotoExtensao || "jpg").toLowerCase();
+    const mime =
+        ext === "png"
+            ? "image/png"
+            : ext === "webp"
+              ? "image/webp"
+              : ext === "gif"
+                ? "image/gif"
+                : "image/jpeg";
+    return `data:${mime};base64,${p.PESFotoThumbnailBase64}`;
 }
 
 interface Meta {
@@ -113,6 +132,7 @@ export default function PassagensPage() {
                 <table className="w-full">
                     <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800">
+                            <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400 w-16">Foto</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Pessoa</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Documento</th>
                             <th className="px-5 py-3 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Ação</th>
@@ -122,11 +142,32 @@ export default function PassagensPage() {
                     </thead>
                     <tbody>
                         {loading ? (
-                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
+                            <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Carregando...</td></tr>
                         ) : passagens.length === 0 ? (
-                            <tr><td colSpan={5} className="px-5 py-8 text-center text-gray-400">Nenhuma passagem encontrada.</td></tr>
-                        ) : passagens.map((p) => (
+                            <tr><td colSpan={6} className="px-5 py-8 text-center text-gray-400">Nenhuma passagem encontrada.</td></tr>
+                        ) : passagens.map((p) => {
+                            const src = p.pessoa ? fotoDataUrl(p.pessoa) : null;
+                            const initial = (p.pessoa?.PESNome || "?").trim().charAt(0).toUpperCase();
+                            return (
                             <tr key={p.REGCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
+                                <td className="px-5 py-3 align-middle">
+                                    {src ? (
+                                        <img
+                                            src={src}
+                                            alt={p.pessoa?.PESNome ? `Foto de ${p.pessoa.PESNome}` : "Foto"}
+                                            width={48}
+                                            height={48}
+                                            className="h-12 w-12 rounded-full object-cover border border-gray-200 dark:border-gray-600"
+                                        />
+                                    ) : (
+                                        <div
+                                            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gray-200 text-sm font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                                            aria-hidden
+                                        >
+                                            {initial}
+                                        </div>
+                                    )}
+                                </td>
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">{p.pessoa?.PESNome || "—"}</td>
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{p.pessoa?.PESDocumento || "—"}</td>
                                 <td className="px-5 py-3">
@@ -142,7 +183,8 @@ export default function PassagensPage() {
                                     {new Date(p.REGDataHora).toLocaleString("pt-BR")}
                                 </td>
                             </tr>
-                        ))}
+                            );
+                        })}
                     </tbody>
                 </table>
             </div>

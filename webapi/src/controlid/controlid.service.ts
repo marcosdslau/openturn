@@ -8,6 +8,11 @@ import {
     extractControlidCatraRotationCode,
     resolveControlidCatraAcaoPassagem,
 } from './controlid-catra-event.util';
+import {
+    applyInstitutionFusoHorarioToNotifyTime,
+    formatControlidSecondsForBody,
+    parseControlidBodyTimeToBigIntSeconds,
+} from './controlid-notify-time.util';
 
 /** Converte `user_id` do ControlID em `PESCodigo` inteiro válido, ou `null` se ausente/ inválido. */
 function parseControlidUserIdToPescodigo(userId: unknown): number | null {
@@ -19,15 +24,11 @@ function parseControlidUserIdToPescodigo(userId: unknown): number | null {
 }
 
 function buildSyntheticCatraBodyFromStoredRow(
-    row: Pick<CTLControlidCatraEvent, 'eventType' | 'eventName' | 'eventTime'>,
+    row: Pick<CTLControlidCatraEvent, 'eventType' | 'eventName' | 'eventTime' | 'originTime'>,
     deviceIdStr: string,
-    notifyTime: bigint,
     valuesEventFromDao: string | null,
 ): any {
-    const timeForBody =
-        notifyTime <= BigInt(Number.MAX_SAFE_INTEGER)
-            ? Number(notifyTime)
-            : notifyTime.toString();
+    const timeForBody = formatControlidSecondsForBody(row.originTime);
     const et = row.eventType?.trim();
     const ve = valuesEventFromDao?.trim();
     let event: any;
@@ -105,7 +106,7 @@ export class ControlidService {
     }
 
     /**
-     * Após persistir DAO: se já existir `controlid_catra_event` com mesmo device_id + time
+     * Após persistir DAO: se já existir `controlid_catra_event` com mesmo device_id + originTime
      * e ainda não processado, completa o registro de passagem (usuário vem do DAO).
      */
     async tryRegisterPassagemAfterControlidDao(instituicaoCodigo: number, body: any) {
@@ -114,40 +115,38 @@ export class ControlidService {
         }
         const deviceIdStr = body?.device_id != null ? String(body.device_id) : '';
         if (!deviceIdStr) return;
-        let notifyTime: bigint;
-        try {
-            notifyTime = BigInt(String(body.time));
-        } catch {
-            return;
-        }
+        const originTime = parseControlidBodyTimeToBigIntSeconds(body?.time);
+        if (originTime === null) return;
 
-        let catraRow: CTLControlidCatraEvent | null = null;
-        let daoUserId: string | null = null;
-        let daoValuesEvent: string | null = null;
-
-        await this.tenantService.runWithTenant(instituicaoCodigo, async () => {
-            catraRow = await this.prisma.rls.cTLControlidCatraEvent.findFirst({
-                where: {
-                    INSInstituicaoCodigo: instituicaoCodigo,
-                    deviceId: deviceIdStr,
-                    notifyTime,
-                    processed: false,
-                },
-                orderBy: { CTCCodigo: 'asc' },
-            });
-            const daoRow = await this.prisma.rls.cTLControlidDao.findFirst({
-                where: {
-                    INSInstituicaoCodigo: instituicaoCodigo,
-                    deviceId: deviceIdStr,
-                    notifyTime,
-                    valuesUserId: { not: null },
-                },
-                orderBy: { CTDCodigo: 'desc' },
-                select: { valuesUserId: true, valuesEvent: true },
-            });
-            daoUserId = daoRow?.valuesUserId?.trim() || null;
-            daoValuesEvent = daoRow?.valuesEvent?.trim() || null;
-        });
+        const { catraRow, daoUserId, daoValuesEvent } = await this.tenantService.runWithTenant(
+            instituicaoCodigo,
+            async () => {
+                const cr = await this.prisma.rls.cTLControlidCatraEvent.findFirst({
+                    where: {
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        deviceId: deviceIdStr,
+                        originTime,
+                        processed: false,
+                    },
+                    orderBy: { CTCCodigo: 'asc' },
+                });
+                const daoRow = await this.prisma.rls.cTLControlidDao.findFirst({
+                    where: {
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        deviceId: deviceIdStr,
+                        originTime,
+                        valuesUserId: { not: null },
+                    },
+                    orderBy: { CTDCodigo: 'desc' },
+                    select: { valuesUserId: true, valuesEvent: true },
+                });
+                return {
+                    catraRow: cr,
+                    daoUserId: daoRow?.valuesUserId?.trim() || null,
+                    daoValuesEvent: daoRow?.valuesEvent?.trim() || null,
+                };
+            },
+        );
 
         if (!catraRow || !daoUserId) {
             return;
@@ -156,13 +155,13 @@ export class ControlidService {
         const syntheticBody = buildSyntheticCatraBodyFromStoredRow(
             catraRow,
             deviceIdStr,
-            notifyTime,
             daoValuesEvent,
         );
 
         await this.registrarPassagemCore(syntheticBody, {
             valuesUserIdOverride: daoUserId,
             userIdSourceLabel: 'DAO-após-catra',
+            persistedNotifyTimeForReg: catraRow.notifyTime,
         });
     }
 
@@ -178,10 +177,11 @@ export class ControlidService {
         opts: {
             valuesUserIdOverride?: string | null;
             userIdSourceLabel?: string;
+            /** notifyTime já persistido em CTL (fluxo DAO→catra); evita divergência se INSFusoHorario mudar. */
+            persistedNotifyTimeForReg?: bigint;
         },
     ) {
         const deviceId = body.device_id;
-        const time = body.time;
 
         const resolved = await this.hardwareService.resolveEquipamentoFromControlidDeviceId(deviceId);
         if (!resolved) {
@@ -192,24 +192,30 @@ export class ControlidService {
         const { equipamento, matchedField } = resolved;
         const instCodigo = equipamento.INSInstituicaoCodigo;
         const deviceIdStr = deviceId !== undefined && deviceId !== null ? String(deviceId) : '';
-        let notifyTime: bigint | null = null;
-        if (time !== undefined && time !== null) {
-            try {
-                notifyTime = BigInt(String(time));
-            } catch {
-                notifyTime = null;
-            }
-        }
 
-        if (deviceIdStr !== '' && notifyTime !== null) {
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instCodigo },
+            select: { INSFusoHorario: true },
+        });
+        const offsetHoras = inst?.INSFusoHorario ?? -3;
+
+        const originTime = parseControlidBodyTimeToBigIntSeconds(body?.time);
+        const notifyTimeComputed =
+            originTime !== null ? applyInstitutionFusoHorarioToNotifyTime(originTime, offsetHoras) : null;
+        const notifyTimeForReg =
+            opts.persistedNotifyTimeForReg !== undefined
+                ? opts.persistedNotifyTimeForReg
+                : notifyTimeComputed;
+
+        if (deviceIdStr !== '' && originTime !== null) {
             const alreadyDone = await this.isCatraBatchFullyProcessed(
                 instCodigo,
                 deviceIdStr,
-                notifyTime,
+                originTime,
             );
             if (alreadyDone) {
                 this.logger.debug(
-                    `[ControlID] passagem já registrada (catra batch processado) device=${deviceIdStr} time=${notifyTime.toString()}`,
+                    `[ControlID] passagem já registrada (catra batch processado) device=${deviceIdStr} originTime=${originTime.toString()}`,
                 );
                 return;
             }
@@ -239,13 +245,13 @@ export class ControlidService {
 
         const override = opts.valuesUserIdOverride?.trim() || null;
         let valuesUserIdFromDao: string | null = null;
-        if (!override && deviceIdStr !== '' && notifyTime !== null) {
+        if (!override && deviceIdStr !== '' && originTime !== null) {
             await this.tenantService.runWithTenant(instCodigo, async () => {
                 const row = await this.prisma.rls.cTLControlidDao.findFirst({
                     where: {
                         INSInstituicaoCodigo: instCodigo,
                         deviceId: deviceIdStr,
-                        notifyTime,
+                        originTime,
                         valuesUserId: { not: null },
                     },
                     orderBy: { CTDCodigo: 'desc' },
@@ -259,7 +265,7 @@ export class ControlidService {
         const pescodigo = parseControlidUserIdToPescodigo(userIdResolved);
         if (pescodigo == null) {
             this.logger.warn(
-                `[ControlID] catra_event: usuário não resolvido (override=${override ?? '—'}, DAO=${valuesUserIdFromDao ?? '—'}, body.user_id=${String(body.user_id)}); ignorando passagem device=${deviceId} time=${String(time)}`,
+                `[ControlID] catra_event: usuário não resolvido (override=${override ?? '—'}, DAO=${valuesUserIdFromDao ?? '—'}, body.user_id=${String(body.user_id)}); ignorando passagem device=${deviceId} time=${String(body?.time)}`,
             );
             return;
         }
@@ -275,21 +281,25 @@ export class ControlidService {
             return;
         }
 
-        const dataHora = time ? new Date(Number(time) * 1000) : new Date();
+        const regSeconds =
+            notifyTimeForReg !== null && notifyTimeForReg !== undefined
+                ? notifyTimeForReg
+                : BigInt(Math.floor(Date.now() / 1000));
+        const dataHora = new Date(Number(regSeconds) * 1000);
 
         await this.prisma.rEGRegistroPassagem.create({
             data: {
                 PESCodigo: pessoa.PESCodigo,
                 REGAcao: acao,
                 EQPCodigo: equipamento.EQPCodigo,
-                REGTimestamp: BigInt(time || Math.floor(Date.now() / 1000)),
+                REGTimestamp: regSeconds,
                 REGDataHora: dataHora,
                 INSInstituicaoCodigo: equipamento.INSInstituicaoCodigo,
             },
         });
 
-        if (deviceIdStr !== '' && notifyTime !== null) {
-            await this.markCatraBatchProcessed(instCodigo, deviceIdStr, notifyTime);
+        if (deviceIdStr !== '' && originTime !== null) {
+            await this.markCatraBatchProcessed(instCodigo, deviceIdStr, originTime);
         }
 
         const userSource =
@@ -304,14 +314,14 @@ export class ControlidService {
     private async isCatraBatchFullyProcessed(
         instCodigo: number,
         deviceIdStr: string,
-        notifyTime: bigint,
+        originTime: bigint,
     ): Promise<boolean> {
         return this.tenantService.runWithTenant(instCodigo, async () => {
             const rows = await this.prisma.rls.cTLControlidCatraEvent.findMany({
                 where: {
                     INSInstituicaoCodigo: instCodigo,
                     deviceId: deviceIdStr,
-                    notifyTime,
+                    originTime,
                 },
             });
             if (rows.length === 0) return false;
@@ -322,14 +332,14 @@ export class ControlidService {
     private async markCatraBatchProcessed(
         instCodigo: number,
         deviceIdStr: string,
-        notifyTime: bigint,
+        originTime: bigint,
     ): Promise<void> {
         await this.tenantService.runWithTenant(instCodigo, async () => {
             await this.prisma.rls.cTLControlidCatraEvent.updateMany({
                 where: {
                     INSInstituicaoCodigo: instCodigo,
                     deviceId: deviceIdStr,
-                    notifyTime,
+                    originTime,
                     processed: false,
                 },
                 data: { processed: true },

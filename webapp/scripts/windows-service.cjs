@@ -60,7 +60,7 @@ if (isNaN(port) || port < 1 || port > 65535) {
   process.exit(1);
 }
 
-const serviceName = `SG_webapp_${appEnv}`;
+const serviceName = `${appEnv}_SG_webapp`;
 
 const execPath = process.env.NODE_EXE
   ? path.resolve(process.env.NODE_EXE)
