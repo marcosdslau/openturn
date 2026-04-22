@@ -19,7 +19,7 @@ export default function AuthLayout({
               {/* <!-- ===== Common Grid Shape Start ===== --> */}
               <GridShape />
               <div className="flex flex-col items-center max-w-xs">
-                <Link href="/" className="block mb-4">
+                <Link href="/signin" className="block mb-4">
                   <Image
                     width={231}
                     height={48}
@@ -28,7 +28,7 @@ export default function AuthLayout({
                   />
                 </Link>
                 <p className="text-center text-gray-400 dark:text-white/60">
-                  Free and Open-Source Tailwind CSS Admin Dashboard Template
+                  SchoolGuard - Sistema de Gestão Controle de Acesso Escolar.
                 </p>
               </div>
             </div>
