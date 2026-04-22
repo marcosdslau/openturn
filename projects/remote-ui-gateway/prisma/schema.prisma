@@ -55,6 +55,7 @@ model INSInstituicao {
   INSLogsAutoExcluir  Boolean               @default(true)
   INSLogsDiasRetencao Int                   @default(90)
   INSMaxExecucoesSimultaneas Int            @default(8)
+  INSFusoHorario      Int                   @default(-3)
   INSConfigHardware   Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   createdAt           DateTime              @default(now())
   pessoas             PESPessoa[]

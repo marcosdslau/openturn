@@ -44,13 +44,13 @@ const execPath = process.env.NODE_EXE
 const WORKER_INSTANCES = 3;
 
 function workerName(n) {
-  return `SG_worker_${n}_${nodeEnv}`;
+  return `${nodeEnv}_SG_worker_${n}`;
 }
 
 function workerConfig(n) {
   return {
     name: workerName(n),
-    description: `OpenTurn Worker (instância ${n}, ${nodeEnv})`,
+    description: `SG Worker (instância ${n}, ${nodeEnv})`,
     script: path.join(root, 'dist', 'main.js'),
     workingDirectory: root,
     execPath,

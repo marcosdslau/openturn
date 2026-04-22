@@ -1,5 +1,5 @@
 
-import { IsString, IsOptional, IsBoolean, IsInt, IsObject, Min, ValidateIf } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, IsObject, Min, Max, ValidateIf } from 'class-validator';
 
 export class CreateInstituicaoDto {
     @IsInt()
@@ -32,6 +32,12 @@ export class CreateInstituicaoDto {
     @IsOptional()
     @IsBoolean()
     INSWorkerAtivo?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    @Min(-12)
+    @Max(14)
+    INSFusoHorario?: number;
 
     @IsOptional()
     @IsObject()
@@ -76,6 +82,12 @@ export class UpdateInstituicaoDto {
     @IsOptional()
     @IsBoolean()
     INSWorkerAtivo?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    @Min(-12)
+    @Max(14)
+    INSFusoHorario?: number;
 
     @IsOptional()
     @IsObject()

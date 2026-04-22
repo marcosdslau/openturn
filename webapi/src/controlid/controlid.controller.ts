@@ -13,6 +13,8 @@ import {
 import { ControlidService } from './controlid.service';
 import { ControlidSyncService } from './controlid-sync.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { PermissionsGuard } from '../auth/permissions.guard';
+import { RequirePermission } from '../auth/permissions.decorator';
 import { HardwareService } from '../hardware/hardware.service';
 
 /**
@@ -100,7 +102,8 @@ export class ControlidMonitorController {
     }
 
     // ─── Sync: API interna protegida para disparar sincronização ───
-    @UseGuards(JwtAuthGuard)
+    @UseGuards(JwtAuthGuard, PermissionsGuard)
+    @RequirePermission('equipamento', 'update')
     @Post('sync')
     async syncPessoas(
         @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,

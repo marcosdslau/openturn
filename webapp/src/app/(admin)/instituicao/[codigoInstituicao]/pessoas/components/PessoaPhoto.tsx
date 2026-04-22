@@ -11,11 +11,12 @@ interface PessoaPhotoProps {
     extensao?: string | null;
     onChange: (base64: string | null, extensao: string | null) => void;
     onConfirm?: (base64: string | null, extensao: string | null) => Promise<void>;
+    readOnly?: boolean;
 }
 
 type Handle = "nw" | "ne" | "sw" | "se" | "move" | null;
 
-export default function PessoaPhoto({ base64, extensao, onChange, onConfirm }: PessoaPhotoProps) {
+export default function PessoaPhoto({ base64, extensao, onChange, onConfirm, readOnly = false }: PessoaPhotoProps) {
     const photoModal = useModal();
     const confirmModal = useModal();
     const [mode, setMode] = useState<"menu" | "webcam" | "upload" | "crop">("menu");
@@ -289,18 +290,22 @@ export default function PessoaPhoto({ base64, extensao, onChange, onConfirm }: P
                         </div>
                     )}
                 </div>
-                <Button size="sm" variant="outline" onClick={openModal} type="button" className="w-full">
-                    {base64 ? "Alterar Foto" : "Adicionar Foto"}
-                </Button>
-                {base64 && (
-                    <button
-                        type="button"
-                        onClick={handleRemovePhoto}
-                        disabled={isConfirming}
-                        className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
-                    >
-                        {isConfirming ? "Removendo..." : "Remover Foto"}
-                    </button>
+                {!readOnly && (
+                    <>
+                        <Button size="sm" variant="outline" onClick={openModal} type="button" className="w-full">
+                            {base64 ? "Alterar Foto" : "Adicionar Foto"}
+                        </Button>
+                        {base64 && (
+                            <button
+                                type="button"
+                                onClick={handleRemovePhoto}
+                                disabled={isConfirming}
+                                className="text-xs text-red-500 hover:text-red-700 font-medium transition-colors"
+                            >
+                                {isConfirming ? "Removendo..." : "Remover Foto"}
+                            </button>
+                        )}
+                    </>
                 )}
             </div>
         );

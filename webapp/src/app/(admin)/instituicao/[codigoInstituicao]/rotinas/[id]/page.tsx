@@ -12,8 +12,10 @@ import { RoutineDiffModal } from "@/components/rotinas/RoutineDiffModal";
 import { AiChatSidebar } from "@/components/rotinas/AiChatSidebar";
 import { ConsolePanel } from "@/components/rotinas/ConsolePanel";
 import Button from "@/components/ui/button/Button";
+import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
 import { useToast } from "@/context/ToastContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
     ArrowRightIcon,
     CheckLineIcon,
@@ -40,8 +42,18 @@ import { CronBuilder } from "@/components/rotinas/CronBuilder";
 export default function RoutineEditorPage() {
     const params = useParams();
     const router = useRouter();
-    const { codigoInstituicao } = useTenant();
+    const { loading: authLoading } = useAuth();
+    const { codigoInstituicao, grupoNoContexto } = useTenant();
+    /** IA Chat só para perfis super; institucionais (Operação, Admin, Gestor) não veem a aba. */
+    const mayUseAiChat =
+        grupoNoContexto != null &&
+        !["OPERACAO", "ADMIN", "GESTOR"].includes(grupoNoContexto);
     const { showToast } = useToast();
+    const { can } = usePermissions();
+    const mayEditRotina = can("rotina", "update");
+    const mayExecuteRotina = can("rotina", "execute");
+    const mayCancelRun = can("rotina", "cancel_run");
+    const mayManageVersions = can("rotina", "manage_versions");
     const id = Number(params?.id);
 
     const [showToken, setShowToken] = useState(false);
@@ -54,7 +66,7 @@ export default function RoutineEditorPage() {
     const [executing, setExecuting] = useState(false);
     const [stoppingExecution, setStoppingExecution] = useState(false);
     const [currentExeId, setCurrentExeId] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'helper' | 'history' | 'ai' | null>('ai');
+    const [activeTab, setActiveTab] = useState<'helper' | 'history' | 'ai' | null>(null);
 
     // Versioning
 
@@ -88,6 +100,19 @@ export default function RoutineEditorPage() {
 
     // Code Reference for AI Chat (CTRL+L)
     const [codeReference, setCodeReference] = useState<string>('');
+    const mayUseAiChatRef = useRef(mayUseAiChat);
+    mayUseAiChatRef.current = mayUseAiChat;
+
+    useEffect(() => {
+        if (authLoading) return;
+        setActiveTab((prev) => {
+            if (!mayUseAiChat) {
+                return prev === "ai" ? null : prev;
+            }
+            if (prev === null) return "ai";
+            return prev;
+        });
+    }, [authLoading, mayUseAiChat]);
 
     const handleEditorDidMount: OnMount = (editor, monaco) => {
         editorRef.current = editor;
@@ -97,8 +122,9 @@ export default function RoutineEditorPage() {
             saveRef.current();
         });
 
-        // Register Ctrl+L / Cmd+L — Send selected code to AI Chat
+        // Register Ctrl+L / Cmd+L — Send selected code to AI Chat (só se a aba existir)
         editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyL, () => {
+            if (!mayUseAiChatRef.current) return;
             const selection = editor.getSelection();
             if (selection) {
                 const selectedText = editor.getModel()?.getValueInRange(selection) || '';
@@ -155,7 +181,7 @@ export default function RoutineEditorPage() {
         } finally {
             setLoading(false);
         }
-    }, [id, codigoInstituicao, router]);
+    }, [id, codigoInstituicao, router, showToast]);
 
     const loadVersions = useCallback(async () => {
         if (!id) return;
@@ -172,14 +198,27 @@ export default function RoutineEditorPage() {
     }, [id]);
 
     useEffect(() => {
-        loadRotina();
-    }, [loadRotina]);
+        if (authLoading) return;
+        if (!mayEditRotina) {
+            showToast(
+                "info",
+                "Acesso restrito",
+                "A visualização e edição do código da rotina exige permissão de alteração em rotinas.",
+            );
+            router.replace(`/instituicao/${codigoInstituicao}/rotinas`);
+            return;
+        }
+        if (id) {
+            loadRotina();
+        }
+    }, [authLoading, mayEditRotina, id, codigoInstituicao, router, showToast, loadRotina]);
 
     useEffect(() => {
+        if (!mayEditRotina) return;
         if (activeTab === 'history') {
             loadVersions();
         }
-    }, [activeTab, loadVersions]);
+    }, [activeTab, loadVersions, mayEditRotina]);
 
     const handleSaveSettings = async () => {
         if (!rotina) return;
@@ -515,6 +554,10 @@ export default function RoutineEditorPage() {
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [isMaximized]);
 
+    if (authLoading || !mayEditRotina) {
+        return <div className="p-8 text-center text-gray-500">Carregando...</div>;
+    }
+
     if (loading) return <div className="p-8 text-center">Carregando editor...</div>;
     if (!rotina) return <div className="p-8 text-center">Rotina não encontrada</div>;
 
@@ -538,9 +581,11 @@ export default function RoutineEditorPage() {
                         </h1>
                         <div className="flex items-center gap-2 mt-1">
                             <p className="text-xs text-gray-500">{rotina.ROTTipo} • {rotina.ROTCronExpressao || rotina.ROTWebhookPath}</p>
-                            <button onClick={() => setSettingsOpen(true)} className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1">
-                                <PencilIcon className="w-5 h-5" /> Editar Configurações
-                            </button>
+                            {mayEditRotina && (
+                                <button type="button" onClick={() => setSettingsOpen(true)} className="text-xs text-blue-600 hover:text-blue-800 underline flex items-center gap-1">
+                                    <PencilIcon className="w-5 h-5" /> Editar Configurações
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -556,6 +601,7 @@ export default function RoutineEditorPage() {
                         >
                             <InfoIcon className="w-6 h-6" /> Helper
                         </button>
+                        {mayUseAiChat && (
                         <button
                             onClick={() => setActiveTab(activeTab === 'ai' ? null : 'ai')}
                             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${activeTab === 'ai'
@@ -565,6 +611,7 @@ export default function RoutineEditorPage() {
                         >
                             <AiIcon className="w-5 h-5" /> IA Chat
                         </button>
+                        )}
                         <button
                             onClick={() => setActiveTab(activeTab === 'history' ? null : 'history')}
                             className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors flex items-center gap-1 ${activeTab === 'history'
@@ -576,72 +623,80 @@ export default function RoutineEditorPage() {
                         </button>
                     </div>
 
-                    <Button
-                        onClick={handleToggleStatus}
-                        size="sm"
-                        variant={rotina.ROTAtivo ? "outline" : "primary"}
-                        className={`gap-2 ${rotina.ROTAtivo
-                            ? "text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
-                            : "bg-green-600 hover:bg-green-700 text-white border-transparent"}`}
-                    >
-                        {rotina.ROTAtivo ? (
-                            <>
-                                <PauseIcon className="w-6 h-6" />
-                                <span className="hidden sm:inline">Pausar</span>
-                            </>
-                        ) : (
-                            <>
-                                <PlayIcon className="w-6 h-6" />
-                                <span className="hidden sm:inline">Ativar</span>
-                            </>
-                        )}
-                    </Button>
+                    {mayEditRotina && (
+                        <Button
+                            onClick={handleToggleStatus}
+                            size="sm"
+                            variant={rotina.ROTAtivo ? "outline" : "primary"}
+                            className={`gap-2 ${rotina.ROTAtivo
+                                ? "text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                                : "bg-green-600 hover:bg-green-700 text-white border-transparent"}`}
+                        >
+                            {rotina.ROTAtivo ? (
+                                <>
+                                    <PauseIcon className="w-6 h-6" />
+                                    <span className="hidden sm:inline">Pausar</span>
+                                </>
+                            ) : (
+                                <>
+                                    <PlayIcon className="w-6 h-6" />
+                                    <span className="hidden sm:inline">Ativar</span>
+                                </>
+                            )}
+                        </Button>
+                    )}
 
                     <div className="w-px h-6 bg-gray-200 dark:bg-gray-700 mx-1"></div>
 
                     {currentExeId ? (
-                        <Tooltip content="Interrompe o processo da rotina (cancelamento / kill quando aplicável)" placement="bottom">
+                        mayCancelRun && (
+                            <Tooltip content="Interrompe o processo da rotina (cancelamento / kill quando aplicável)" placement="bottom">
+                                <Button
+                                    onClick={() => void handleStopExecution()}
+                                    size="sm"
+                                    variant="outline"
+                                    disabled={stoppingExecution}
+                                    className="gap-2 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                                >
+                                    {stoppingExecution ? (
+                                        <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full inline-block" />
+                                    ) : (
+                                        <CloseIcon className="w-5 h-5" />
+                                    )}
+                                    <span className="hidden sm:inline">Encerrar execução</span>
+                                    <span className="sm:hidden">Parar</span>
+                                </Button>
+                            </Tooltip>
+                        )
+                    ) : (
+                        mayExecuteRotina && (
                             <Button
-                                onClick={() => void handleStopExecution()}
+                                onClick={handleExecute}
                                 size="sm"
                                 variant="outline"
-                                disabled={stoppingExecution}
-                                className="gap-2 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-900 dark:hover:bg-red-900/20"
+                                disabled={executing}
+                                className="gap-2"
                             >
-                                {stoppingExecution ? (
-                                    <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full inline-block" />
+                                {executing ? (
+                                    <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
                                 ) : (
-                                    <CloseIcon className="w-5 h-5" />
+                                    <ArrowRightIcon className="w-5 h-5" />
                                 )}
-                                <span className="hidden sm:inline">Encerrar execução</span>
-                                <span className="sm:hidden">Parar</span>
+                                Execute
                             </Button>
-                        </Tooltip>
-                    ) : (
+                        )
+                    )}
+                    {mayEditRotina && (
                         <Button
-                            onClick={handleExecute}
+                            onClick={handleSave}
                             size="sm"
-                            variant="outline"
-                            disabled={executing}
-                            className="gap-2"
+                            disabled={saving}
+                            className="gap-2 bg-blue-600 hover:bg-blue-700"
                         >
-                            {executing ? (
-                                <span className="animate-spin w-5 h-5 border-2 border-current border-t-transparent rounded-full" />
-                            ) : (
-                                <ArrowRightIcon className="w-5 h-5" />
-                            )}
-                            Execute
+                            <CheckLineIcon className="w-5 h-5" />
+                            Save Changes
                         </Button>
                     )}
-                    <Button
-                        onClick={handleSave}
-                        size="sm"
-                        disabled={saving}
-                        className="gap-2 bg-blue-600 hover:bg-blue-700"
-                    >
-                        <CheckLineIcon className="w-5 h-5" />
-                        Save Changes
-                    </Button>
 
                     <Tooltip content={isMaximized ? "Restaurar tamanho" : "Maximizar tela"} placement="bottom">
                         <Button
@@ -707,6 +762,7 @@ export default function RoutineEditorPage() {
                                     defaultValue={code}
                                     onChange={(value) => { codeRef.current = value || ""; }}
                                     options={{
+                                        readOnly: !mayEditRotina,
                                         minimap: { enabled: false },
                                         fontSize: 13,
                                         wordWrap: 'on',
@@ -787,6 +843,7 @@ export default function RoutineEditorPage() {
                                     }}
                                     onRestoreVersion={handleRestore}
                                     onDeleteVersions={handleDeleteVersions}
+                                    canManage={mayManageVersions}
                                 />
                             )}
                         </div>
@@ -801,7 +858,11 @@ export default function RoutineEditorPage() {
                 modifiedCode={code} // Comparing selected version (original) against current editor code (modified/current)
                 originalLabel={`Version #${selectedVersion?.HVICodigo}`}
                 modifiedLabel="Current Editor"
-                onRestore={() => selectedVersion && handleRestore(selectedVersion)}
+                onRestore={
+                    mayManageVersions && selectedVersion
+                        ? () => handleRestore(selectedVersion)
+                        : undefined
+                }
             />
 
             {/* Simple Settings Modal */}

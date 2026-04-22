@@ -48,7 +48,7 @@ if (nodeEnv !== 'PRD' && nodeEnv !== 'DEV') {
   process.exit(1);
 }
 
-const serviceName = `SG_webapi_${nodeEnv}`;
+const serviceName = `${nodeEnv}_SG_webapi`;
 
 const execPath = process.env.NODE_EXE
   ? path.resolve(process.env.NODE_EXE)

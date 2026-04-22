@@ -56,6 +56,8 @@ model INSInstituicao {
   INSLogsDiasRetencao Int                   @default(90)
   INSMaxExecucoesSimultaneas Int            @default(8)
   INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
+  /// Offset UTC em horas (ex.: -3). Usado ao persistir ControlID notifyTime a partir de body.time bruto.
+  INSFusoHorario      Int                   @default(-3)
   INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   INSControlidMonitorRotinaAtiva    Boolean @default(false)
   INSControlidMonitorRotinaCodigo   Int?
@@ -269,6 +271,9 @@ model CTLControlidDao {
   INSInstituicaoCodigo         Int
   instituicao                  INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
   deviceId                     String         @map("device_id")
+  /// Valor bruto de body.time do webhook (chave estável com instituição + deviceId).
+  originTime                   BigInt         @map("origin_time")
+  /// Instantâneo ajustado pelo INSFusoHorario da instituição no momento do ingest.
   notifyTime                   BigInt         @map("time")
   ctlObject                    String         @map("object")
   changeType                   String         @map("type")
@@ -290,6 +295,7 @@ model CTLControlidDao {
   createdAt                    DateTime       @default(now())
 
   @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, originTime])
   @@index([INSInstituicaoCodigo, deviceId, notifyTime])
   @@map("controlid_dao")
 }
@@ -299,6 +305,7 @@ model CTLControlidCatraEvent {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
   deviceId             String         @map("device_id")
+  originTime           BigInt         @map("origin_time")
   notifyTime           BigInt         @map("time")
   accessEventId        String         @map("access_event_id")
   eventType            String         @map("event_type")
@@ -309,6 +316,7 @@ model CTLControlidCatraEvent {
   createdAt            DateTime       @default(now())
 
   @@index([INSInstituicaoCodigo, processed])
+  @@index([INSInstituicaoCodigo, deviceId, originTime])
   @@index([INSInstituicaoCodigo, deviceId, notifyTime])
   @@map("controlid_catra_event")
 }

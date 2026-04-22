@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { apiGet } from "@/lib/api";
+import { firstAccessibleInstituicaoId } from "@/lib/user-instituicao-access";
 
 export default function RootRedirect() {
   const { user, loading, isAuthenticated } = useAuth();
@@ -19,6 +20,9 @@ export default function RootRedirect() {
 
     const redirect = async () => {
       let instId = user?.activeScope?.instituicaoId;
+      if (!instId) {
+        instId = firstAccessibleInstituicaoId(user?.acessos);
+      }
       if (!instId) {
         try {
           const list = await apiGet<{ data: any[] }>("/instituicoes?limit=1");

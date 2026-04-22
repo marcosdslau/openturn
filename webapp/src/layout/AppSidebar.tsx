@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import Link from "next/link";
-import { usePathname, useParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useSidebar } from "../context/SidebarContext";
 import { useAuth } from "../context/AuthContext";
 import {
@@ -11,43 +11,19 @@ import {
 import SidebarWidget from "./SidebarWidget";
 import {
   NavItem,
-  getMainNavItems,
   demoNavItems,
   othersItems,
   supportItems,
 } from "./menu-data";
 import { apiGet } from "../lib/api";
-
-function useNavItems(): NavItem[] {
-  const params = useParams();
-  const { isSuperRoot, isAdmin } = useAuth();
-  const [lastInst, setLastInst] = useState("0");
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const stored = localStorage.getItem("sg_last_inst");
-    if (stored) {
-      setLastInst(stored);
-    }
-  }, []);
-
-  // Use params code if available.
-  // If param is missing, fallback to 'lastInst' ONLY after mount (client-side).
-  // On server and first client render, strictly use '0' to avoid hydration mismatch.
-  const paramCode = params?.codigoInstituicao as string;
-  const code = paramCode || (mounted ? lastInst : "0");
-  const base = `/instituicao/${code}`;
-
-  return useMemo(() => getMainNavItems(base as string, isSuperRoot, isAdmin), [base, isSuperRoot, isAdmin]);
-}
+import { useMainNavItems } from "@/hooks/useMainNavItems";
 
 type DeployEnv = { code: "DEV" | "PRD"; label: string };
 
 const AppSidebar: React.FC = () => {
   const { isExpanded, isMobileOpen, isHovered, setIsHovered } = useSidebar();
   const pathname = usePathname();
-  const navItems = useNavItems();
+  const navItems = useMainNavItems();
   const [deployEnv, setDeployEnv] = useState<DeployEnv | null>(null);
 
   useEffect(() => {

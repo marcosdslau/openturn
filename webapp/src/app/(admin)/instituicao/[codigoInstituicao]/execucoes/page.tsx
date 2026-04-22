@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useTenant } from "@/context/TenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Rotina, RotinaService } from "@/services/rotina.service";
@@ -45,6 +46,11 @@ interface RotinaExecucao {
 
 export default function ExecucoesPage() {
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
+    const mayExecDelete = can("execucao", "delete");
+    const mayExecReprocess = can("execucao", "reprocess");
+    const mayExecCancel = can("execucao", "cancel_run");
+    const showRowSelection = mayExecDelete || mayExecReprocess || mayExecCancel;
     const { showToast } = useToast();
     
     // Modals
@@ -369,21 +375,27 @@ export default function ExecucoesPage() {
             )}
 
             {/* Ações em Lote */}
-            {selectedIds.length > 0 && (
+            {showRowSelection && selectedIds.length > 0 && (
                 <div className="p-3 bg-brand-50 border border-brand-100 rounded-xl dark:bg-brand-500/10 dark:border-brand-500/20 flex items-center justify-between animate-in fade-in slide-in-from-top-2">
                     <span className="text-sm font-medium text-brand-700 dark:text-brand-400">
                         {selectedIds.length} selecionado(s)
                     </span>
                     <div className="flex gap-2">
-                        <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => { setBulkAction("delete"); bulkModal.openModal(); }}>
-                            <TrashBinIcon className="mr-1 h-6 w-6" /> Excluir
-                        </Button>
-                        <Button size="sm" variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => { setBulkAction("reprocess"); bulkModal.openModal(); }}>
-                            <RefreshIcon className="mr-1 h-6 w-6" /> Reprocessar
-                        </Button>
-                        <Button size="sm" variant="outline" className="border-amber-200 text-amber-600 hover:bg-amber-50" onClick={() => { setBulkAction("cancel"); bulkModal.openModal(); }}>
-                            <CloseIcon className="mr-1 h-6 w-6" /> Cancelar
-                        </Button>
+                        {mayExecDelete && (
+                            <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => { setBulkAction("delete"); bulkModal.openModal(); }}>
+                                <TrashBinIcon className="mr-1 h-6 w-6" /> Excluir
+                            </Button>
+                        )}
+                        {mayExecReprocess && (
+                            <Button size="sm" variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => { setBulkAction("reprocess"); bulkModal.openModal(); }}>
+                                <RefreshIcon className="mr-1 h-6 w-6" /> Reprocessar
+                            </Button>
+                        )}
+                        {mayExecCancel && (
+                            <Button size="sm" variant="outline" className="border-amber-200 text-amber-600 hover:bg-amber-50" onClick={() => { setBulkAction("cancel"); bulkModal.openModal(); }}>
+                                <CloseIcon className="mr-1 h-6 w-6" /> Cancelar
+                            </Button>
+                        )}
                     </div>
                 </div>
             )}
@@ -393,14 +405,16 @@ export default function ExecucoesPage() {
                 <table className="w-full min-w-[1000px]">
                     <thead>
                         <tr className="border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-white/[0.02]">
-                            <th className="px-4 py-4 text-left">
-                                <input 
-                                    type="checkbox" 
-                                    checked={selectedIds.length === executions.length && executions.length > 0}
-                                    onChange={handleSelectAll}
-                                    className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500" 
-                                />
-                            </th>
+                            {showRowSelection && (
+                                <th className="px-4 py-4 text-left">
+                                    <input 
+                                        type="checkbox" 
+                                        checked={selectedIds.length === executions.length && executions.length > 0}
+                                        onChange={handleSelectAll}
+                                        className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500" 
+                                    />
+                                </th>
+                            )}
                             <th className="px-4 py-4 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Rotina / ID</th>
                             <th className="px-4 py-4 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Status / Tipo</th>
                             <th className="px-4 py-4 text-left text-xs font-medium text-gray-500 uppercase dark:text-gray-400">Início / Fim</th>
@@ -411,22 +425,24 @@ export default function ExecucoesPage() {
                     </thead>
                     <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
                         {loading ? (
-                            <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-400">
+                            <tr><td colSpan={showRowSelection ? 7 : 6} className="px-6 py-12 text-center text-gray-400">
                                 <RefreshIcon className="h-8 w-8 animate-spin mx-auto mb-2 opacity-20" />
                                 Carregando execuções...
                             </td></tr>
                         ) : executions.length === 0 ? (
-                            <tr><td colSpan={7} className="px-6 py-12 text-center text-gray-400">Nenhuma execução encontrada para os filtros aplicados.</td></tr>
+                            <tr><td colSpan={showRowSelection ? 7 : 6} className="px-6 py-12 text-center text-gray-400">Nenhuma execução encontrada para os filtros aplicados.</td></tr>
                         ) : executions.map((ex) => (
                             <tr key={ex.EXEIdExterno} className="hover:bg-gray-50 dark:hover:bg-white/[0.01] transition-colors group">
-                                <td className="px-4 py-4">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={selectedIds.includes(ex.EXEIdExterno)}
-                                        onChange={() => handleSelectOne(ex.EXEIdExterno)}
-                                        className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500"
-                                    />
-                                </td>
+                                {showRowSelection && (
+                                    <td className="px-4 py-4">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={selectedIds.includes(ex.EXEIdExterno)}
+                                            onChange={() => handleSelectOne(ex.EXEIdExterno)}
+                                            className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500"
+                                        />
+                                    </td>
+                                )}
                                 <td className="px-4 py-4">
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">{ex.rotina?.ROTNome || "Rotina Desconhecida"}</div>
                                     <div className="text-[10px] font-mono text-gray-400 mt-0.5 truncate max-w-[150px]" title={ex.EXEIdExterno}>
@@ -487,27 +503,34 @@ export default function ExecucoesPage() {
                                 <td className="px-4 py-4 text-right">
                                     <div className="flex justify-end gap-1">
                                         {ex.EXEStatus === "EM_EXECUCAO" ? (
-                                            <Tooltip content="Encerrar">
-                                                <button onClick={() => handleCancel(ex.EXEIdExterno, ex.ROTCodigo)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
-                                                    <CloseIcon className="w-6 h-6" />
-                                                </button>
-                                            </Tooltip>
+                                            mayExecCancel && (
+                                                <Tooltip content="Encerrar">
+                                                    <button type="button" onClick={() => handleCancel(ex.EXEIdExterno, ex.ROTCodigo)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
+                                                        <CloseIcon className="w-6 h-6" />
+                                                    </button>
+                                                </Tooltip>
+                                            )
                                         ) : (
-                                            <Tooltip content="Reprocessar">
-                                                <button 
-                                                    onClick={() => handleReprocess(ex.EXEIdExterno)} 
-                                                    disabled={executingIds.has(ex.EXEIdExterno)}
-                                                    className="p-1.5 rounded-md hover:bg-blue-50 text-blue-500 disabled:opacity-50"
-                                                >
-                                                    <RefreshIcon className={`w-4 h-4 ${executingIds.has(ex.EXEIdExterno) ? 'animate-spin' : ''}`} />
+                                            mayExecReprocess && (
+                                                <Tooltip content="Reprocessar">
+                                                    <button 
+                                                        type="button"
+                                                        onClick={() => handleReprocess(ex.EXEIdExterno)} 
+                                                        disabled={executingIds.has(ex.EXEIdExterno)}
+                                                        className="p-1.5 rounded-md hover:bg-blue-50 text-blue-500 disabled:opacity-50"
+                                                    >
+                                                        <RefreshIcon className={`w-4 h-4 ${executingIds.has(ex.EXEIdExterno) ? 'animate-spin' : ''}`} />
+                                                    </button>
+                                                </Tooltip>
+                                            )
+                                        )}
+                                        {mayExecDelete && (
+                                            <Tooltip content="Excluir Registro">
+                                                <button type="button" onClick={() => handleDelete(ex.EXEIdExterno)} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
+                                                    <TrashBinIcon className="w-4 h-4" />
                                                 </button>
                                             </Tooltip>
                                         )}
-                                        <Tooltip content="Excluir Registro">
-                                            <button onClick={() => handleDelete(ex.EXEIdExterno)} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
-                                                <TrashBinIcon className="w-4 h-4" />
-                                            </button>
-                                        </Tooltip>
                                     </div>
                                 </td>
                             </tr>

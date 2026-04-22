@@ -7,6 +7,7 @@ import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useToast } from "@/context/ToastContext";
 import { AlertIcon, RefreshIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 
@@ -40,7 +41,12 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 
 export default function EquipamentosPage() {
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
     const { showToast } = useToast();
+    const maySyncHardware = can("equipamento", "update");
+    const mayCreateEquip = can("equipamento", "create");
+    const mayUpdateEquip = can("equipamento", "update");
+    const mayDeleteEquip = can("equipamento", "delete");
     const [equipamentos, setEquipamentos] = useState<Equipamento[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
@@ -155,13 +161,19 @@ export default function EquipamentosPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Equipamentos</h2>
-                <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={handleSync}>
-                        <RefreshIcon className="w-4 h-4 mr-2" />
-                        Sincronizar Todos
-                    </Button>
-                    <Button size="sm" onClick={openNew}>+ Novo Equipamento</Button>
-                </div>
+                {(maySyncHardware || mayCreateEquip) && (
+                    <div className="flex gap-2">
+                        {maySyncHardware && (
+                            <Button size="sm" variant="outline" onClick={handleSync}>
+                                <RefreshIcon className="w-4 h-4 mr-2" />
+                                Sincronizar Todos
+                            </Button>
+                        )}
+                        {mayCreateEquip && (
+                            <Button size="sm" onClick={openNew}>+ Novo Equipamento</Button>
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Table */}
@@ -192,12 +204,22 @@ export default function EquipamentosPage() {
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${e.EQPAtivo ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                                         }`}>{e.EQPAtivo ? "Ativo" : "Inativo"}</span>
                                 </td>
-                                <td className="px-5 py-3 flex gap-2">
-                                    <button onClick={() => openEdit(e)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    {e.EQPMarca === 'ControlID' && (
-                                        <a href={`/instituicao/${codigoInstituicao}/equipamentos/${e.EQPCodigo}/configuracao`} className="text-xs text-blue-500 hover:underline">Configurações</a>
+                                <td className="px-5 py-3">
+                                    {mayUpdateEquip || mayDeleteEquip || (e.EQPMarca === "ControlID" && mayUpdateEquip) ? (
+                                        <div className="flex flex-wrap gap-2">
+                                            {mayUpdateEquip && (
+                                                <button type="button" onClick={() => openEdit(e)} className="text-xs text-brand-500 hover:underline">Editar</button>
+                                            )}
+                                            {e.EQPMarca === "ControlID" && mayUpdateEquip && (
+                                                <a href={`/instituicao/${codigoInstituicao}/equipamentos/${e.EQPCodigo}/configuracao`} className="text-xs text-blue-500 hover:underline">Configurações</a>
+                                            )}
+                                            {mayDeleteEquip && (
+                                                <button type="button" onClick={() => handleDeleteClick(e)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <span className="text-xs text-gray-400">—</span>
                                     )}
-                                    <button onClick={() => handleDeleteClick(e)} className="text-xs text-red-500 hover:underline">Excluir</button>
                                 </td>
                             </tr>
                         ))}

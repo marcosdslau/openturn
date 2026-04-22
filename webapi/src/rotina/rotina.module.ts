@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { RotinaController } from './rotina.controller';
 import { RotinaExecutionController } from './rotina-execution.controller';
 import { RotinaWebhookController } from './rotina-webhook.controller';
@@ -13,6 +14,7 @@ import { LogCleanupService } from './log-cleanup.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 
 @Module({
+    imports: [AuthModule],
     controllers: [RotinaController, RotinaExecutionController, RotinaWebhookController],
     providers: [
         RotinaService,

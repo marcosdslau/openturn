@@ -22,6 +22,8 @@ interface VersionHistoryProps {
     onRestoreVersion: (version: RoutineVersion) => void;
     onDeleteVersions: (versionIds: number[]) => void;
     onRefresh: () => void;
+    /** Se false, oculta seleção, exclusão e restauração (apenas leitura / comparar). */
+    canManage?: boolean;
 }
 
 export function VersionHistory({
@@ -30,7 +32,8 @@ export function VersionHistory({
     onSelectVersion,
     onRestoreVersion,
     onDeleteVersions,
-    onRefresh
+    onRefresh,
+    canManage = true,
 }: VersionHistoryProps) {
     const [selectedIds, setSelectedIds] = useState<number[]>([]);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -60,7 +63,7 @@ export function VersionHistory({
                     <p className="text-xs text-gray-500 mt-1">Versões e backups</p>
                 </div>
                 <div className="flex gap-1">
-                    {selectedIds.length > 0 && (
+                    {canManage && selectedIds.length > 0 && (
                         <button
                             onClick={handleDeleteClick}
                             className="p-1.5 hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded transition-colors"
@@ -95,12 +98,14 @@ export function VersionHistory({
                         >
                             <div className="flex justify-between items-start mb-2">
                                 <div className="flex items-center gap-2">
-                                    <input
-                                        type="checkbox"
-                                        checked={selectedIds.includes(version.HVICodigo)}
-                                        onChange={() => toggleSelection(version.HVICodigo)}
-                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
-                                    />
+                                    {canManage && (
+                                        <input
+                                            type="checkbox"
+                                            checked={selectedIds.includes(version.HVICodigo)}
+                                            onChange={() => toggleSelection(version.HVICodigo)}
+                                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 w-3.5 h-3.5"
+                                        />
+                                    )}
                                     <span className="text-xs font-mono text-gray-500">#{version.HVICodigo}</span>
                                 </div>
                                 <span className="text-xs text-gray-400">
@@ -108,7 +113,7 @@ export function VersionHistory({
                                 </span>
                             </div>
 
-                            <div className="mb-2 pl-6">
+                            <div className={`mb-2 ${canManage ? "pl-6" : "pl-0"}`}>
                                 <p className="text-sm font-medium text-gray-800 dark:text-gray-200 line-clamp-2">
                                     {version.HVIObservacao ||
                                         (version.HVICodigoJS.includes('Versão inicial') ? 'Versão Inicial' : 'Sem descrição')}
@@ -118,7 +123,7 @@ export function VersionHistory({
                                 </p>
                             </div>
 
-                            <div className="flex gap-2 mt-3 pl-6">
+                            <div className={`flex gap-2 mt-3 ${canManage ? "pl-6" : "pl-0"}`}>
                                 <Button
                                     size="sm"
                                     variant="outline"
@@ -127,22 +132,20 @@ export function VersionHistory({
                                 >
                                     Comparar
                                 </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className="w-full justify-center text-xs py-1 h-7 text-gray-600"
-                                    onClick={() => {
-                                        // Auto-select and open modal for single delete flow could be added,
-                                        // or keep Restore. Wait, request was DELETE.
-                                        // Keeping Restore button as it is key functionality.
-                                        // Deletion is handled via selection + header button.
-                                        if (confirm(`Restaurar versão #${version.HVICodigo}?`)) {
-                                            onRestoreVersion(version);
-                                        }
-                                    }}
-                                >
-                                    Restaurar
-                                </Button>
+                                {canManage && (
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="w-full justify-center text-xs py-1 h-7 text-gray-600"
+                                        onClick={() => {
+                                            if (confirm(`Restaurar versão #${version.HVICodigo}?`)) {
+                                                onRestoreVersion(version);
+                                            }
+                                        }}
+                                    >
+                                        Restaurar
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     ))

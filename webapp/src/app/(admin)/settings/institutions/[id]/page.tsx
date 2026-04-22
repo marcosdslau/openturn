@@ -26,6 +26,7 @@ interface Instituicao {
     INSNome: string;
     CLICodigo: number;
     cliente?: { CLINome: string };
+    INSFusoHorario?: number;
     INSConfigHardware?: any;
     INSControlidMonitorRotinaAtiva?: boolean;
     INSControlidMonitorRotinaCodigo?: number | null;
@@ -79,6 +80,7 @@ export default function InstitutionERPPage() {
     // Log Retention settings
     const [autoExcluirLogs, setAutoExcluirLogs] = useState(true);
     const [diasRetencao, setDiasRetencao] = useState(90);
+    const [insFusoHorario, setInsFusoHorario] = useState(-3);
 
     // Hardware Monitor settings
     const [monitorIp, setMonitorIp] = useState("");
@@ -110,6 +112,7 @@ export default function InstitutionERPPage() {
             setInstituicao(instRes);
             setAutoExcluirLogs(instRes.INSLogsAutoExcluir ?? true);
             setDiasRetencao(instRes.INSLogsDiasRetencao ?? 90);
+            setInsFusoHorario(instRes.INSFusoHorario ?? -3);
 
             // Load Monitor Config
             const hwConfig = instRes.INSConfigHardware || {};
@@ -206,6 +209,7 @@ export default function InstitutionERPPage() {
             const instPromise = apiPut(`/instituicoes/${id}`, {
                 INSLogsAutoExcluir: autoExcluirLogs,
                 INSLogsDiasRetencao: diasRetencao,
+                INSFusoHorario: insFusoHorario,
                 INSConfigHardware: newConfig,
                 INSControlidMonitorRotinaAtiva: monitorRotinaAtiva,
                 INSControlidMonitorRotinaCodigo: monitorRotinaAtiva ? monitorRotinaCodigo : null,
@@ -612,6 +616,23 @@ export default function InstitutionERPPage() {
                                 Após este período, os logs de rotinas serão permanentemente removidos.
                             </p>
                         </div>
+                    </div>
+                </ComponentCard>
+
+                <ComponentCard
+                    title="Fuso horário (ControlID)"
+                    desc="Offset em horas em relação ao UTC. O body.time bruto do monitor é armazenado como origin_time; o campo ajustado usa este valor."
+                >
+                    <div className="max-w-xs">
+                        <Label>UTC offset (horas)</Label>
+                        <InputField
+                            type="number"
+                            min="-12"
+                            max="14"
+                            value={insFusoHorario.toString()}
+                            onChange={(e: any) => setInsFusoHorario(parseInt(e.target.value, 10) || 0)}
+                        />
+                        <p className="mt-2 text-xs text-gray-500">Padrão -3 (ex. Brasília). Intervalo típico -12 a +14.</p>
                     </div>
                 </ComponentCard>
 
