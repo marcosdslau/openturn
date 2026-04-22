@@ -7,13 +7,7 @@ import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
 import { GrupoAcesso } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
-const HIERARCHY: Record<string, number> = {
-    [GrupoAcesso.SUPER_ROOT]: 5,
-    [GrupoAcesso.SUPER_ADMIN]: 4,
-    [GrupoAcesso.ADMIN]: 3,
-    [GrupoAcesso.GESTOR]: 2,
-    [GrupoAcesso.OPERACAO]: 1,
-};
+const GLOBAL_GRUPOS = [GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN];
 
 @Injectable()
 export class UsuarioService {
@@ -21,6 +15,66 @@ export class UsuarioService {
         private prisma: PrismaService,
         private authService: AuthService,
     ) { }
+
+    private isGlobalCaller(callerAcessos: any[] | undefined): boolean {
+        return !!callerAcessos?.some((a: any) => GLOBAL_GRUPOS.includes(a.grupo));
+    }
+
+    private callerGrupoNaInstituicao(callerAcessos: any[] | undefined, instituicaoCodigo: number): string | null {
+        if (!callerAcessos) return null;
+        return callerAcessos.find((a: any) => a.instituicaoId === instituicaoCodigo)?.grupo ?? null;
+    }
+
+    private assertAssignableGrupo(
+        instituicaoCodigo: number,
+        targetGrupo: GrupoAcesso,
+        creatorAcessos: any[],
+    ) {
+        if (this.isGlobalCaller(creatorAcessos)) {
+            const ok = ([GrupoAcesso.OPERACAO, GrupoAcesso.GESTOR, GrupoAcesso.ADMIN] as GrupoAcesso[]).includes(
+                targetGrupo,
+            );
+            if (!ok) {
+                throw new ForbiddenException('Grupo de acesso não permitido neste contexto');
+            }
+            return;
+        }
+        const cg = this.callerGrupoNaInstituicao(creatorAcessos, instituicaoCodigo);
+        if (cg === GrupoAcesso.GESTOR) {
+            const ok = ([GrupoAcesso.OPERACAO, GrupoAcesso.GESTOR, GrupoAcesso.ADMIN] as GrupoAcesso[]).includes(
+                targetGrupo,
+            );
+            if (!ok) {
+                throw new ForbiddenException('Gestão só pode atribuir os papéis Operação, Gestão ou Admin');
+            }
+            return;
+        }
+        if (cg === GrupoAcesso.ADMIN) {
+            const ok = ([GrupoAcesso.OPERACAO, GrupoAcesso.ADMIN] as GrupoAcesso[]).includes(targetGrupo);
+            if (!ok) {
+                throw new ForbiddenException('Admin institucional só pode atribuir os papéis Operação ou Admin');
+            }
+            return;
+        }
+        throw new ForbiddenException('Sem permissão para atribuir acessos');
+    }
+
+    private assertAdminNaoRemoveGestor(
+        instituicaoCodigo: number,
+        callerAcessos: any[] | undefined,
+        alvoGruposNaInstituicao: GrupoAcesso[],
+    ) {
+        if (!callerAcessos || this.isGlobalCaller(callerAcessos)) {
+            return;
+        }
+        const cg = this.callerGrupoNaInstituicao(callerAcessos, instituicaoCodigo);
+        if (cg !== GrupoAcesso.ADMIN) {
+            return;
+        }
+        if (alvoGruposNaInstituicao.includes(GrupoAcesso.GESTOR)) {
+            throw new ForbiddenException('Admin não pode remover ou excluir usuários com papel Gestão');
+        }
+    }
 
     async create(instituicaoCodigo: number, dto: CreateUsuarioDto) {
         let usuario = await this.prisma.uSRUsuario.findUnique({
@@ -153,8 +207,10 @@ export class UsuarioService {
         });
     }
 
-    async remove(instituicaoCodigo: number, id: number) {
+    async remove(instituicaoCodigo: number, id: number, callerAcessos?: any[]) {
         const usuario = await this.findOne(instituicaoCodigo, id);
+        const gruposAlvo = usuario.acessos.map((a: { grupo: GrupoAcesso }) => a.grupo);
+        this.assertAdminNaoRemoveGestor(instituicaoCodigo, callerAcessos, gruposAlvo);
 
         // IMPORTANT: We should probably only remove the access to THIS institution
         // unless they have NO other accesses. But for now, let's keep it simple:
@@ -170,17 +226,7 @@ export class UsuarioService {
     }
 
     async addAcesso(instituicaoCodigo: number, userId: number, dto: CreateAcessoDto, creatorAcessos: any[]) {
-        // Validate hierarchy: creator cannot grant a role higher than their own
-        const creatorMaxLevel = Math.max(
-            ...creatorAcessos.map((a: any) => HIERARCHY[a.grupo] || 0),
-        );
-        const targetLevel = HIERARCHY[dto.grupo] || 0;
-
-        if (targetLevel >= creatorMaxLevel) {
-            throw new ForbiddenException(
-                'Não é possível atribuir um papel igual ou superior ao seu',
-            );
-        }
+        this.assertAssignableGrupo(instituicaoCodigo, dto.grupo, creatorAcessos);
 
         // Check if user exists (even if not in this institution yet)
         const usuario = await this.prisma.uSRUsuario.findUnique({ where: { USRCodigo: userId } });
@@ -196,7 +242,7 @@ export class UsuarioService {
         });
     }
 
-    async removeAcesso(instituicaoCodigo: number, acessoId: number) {
+    async removeAcesso(instituicaoCodigo: number, acessoId: number, callerAcessos?: any[]) {
         const acesso = await this.prisma.uSRAcesso.findFirst({
             where: {
                 UACCodigo: acessoId,
@@ -204,6 +250,7 @@ export class UsuarioService {
             },
         });
         if (!acesso) throw new NotFoundException(`Acesso ${acessoId} não encontrado nesta instituição`);
+        this.assertAdminNaoRemoveGestor(instituicaoCodigo, callerAcessos, [acesso.grupo]);
         return this.prisma.uSRAcesso.delete({ where: { UACCodigo: acessoId } });
     }
 

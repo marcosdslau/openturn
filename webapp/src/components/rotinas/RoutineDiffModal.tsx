@@ -10,7 +10,7 @@ interface RoutineDiffModalProps {
     modifiedCode: string; // The current version (or newer)
     originalLabel?: string;
     modifiedLabel?: string;
-    onRestore: () => void;
+    onRestore?: () => void;
 }
 
 export function RoutineDiffModal({
@@ -43,9 +43,11 @@ export function RoutineDiffModal({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <Button onClick={onRestore} className="bg-orange-600 hover:bg-orange-700 text-white">
-                            Restore this Version
-                        </Button>
+                        {onRestore && (
+                            <Button onClick={onRestore} className="bg-orange-600 hover:bg-orange-700 text-white">
+                                Restore this Version
+                            </Button>
+                        )}
                         <button
                             onClick={onClose}
                             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors text-gray-500"

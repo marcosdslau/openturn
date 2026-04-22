@@ -27,8 +27,23 @@ export type NavItem = {
     subItems?: { name: string; path: string; pro?: boolean; new?: boolean }[];
 };
 
-export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin: boolean): NavItem[] => {
+export type MainNavContext = {
+    /** Papel na instituição atual (OPERACAO | GESTOR | ADMIN) ou SUPER_* quando global. */
+    grupoInstituicao: string | null;
+    /** SUPER_ROOT / SUPER_ADMIN em qualquer escopo */
+    isGlobalUser: boolean;
+};
+
+export const getMainNavItems = (
+    basePath: string,
+    isSuperRoot: boolean,
+    isAdmin: boolean,
+    ctx?: MainNavContext,
+): NavItem[] => {
     const items: NavItem[] = [];
+    const grupo = ctx?.grupoInstituicao ?? null;
+    const isGlobalUser = ctx?.isGlobalUser ?? false;
+    const hideEquipUsuarios = !isGlobalUser && grupo === "OPERACAO";
 
     if (isSuperRoot || isAdmin) {
         items.push({
@@ -38,7 +53,7 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
         });
     }
 
-    items.push(
+    const core: NavItem[] = [
         {
             icon: <GridIcon />,
             name: "Dashboard",
@@ -59,16 +74,24 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
             name: "Matrículas",
             path: `${basePath}/matriculas`,
         },
-        {
-            icon: <BoxCubeIcon />,
-            name: "Equipamentos",
-            path: `${basePath}/equipamentos`,
-        },
-        {
-            icon: <UserCircleIcon />,
-            name: "Usuários",
-            path: `${basePath}/usuarios`,
-        },
+    ];
+
+    if (!hideEquipUsuarios) {
+        core.push(
+            {
+                icon: <BoxCubeIcon />,
+                name: "Equipamentos",
+                path: `${basePath}/equipamentos`,
+            },
+            {
+                icon: <UserCircleIcon />,
+                name: "Usuários",
+                path: `${basePath}/usuarios`,
+            },
+        );
+    }
+
+    core.push(
         {
             icon: <PlugInIcon />,
             name: "Rotinas",
@@ -78,8 +101,10 @@ export const getMainNavItems = (basePath: string, isSuperRoot: boolean, isAdmin:
             icon: <TimeIcon />,
             name: "Execuções",
             path: `${basePath}/execucoes`,
-        }
+        },
     );
+
+    items.push(...core);
 
     if (isSuperRoot) {
         items.push(

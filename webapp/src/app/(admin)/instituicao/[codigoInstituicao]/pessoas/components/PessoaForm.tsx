@@ -11,9 +11,17 @@ interface PessoaFormProps {
     onCancel: () => void;
     loading?: boolean;
     onSavePhoto?: (base64: string | null, extensao: string | null) => Promise<void>;
+    readOnly?: boolean;
 }
 
-export default function PessoaForm({ initialData, onSubmit, onCancel, loading, onSavePhoto }: PessoaFormProps) {
+export default function PessoaForm({
+    initialData,
+    onSubmit,
+    onCancel,
+    loading,
+    onSavePhoto,
+    readOnly = false,
+}: PessoaFormProps) {
     const [formData, setFormData] = React.useState({
         PESNome: initialData?.PESNome || "",
         PESNomeSocial: initialData?.PESNomeSocial || "",
@@ -44,6 +52,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
 
     const inputClasses = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none disabled:bg-gray-100 dark:disabled:bg-gray-900";
     const labelClasses = "block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1";
+    const disabled = loading || readOnly;
 
     const handlePhotoChange = (base64: string | null, extensao: string | null) => {
         setFormData(prev => ({ ...prev, PESFotoBase64: base64, PESFotoExtensao: extensao }));
@@ -57,10 +66,11 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                     base64={formData.PESFotoBase64}
                     extensao={formData.PESFotoExtensao}
                     onChange={handlePhotoChange}
-                    onConfirm={onSavePhoto}
+                    onConfirm={readOnly ? undefined : onSavePhoto}
+                    readOnly={readOnly}
                 />
 
-                {initialData?.PESCodigo && (
+                {initialData?.PESCodigo && !readOnly && (
                     <BiometryCapture personId={initialData.PESCodigo} />
                 )}
             </div>
@@ -78,7 +88,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             required
                             placeholder="Ex: João Silva"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -91,7 +101,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="Como a pessoa prefere ser chamada"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -104,7 +114,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="Apenas números"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -118,7 +128,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="exemplo@email.com"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -131,7 +141,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="Código em outro sistema"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -144,7 +154,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="(00) 0000-0000"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -157,7 +167,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="(00) 00000-0000"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -170,7 +180,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="Ex: Alunos, Professores"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -183,7 +193,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             onChange={handleChange}
                             placeholder="Identificador da TAG"
                             className={inputClasses}
-                            disabled={loading}
+                            disabled={disabled}
                         />
                     </div>
 
@@ -196,7 +206,7 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
                             checked={formData.PESAtivo}
                             onChange={handleChange}
                             className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
-                            disabled={loading}
+                            disabled={disabled}
                         />
                         <label htmlFor="PESAtivo" className="text-sm font-medium text-gray-700 dark:text-gray-300">
                             Registro Ativo
@@ -206,11 +216,13 @@ export default function PessoaForm({ initialData, onSubmit, onCancel, loading, o
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-gray-100 dark:border-gray-800">
                     <Button variant="outline" onClick={onCancel} type="button" disabled={loading}>
-                        Cancelar
+                        {readOnly ? "Voltar" : "Cancelar"}
                     </Button>
-                    <Button type="submit" disabled={loading || !formData.PESNome}>
-                        {loading ? "Salvando..." : "Salvar Alterações"}
-                    </Button>
+                    {!readOnly && (
+                        <Button type="submit" disabled={loading || !formData.PESNome}>
+                            {loading ? "Salvando..." : "Salvar Alterações"}
+                        </Button>
+                    )}
                 </div>
             </form>
 

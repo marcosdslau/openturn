@@ -1,16 +1,24 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { RotinaService, ROTINA_TIMEOUT_SECONDS_MAX, clampRotinaTimeoutSeconds } from "@/services/rotina.service";
 import Button from "@/components/ui/button/Button";
 import { useTenant } from "@/context/TenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { ChevronLeftIcon, InfoIcon, AlertIcon, RefreshIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
 export default function NovaRotinaPage() {
     const { codigoInstituicao } = useTenant();
     const router = useRouter();
+    const { can } = usePermissions();
+
+    useEffect(() => {
+        if (!can("rotina", "create")) {
+            router.replace(`/instituicao/${codigoInstituicao}/rotinas`);
+        }
+    }, [can, codigoInstituicao, router]);
     const [loading, setLoading] = useState(false);
     const [showToken, setShowToken] = useState(false);
     const [formData, setFormData] = useState({

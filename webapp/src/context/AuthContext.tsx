@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { apiPost, apiGet, setToken, clearToken } from "@/lib/api";
+import { firstAccessibleInstituicaoId } from "@/lib/user-instituicao-access";
 
 interface AcessoScope {
     grupo: string;
@@ -91,6 +92,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             if (saved && saved !== "0") {
                 instId = Number(saved);
             }
+        }
+        if (!instId) {
+            instId = firstAccessibleInstituicaoId(data.usuario.acessos);
         }
         if (!instId) {
             try {

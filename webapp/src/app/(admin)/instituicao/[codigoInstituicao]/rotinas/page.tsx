@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import Button from "@/components/ui/button/Button";
 import { Rotina, RotinaService } from "@/services/rotina.service";
 import { ArrowRightIcon, TrashBinIcon, PencilIcon, PlusIcon, AlertIcon, CloseIcon, RefreshIcon } from "@/icons";
@@ -13,6 +14,7 @@ import Tooltip from "@/components/ui/tooltip/Tooltip";
 
 export default function RotinasPage() {
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
     const router = useRouter();
     const { showToast } = useToast();
     const deleteModal = useModal();
@@ -25,6 +27,8 @@ export default function RotinasPage() {
     const [deleteTarget, setDeleteTarget] = useState<Rotina | null>(null);
     const [serialClearTarget, setSerialClearTarget] = useState<Rotina | null>(null);
     const [clearingSerial, setClearingSerial] = useState(false);
+
+    const mayOpenEditor = can("rotina", "update");
 
     const refreshActiveMap = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -166,10 +170,12 @@ export default function RotinasPage() {
                     <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Rotinas de Execução</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">Gerencie scripts e automações da instituição</p>
                 </div>
-                <Button size="sm" onClick={() => router.push(`/instituicao/${codigoInstituicao}/rotinas/nova`)}>
-                    <PlusIcon className="mr-2 h-4 w-4" />
-                    Nova Rotina
-                </Button>
+                {can("rotina", "create") && (
+                    <Button size="sm" onClick={() => router.push(`/instituicao/${codigoInstituicao}/rotinas/nova`)}>
+                        <PlusIcon className="mr-2 h-4 w-4" />
+                        Nova Rotina
+                    </Button>
+                )}
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-hidden">
@@ -191,8 +197,19 @@ export default function RotinasPage() {
                         ) : rotinas.map((rotina) => (
                             <tr
                                 key={rotina.ROTCodigo}
-                                onClick={() => router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`)}
-                                className="hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                                onClick={
+                                    mayOpenEditor
+                                        ? () =>
+                                              router.push(
+                                                  `/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`,
+                                              )
+                                        : undefined
+                                }
+                                className={
+                                    mayOpenEditor
+                                        ? "hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                                        : "hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors"
+                                }
                             >
                                 <td className="px-6 py-4">
                                     <div className="text-sm font-medium text-gray-900 dark:text-white">{rotina.ROTNome}</div>
@@ -235,38 +252,42 @@ export default function RotinasPage() {
                                                         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
                                                     </span>
                                                 </Tooltip>
-                                                <Tooltip content="Encerrar execução" placement="top">
+                                                {can("rotina", "cancel_run") && (
+                                                    <Tooltip content="Encerrar execução" placement="top">
+                                                        <button
+                                                            type="button"
+                                                            disabled={stopping === rotina.ROTCodigo}
+                                                            onClick={() => void handleStopExecution(rotina)}
+                                                            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                                                        >
+                                                            {stopping === rotina.ROTCodigo ? (
+                                                                <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                                                            ) : (
+                                                                <CloseIcon className="h-4 w-4" />
+                                                            )}
+                                                        </button>
+                                                    </Tooltip>
+                                                )}
+                                            </>
+                                        ) : (
+                                            can("rotina", "execute") && (
+                                                <Tooltip content="Executar manualmente" placement="top">
                                                     <button
                                                         type="button"
-                                                        disabled={stopping === rotina.ROTCodigo}
-                                                        onClick={() => void handleStopExecution(rotina)}
-                                                        className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:opacity-50 dark:hover:bg-red-950/30 dark:hover:text-red-400"
+                                                        disabled={executing === rotina.ROTCodigo || stopping != null}
+                                                        onClick={() => void handleExecute(rotina.ROTCodigo)}
+                                                        className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-green-50 hover:text-green-600 disabled:opacity-50 dark:hover:bg-green-950/30 dark:hover:text-green-400"
                                                     >
-                                                        {stopping === rotina.ROTCodigo ? (
+                                                        {executing === rotina.ROTCodigo ? (
                                                             <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                                                         ) : (
-                                                            <CloseIcon className="h-4 w-4" />
+                                                            <ArrowRightIcon className="h-4 w-4" />
                                                         )}
                                                     </button>
                                                 </Tooltip>
-                                            </>
-                                        ) : (
-                                            <Tooltip content="Executar manualmente" placement="top">
-                                                <button
-                                                    type="button"
-                                                    disabled={executing === rotina.ROTCodigo || stopping != null}
-                                                    onClick={() => void handleExecute(rotina.ROTCodigo)}
-                                                    className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-green-50 hover:text-green-600 disabled:opacity-50 dark:hover:bg-green-950/30 dark:hover:text-green-400"
-                                                >
-                                                    {executing === rotina.ROTCodigo ? (
-                                                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                                                    ) : (
-                                                        <ArrowRightIcon className="h-4 w-4" />
-                                                    )}
-                                                </button>
-                                            </Tooltip>
+                                            )
                                         )}
-                                        {rotina.ROTPermiteParalelismo === false && (
+                                        {rotina.ROTPermiteParalelismo === false && can("rotina", "clear_serial_lock") && (
                                             <Tooltip
                                                 content="Libera o bloqueio Redis de execução serial (use só se o lock ficou preso; pode permitir duas execuções ao mesmo tempo se a rotina ainda estiver rodando)"
                                                 placement="top"
@@ -284,28 +305,32 @@ export default function RotinasPage() {
                                                 </button>
                                             </Tooltip>
                                         )}
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`);
-                                            }}
-                                            className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
-                                            title="Editar"
-                                        >
-                                            <PencilIcon className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                handleDeleteClick(rotina);
-                                            }}
-                                            className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-                                            title="Excluir"
-                                        >
-                                            <TrashBinIcon className="w-4 h-4" />
-                                        </button>
+                                        {can("rotina", "update") && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    router.push(`/instituicao/${codigoInstituicao}/rotinas/${rotina.ROTCodigo}`);
+                                                }}
+                                                className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                                                title="Editar"
+                                            >
+                                                <PencilIcon className="w-4 h-4" />
+                                            </button>
+                                        )}
+                                        {can("rotina", "delete") && (
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleDeleteClick(rotina);
+                                                }}
+                                                className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                                                title="Excluir"
+                                            >
+                                                <TrashBinIcon className="w-4 h-4" />
+                                            </button>
+                                        )}
                                     </div>
                                 </td>
                             </tr>

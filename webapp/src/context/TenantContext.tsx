@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiGet } from "@/lib/api";
+import { buildInstituicoesListFromAcessos } from "@/lib/user-instituicao-access";
 import { useAuth } from "./AuthContext";
 
 interface Instituicao {
@@ -35,32 +36,43 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
 
     useEffect(() => {
         if (!codigoInstituicao) return;
+        if (!isGlobal && !user) return;
 
         const load = async () => {
             try {
-                const [inst, list] = await Promise.all([
-                    apiGet<Instituicao>(`/instituicoes/${codigoInstituicao}`),
-                    apiGet<{ data: Instituicao[] }>("/instituicoes?limit=100"),
-                ]);
-                setInstituicao(inst);
+                if (isGlobal) {
+                    const [inst, list] = await Promise.all([
+                        apiGet<Instituicao>(`/instituicoes/${codigoInstituicao}`),
+                        apiGet<{ data: Instituicao[] }>("/instituicoes?limit=100"),
+                    ]);
+                    setInstituicao(inst);
+                    setInstituicoes(list.data || []);
+                } else if (user) {
+                    const scoped = buildInstituicoesListFromAcessos(user.acessos);
+                    setInstituicoes(scoped);
+                    const cur =
+                        scoped.find((i) => i.INSCodigo === codigoInstituicao) ??
+                        null;
+                    if (cur) {
+                        setInstituicao(cur);
+                    } else {
+                        const a = user.acessos.find(
+                            (x) => x.instituicaoId === codigoInstituicao,
+                        );
+                        setInstituicao({
+                            INSCodigo: codigoInstituicao,
+                            INSNome:
+                                (a?.instituicaoNome && a.instituicaoNome.trim()) ||
+                                `Instituição ${codigoInstituicao}`,
+                            INSAtivo: true,
+                            CLICodigo: a?.clienteId ?? 0,
+                        });
+                    }
+                }
 
-                // Persist current institution code in localStorage
                 const saved = localStorage.getItem("sg_last_inst");
                 if (!saved || saved === "0") {
                     localStorage.setItem("sg_last_inst", String(codigoInstituicao));
-                }
-
-                // If global user, show all institutions; otherwise filter by user's acessos
-                if (isGlobal) {
-                    setInstituicoes(list.data || []);
-                } else {
-                    const allowedIds = user?.acessos
-                        .filter((a) => a.instituicaoId !== null)
-                        .map((a) => a.instituicaoId) ?? [];
-                    const filtered = (list.data || []).filter(
-                        (i) => allowedIds.includes(i.INSCodigo)
-                    );
-                    setInstituicoes(filtered.length > 0 ? filtered : list.data || []);
                 }
             } catch {
                 // ignore
@@ -69,8 +81,8 @@ export function TenantProvider({ children }: { children: React.ReactNode }) {
             }
         };
 
-        load();
-    }, [codigoInstituicao, isGlobal, user?.acessos]);
+        void load();
+    }, [codigoInstituicao, isGlobal, user]);
 
     const switchInstituicao = async (codigo: number) => {
         localStorage.setItem("sg_last_inst", String(codigo));

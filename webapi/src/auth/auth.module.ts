@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { BrevoMailService } from './brevo-mail.service';
+import { PermissionsGuard } from './permissions.guard';
 
 @Module({
     imports: [
@@ -15,7 +16,7 @@ import { BrevoMailService } from './brevo-mail.service';
         }),
     ],
     controllers: [AuthController],
-    providers: [AuthService, JwtStrategy, BrevoMailService],
-    exports: [AuthService],
+    providers: [AuthService, JwtStrategy, BrevoMailService, PermissionsGuard],
+    exports: [AuthService, PermissionsGuard],
 })
 export class AuthModule { }

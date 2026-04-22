@@ -9,43 +9,28 @@ import Link from "next/link";
 import { useEffect, useRef, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import {
-  getMainNavItems,
   demoNavItems,
   othersItems,
   supportItems,
 } from "./menu-data";
-import { useAuth } from "@/context/AuthContext";
+import { useMainNavItems } from "@/hooks/useMainNavItems";
 
 const LAST_INST_KEY = "sg_last_inst";
 
 const AppHeader: React.FC = () => {
   const [isApplicationMenuOpen, setApplicationMenuOpen] = useState(false);
   const { isMobileOpen, toggleSidebar, toggleMobileSidebar } = useSidebar();
-  const { isSuperRoot, isAdmin } = useAuth();
+  const mainNavItems = useMainNavItems();
   const params = useParams();
-  const [lastInst, setLastInst] = useState<string>("0");
 
-  // Load last institution from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(LAST_INST_KEY);
-    if (saved) setLastInst(saved);
-  }, []);
-
-  const code = params?.codigoInstituicao as string || lastInst;
-  const base = `/instituicao/${code}`;
-
-  // Persist code whenever it changes and is valid
   useEffect(() => {
     if (params?.codigoInstituicao) {
       localStorage.setItem(LAST_INST_KEY, params.codigoInstituicao as string);
-      setLastInst(params.codigoInstituicao as string);
     }
   }, [params?.codigoInstituicao]);
 
   const [searchQuery, setSearchQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const mainNavItems = useMemo(() => getMainNavItems(base as string, isSuperRoot, isAdmin), [base, isSuperRoot, isAdmin]);
 
   const searchableItems = useMemo(() => {
     const flattened: { name: string; path: string; section?: string }[] = [];

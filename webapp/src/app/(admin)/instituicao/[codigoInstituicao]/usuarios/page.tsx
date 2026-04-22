@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import { useTenant } from "@/context/TenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useAuth } from "@/context/AuthContext";
 import Button from "@/components/ui/button/Button";
 import { Modal } from "@/components/ui/modal";
@@ -45,8 +46,18 @@ const GRUPO_COLORS: Record<string, string> = {
     OPERACAO: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
 };
 
+/** Admin institucional não altera acessos nem senha de usuário que tenha papel Gestor (API alinhada). */
+function isAdminViewingGestorUser(
+    grupoViewer: string | null | undefined,
+    usuario: Usuario | null | undefined,
+): boolean {
+    if (grupoViewer !== "ADMIN" || !usuario?.acessos?.length) return false;
+    return usuario.acessos.some((a) => a.grupo === "GESTOR");
+}
+
 export default function UsuariosPage() {
-    const { codigoInstituicao } = useTenant();
+    const { codigoInstituicao, grupoNoContexto } = useTenant();
+    const { can } = usePermissions();
     const { user, isGlobal } = useAuth();
     const { showToast } = useToast();
     const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -170,6 +181,14 @@ export default function UsuariosPage() {
     };
 
     const openAcessoModal = (u: Usuario) => {
+        if (isAdminViewingGestorUser(grupoNoContexto, u)) {
+            showToast(
+                "info",
+                "Ação não permitida",
+                "Usuários com perfil Gestor só podem ter acessos alterados por administradores superiores.",
+            );
+            return;
+        }
         setAcessoTarget(u);
         // Default to current selection if possible
         setAcessoForm({
@@ -182,6 +201,10 @@ export default function UsuariosPage() {
 
     const handleAddAcesso = async () => {
         if (!acessoTarget) return;
+        if (isAdminViewingGestorUser(grupoNoContexto, acessoTarget)) {
+            showToast("error", "Não permitido", "Não é possível alterar acessos deste usuário.");
+            return;
+        }
         setSaving(true);
         try {
             await apiPost(`/instituicao/${codigoInstituicao}/usuario/${acessoTarget.USRCodigo}/acessos`, {
@@ -218,6 +241,14 @@ export default function UsuariosPage() {
     const availableGrupos = (() => {
         if (!user) return [];
         if (isGlobal) return ["ADMIN", "GESTOR", "OPERACAO"];
+        // Admin institucional: só pode conceder Operação ou Admin (nunca Gestor neste fluxo).
+        if (grupoNoContexto === "ADMIN") {
+            return ["OPERACAO", "ADMIN"];
+        }
+        // Gestor institucional: todos os papéis operacionais da instituição.
+        if (grupoNoContexto === "GESTOR") {
+            return ["OPERACAO", "ADMIN", "GESTOR"];
+        }
         const maxLevel = Math.max(
             ...user.acessos.map((a) => {
                 const levels: Record<string, number> = { SUPER_ROOT: 5, SUPER_ADMIN: 4, ADMIN: 3, GESTOR: 2, OPERACAO: 1 };
@@ -238,7 +269,9 @@ export default function UsuariosPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Usuários</h2>
-                <Button size="sm" onClick={openNew}>+ Novo Usuário</Button>
+                {can("usuario_instituicao", "create") && (
+                    <Button size="sm" onClick={openNew}>+ Novo Usuário</Button>
+                )}
             </div>
 
             <input
@@ -268,19 +301,33 @@ export default function UsuariosPage() {
                                 <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">{u.USREmail}</td>
                                 <td className="px-5 py-3">
                                     <div className="flex flex-wrap gap-1">
-                                        {u.acessos.map((a) => (
+                                        {u.acessos.map((a) => {
+                                            const podeRevogar =
+                                                can("usuario_instituicao", "delete") &&
+                                                !(grupoNoContexto === "ADMIN" && a.grupo === "GESTOR");
+                                            return (
                                             <span key={a.UACCodigo} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${GRUPO_COLORS[a.grupo] || ""}`}>
                                                 {GRUPO_LABELS[a.grupo] || a.grupo}
                                                 {a.instituicao && <span className="opacity-70">({a.instituicao.INSNome})</span>}
-                                                <button onClick={() => handleRemoveAcessoClick(a.UACCodigo, u.USRNome)} className="ml-1 text-red-400 hover:text-red-600" title="Remover acesso">&times;</button>
+                                                {podeRevogar && (
+                                                    <button type="button" onClick={() => handleRemoveAcessoClick(a.UACCodigo, u.USRNome)} className="ml-1 text-red-400 hover:text-red-600" title="Remover acesso">&times;</button>
+                                                )}
                                             </span>
-                                        ))}
+                                        );})}
                                     </div>
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
-                                    <button onClick={() => openEdit(u)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    <button onClick={() => openAcessoModal(u)} className="text-xs text-emerald-500 hover:underline">+ Acesso</button>
-                                    <button onClick={() => handleDeleteClick(u)} className="text-xs text-red-500 hover:underline">Remover</button>
+                                    {can("usuario_instituicao", "update") && (
+                                        <button type="button" onClick={() => openEdit(u)} className="text-xs text-brand-500 hover:underline">Editar</button>
+                                    )}
+                                    {can("usuario_instituicao", "update") &&
+                                        !isAdminViewingGestorUser(grupoNoContexto, u) && (
+                                        <button type="button" onClick={() => openAcessoModal(u)} className="text-xs text-emerald-500 hover:underline">+ Acesso</button>
+                                    )}
+                                    {can("usuario_instituicao", "delete") &&
+                                        !(grupoNoContexto === "ADMIN" && u.acessos.some((a) => a.grupo === "GESTOR")) && (
+                                        <button type="button" onClick={() => handleDeleteClick(u)} className="text-xs text-red-500 hover:underline">Remover</button>
+                                    )}
                                 </td>
                             </tr>
                         ))}
@@ -311,11 +358,20 @@ export default function UsuariosPage() {
                     <div className="space-y-3">
                         <input placeholder="Nome *" value={form.nome} onChange={(e) => setForm({ ...form, nome: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                        <input placeholder="Email *" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
-                        <input placeholder={editing ? "Nova Senha (opcional)" : "Senha *"} type="password" value={form.senha}
-                            onChange={(e) => setForm({ ...form, senha: e.target.value })}
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <input
+                            placeholder="Email *"
+                            type="email"
+                            value={form.email}
+                            onChange={(e) => setForm({ ...form, email: e.target.value })}
+                            disabled={!!editing}
+                            title={editing ? "O e-mail não pode ser alterado após o cadastro." : undefined}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none disabled:cursor-not-allowed disabled:opacity-65"
+                        />
+                        {!(editing && isAdminViewingGestorUser(grupoNoContexto, editing)) && (
+                            <input placeholder={editing ? "Nova Senha (opcional)" : "Senha *"} type="password" value={form.senha}
+                                onChange={(e) => setForm({ ...form, senha: e.target.value })}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        )}
                     </div>
                     <div className="flex gap-3 justify-end pt-2">
                         <Button size="sm" variant="outline" onClick={userModal.closeModal}>Cancelar</Button>

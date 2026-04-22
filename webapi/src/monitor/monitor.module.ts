@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AuthModule } from '../auth/auth.module';
 import { MonitorService } from './monitor.service';
 import { MonitorController } from './monitor.controller';
 import { RotinaModule } from '../rotina/rotina.module';
@@ -11,7 +12,7 @@ import { MonitorInstituicaoController } from './monitor-instituicao.controller';
 import { MonitorInstituicaoDashboardService } from './monitor-instituicao-dashboard.service';
 
 @Module({
-    imports: [RotinaModule],
+    imports: [AuthModule, RotinaModule],
     controllers: [MonitorController, MonitorInstituicaoController],
     providers: [
         PrismaService,

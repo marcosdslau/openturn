@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
+import { usePermissions } from "@/hooks/usePermissions";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
@@ -35,6 +36,7 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 export default function MatriculasPage() {
     const params = useParams();
     const codigoInstituicao = params?.codigoInstituicao;
+    const { can } = usePermissions();
     const { showToast } = useToast();
     const [matriculas, setMatriculas] = useState<Matricula[]>([]);
     const [pessoas, setPessoas] = useState<Pessoa[]>([]);
@@ -127,7 +129,9 @@ export default function MatriculasPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Matrículas</h2>
-                <Button size="sm" onClick={openNew}>+ Nova Matrícula</Button>
+                {can("matricula", "create") && (
+                    <Button size="sm" onClick={openNew}>+ Nova Matrícula</Button>
+                )}
             </div>
 
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
@@ -175,8 +179,12 @@ export default function MatriculasPage() {
                                         }`}>{m.MATAtivo ? "Ativa" : "Inativa"}</span>
                                 </td>
                                 <td className="px-5 py-3 flex gap-2">
-                                    <button onClick={() => openEdit(m)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    <button onClick={() => handleDeleteClick(m)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                                    {can("matricula", "update") && (
+                                        <button type="button" onClick={() => openEdit(m)} className="text-xs text-brand-500 hover:underline">Editar</button>
+                                    )}
+                                    {can("matricula", "delete") && (
+                                        <button type="button" onClick={() => handleDeleteClick(m)} className="text-xs text-red-500 hover:underline">Excluir</button>
+                                    )}
                                 </td>
                             </tr>
                         ))}

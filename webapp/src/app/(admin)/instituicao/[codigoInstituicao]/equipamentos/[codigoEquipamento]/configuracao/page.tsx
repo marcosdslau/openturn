@@ -2,8 +2,10 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPatch, apiPost, apiDelete } from "@/lib/api";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useToast } from "@/context/ToastContext";
 import Button from "@/components/ui/button/Button";
 import { ChevronLeftIcon } from "@/icons";
@@ -20,10 +22,13 @@ interface Equipamento {
 }
 
 export default function ControlIDConfigPage() {
+    const { loading: authLoading } = useAuth();
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
     const params = useParams();
     const router = useRouter();
     const { showToast } = useToast();
+    const mayMutateEquip = can("equipamento", "update");
 
     // ID from URL might be string
     const codigoEquipamento = params.codigoEquipamento;
@@ -109,10 +114,20 @@ export default function ControlIDConfigPage() {
     }, [codigoInstituicao, codigoEquipamento, router, showToast, loadSessions]);
 
     useEffect(() => {
+        if (authLoading) return;
+        if (!mayMutateEquip) {
+            showToast(
+                "info",
+                "Acesso restrito",
+                "A configuração e comandos de hardware exigem permissão de alteração em equipamentos.",
+            );
+            router.replace(`/instituicao/${codigoInstituicao}/equipamentos`);
+            return;
+        }
         if (codigoEquipamento) {
             loadEquipment();
         }
-    }, [codigoEquipamento, loadEquipment]);
+    }, [authLoading, mayMutateEquip, codigoEquipamento, codigoInstituicao, router, showToast, loadEquipment]);
 
     const handleSaveGeneral = async () => {
         if (!equipment) return;
@@ -141,6 +156,10 @@ export default function ControlIDConfigPage() {
             showToast("error", "Erro", "Não foi possível encerrar a sessão.");
         }
     };
+
+    if (authLoading || !mayMutateEquip) {
+        return <div className="p-8 text-center text-gray-500">Carregando...</div>;
+    }
 
     if (loading) {
         return <div className="p-8 text-center text-gray-500">Carregando configurações do equipamento...</div>;

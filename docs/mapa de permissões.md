@@ -1,0 +1,119 @@
+Operação:
+    -> Dashboard:
+        -> Pode consultar Dashboard
+    -> Passagens:
+        -> Pode consultar Passagens
+        -> Não pode criar Passagens
+        -> Pode editar Passagens
+        -> Não ode excluir Passagens
+    -> Menu Pessoas: 
+        -> Não pode Criar
+        -> Pode consultar 1 ou várias pessoas.
+        -> Pode Editar uma pessoa.
+        -> Não pode excluir pessoa.
+    -> Matriculas:
+        -> Não pode criar
+        -> Pode consultar Matriculas
+        -> Não pode editar
+        -> Não pode excluir
+    -> Equipamentos:
+        Obs: Menu não deve aparecer para o usuário.
+        -> Não pode criar
+        -> Não pode consultar Equipamentos
+        -> Não pode editar
+        -> Não pode excluir
+    -> Usuários:
+        Obs: Menu não deve aparecer para o usuário.
+        -> Não pode criar
+        -> Pode consultar Usuários
+        -> Não pode editar
+        -> Não pode excluir
+    -> Rotinas:
+        -> Não pode criar
+        -> Pode consultar Rotinas
+        -> Não pode editar
+        -> Não pode excluir
+        -> Pode executar rotinas
+    -> Execuções:
+        -> Pode consultar Execuções
+        -> Pode reprocessar Execuções
+        -> Não pode excluir Execuções
+
+Gestão:
+    -> Dashboard:
+        -> Pode consultar Dashboard
+    -> Passagens:
+        -> Pode consultar Passagens
+        -> Não pode criar Passagens
+        -> Não pode editar Passagens
+        -> Não pode excluir Passagens
+    -> Menu Pessoas: 
+        -> Não pode Criar
+        -> Pode consultar 1 ou várias pessoas.
+        -> Pode Editar uma pessoa.
+        -> Não pode excluir pessoa.
+    -> Matriculas:
+        -> Não pode criar
+        -> Pode consultar Matriculas
+        -> Não pode editar
+        -> Não pode excluir
+    -> Equipamentos:
+        -> Não pode criar
+        -> Pode consultar Equipamentos
+        -> Não pode editar
+        -> Não pode excluir
+    -> Usuários:
+        -> Pode criar Usuários (Operação/Admin/Gestão)
+        -> Pode consultar Usuários
+        -> Pode editar (Operação/Admin/Gestão)
+        -> Pode excluir
+    -> Rotinas:
+        -> Não pode criar
+        -> Pode consultar Rotinas
+        -> Não pode editar
+        -> Não pode excluir
+        -> Pode executar rotinas
+    -> Execuções:
+        -> Pode consultar Execuções
+        -> Pode reprocessar Execuções
+        -> Não pode excluir Execuções
+
+Admin:
+    -> Dashboard:
+        -> Pode consultar Dashboard
+    -> Passagens:
+        -> Pode consultar Passagens
+        -> pode criar Passagens
+        -> pode editar Passagens
+        -> pode excluir Passagens
+    -> Menu Pessoas: 
+        -> Pode Criar
+        -> Pode consultar 1 ou várias pessoas.
+        -> Pode Editar uma pessoa.
+        -> Pode excluir pessoa.
+    -> Matriculas:
+        -> Pode criar
+        -> Pode consultar Matriculas
+        -> Pode editar
+        -> Pode excluir
+    -> Equipamentos:
+        -> Pode criar
+        -> Pode consultar Equipamentos
+        -> Pode editar
+        -> Pode excluir
+    -> Usuários:
+        -> Pode criar Usuários (Operação/Admin)
+        -> Pode consultar Usuários
+        -> Pode editar (Operação/Admin)
+        -> Pode excluir (Operação/Admin)
+        Obs: Somente usuário Gestão que o admin não pode excluir
+    -> Rotinas:
+        -> Pode criar
+        -> Pode consultar Rotinas
+        -> Pode editar
+        -> Pode excluir
+        -> Pode executar rotinas
+    -> Execuções:
+        -> Pode consultar Execuções
+        -> Pode reprocessar Execuções
+        -> Pode excluir Execuções

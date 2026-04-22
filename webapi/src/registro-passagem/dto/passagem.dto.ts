@@ -40,3 +40,23 @@ export class QueryPassagemDto extends PaginationDto {
     @IsEnum(AcaoPassagem)
     REGAcao?: AcaoPassagem;
 }
+
+export class UpdatePassagemDto {
+    @IsOptional()
+    @IsEnum(AcaoPassagem)
+    REGAcao?: AcaoPassagem;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    EQPCodigo?: number;
+
+    @IsOptional()
+    @Type(() => Number)
+    @IsInt()
+    PESCodigo?: number;
+
+    @IsOptional()
+    @IsDateString()
+    REGDataHora?: string;
+}

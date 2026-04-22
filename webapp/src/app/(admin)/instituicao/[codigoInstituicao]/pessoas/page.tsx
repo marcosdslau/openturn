@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "@/context/TenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
@@ -46,6 +47,7 @@ interface Meta { total: number; page: number; limit: number; totalPages: number;
 export default function PessoasPage() {
     const router = useRouter();
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
     const { showToast } = useToast();
     const [pessoas, setPessoas] = useState<Pessoa[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
@@ -165,7 +167,9 @@ export default function PessoasPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Pessoas</h2>
-                <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
+                {can("pessoa", "create") && (
+                    <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
+                )}
             </div>
 
             <PessoasFiltros
@@ -202,8 +206,12 @@ export default function PessoasPage() {
                         ) : pessoas.map((p) => (
                             <tr
                                 key={p.PESCodigo}
-                                onClick={() => router.push(`/instituicao/${codigoInstituicao}/pessoas/${p.PESCodigo}/edit`)}
-                                className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors cursor-pointer"
+                                onClick={() => {
+                                    if (can("pessoa", "update")) {
+                                        router.push(`/instituicao/${codigoInstituicao}/pessoas/${p.PESCodigo}/edit`);
+                                    }
+                                }}
+                                className={`border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors ${can("pessoa", "update") ? "cursor-pointer" : ""}`}
                             >
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
                                     <div className="flex items-center gap-3">
@@ -238,15 +246,17 @@ export default function PessoasPage() {
                                     >
                                         Mapeamento
                                     </button>
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleDeactivateClick(p);
-                                        }}
-                                        className="text-xs text-red-500 hover:underline px-2 py-1"
-                                    >
-                                        Desativar
-                                    </button>
+                                    {can("pessoa", "delete") && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleDeactivateClick(p);
+                                            }}
+                                            className="text-xs text-red-500 hover:underline px-2 py-1"
+                                        >
+                                            Desativar
+                                        </button>
+                                    )}
                                 </td>
                             </tr>
                         ))}

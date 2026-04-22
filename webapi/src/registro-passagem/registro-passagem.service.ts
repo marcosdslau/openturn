@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { CreatePassagemDto, QueryPassagemDto } from './dto/passagem.dto';
+import { CreatePassagemDto, QueryPassagemDto, UpdatePassagemDto } from './dto/passagem.dto';
 import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
 import { resizeBase64Image } from '../common/utils/image.utils';
@@ -21,6 +21,42 @@ export class RegistroPassagemService {
                 INSInstituicaoCodigo: instituicaoCodigo,
             },
         });
+    }
+
+    async update(instituicaoCodigo: number, id: number, dto: UpdatePassagemDto) {
+        const existing = await this.prisma.rls.rEGRegistroPassagem.findFirst({
+            where: { REGCodigo: id, INSInstituicaoCodigo: instituicaoCodigo },
+        });
+        if (!existing) {
+            throw new NotFoundException('Passagem não encontrada');
+        }
+        const data: Prisma.REGRegistroPassagemUpdateInput = {};
+        if (dto.REGAcao !== undefined) data.REGAcao = dto.REGAcao;
+        if (dto.EQPCodigo !== undefined) {
+            data.equipamento = { connect: { EQPCodigo: dto.EQPCodigo } };
+        }
+        if (dto.PESCodigo !== undefined) {
+            data.pessoa = { connect: { PESCodigo: dto.PESCodigo } };
+        }
+        if (dto.REGDataHora !== undefined) {
+            const d = new Date(dto.REGDataHora);
+            data.REGDataHora = d;
+            data.REGTimestamp = BigInt(Math.floor(d.getTime() / 1000));
+        }
+        return this.prisma.rls.rEGRegistroPassagem.update({
+            where: { REGCodigo: id },
+            data,
+        });
+    }
+
+    async remove(instituicaoCodigo: number, id: number) {
+        const existing = await this.prisma.rls.rEGRegistroPassagem.findFirst({
+            where: { REGCodigo: id, INSInstituicaoCodigo: instituicaoCodigo },
+        });
+        if (!existing) {
+            throw new NotFoundException('Passagem não encontrada');
+        }
+        return this.prisma.rls.rEGRegistroPassagem.delete({ where: { REGCodigo: id } });
     }
 
     async findAll(instituicaoCodigo: number, query: QueryPassagemDto): Promise<PaginatedResult<any>> {

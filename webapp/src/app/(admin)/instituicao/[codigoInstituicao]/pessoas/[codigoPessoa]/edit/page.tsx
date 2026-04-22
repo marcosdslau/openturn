@@ -4,6 +4,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiGet, apiPatch } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import PessoaForm from "../../components/PessoaForm";
 import { ChevronLeftIcon } from "@/icons";
 
@@ -11,6 +12,8 @@ export default function EditPessoaPage() {
     const params = useParams();
     const router = useRouter();
     const { showToast } = useToast();
+    const { can } = usePermissions();
+    const readOnlyPessoa = !can("pessoa", "update");
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [pessoa, setPessoa] = useState<any>(null);
@@ -34,6 +37,7 @@ export default function EditPessoaPage() {
     }, [codigoInstituicao, codigoPessoa, showToast, router]);
 
     const handleSubmit = async (data: any) => {
+        if (readOnlyPessoa) return;
         setSaving(true);
         try {
             await apiPatch(`/instituicao/${codigoInstituicao}/pessoa/${codigoPessoa}`, data);
@@ -87,7 +91,8 @@ export default function EditPessoaPage() {
                 onSubmit={handleSubmit}
                 onCancel={() => router.push(`/instituicao/${codigoInstituicao}/pessoas`)}
                 loading={saving}
-                onSavePhoto={handleSavePhoto}
+                onSavePhoto={readOnlyPessoa ? undefined : handleSavePhoto}
+                readOnly={readOnlyPessoa}
             />
         </div>
     );
