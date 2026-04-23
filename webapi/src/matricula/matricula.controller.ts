@@ -1,7 +1,6 @@
 import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, ParseIntPipe, UseGuards } from '@nestjs/common';
 import { MatriculaService } from './matricula.service';
-import { CreateMatriculaDto, UpdateMatriculaDto } from './dto/matricula.dto';
-import { PaginationDto } from '../common/dto/pagination.dto';
+import { CreateMatriculaDto, QueryMatriculaDto, UpdateMatriculaDto } from './dto/matricula.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { RequirePermission } from '../auth/permissions.decorator';
@@ -24,9 +23,17 @@ export class MatriculaController {
     @RequirePermission('matricula', 'read')
     findAll(
         @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-        @Query() query: PaginationDto,
+        @Query() query: QueryMatriculaDto,
     ) {
         return this.service.findAll(instituicaoCodigo, query);
+    }
+
+    @Get('opcoes-filtro')
+    @RequirePermission('matricula', 'read')
+    findOpcoesFiltro(
+        @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    ) {
+        return this.service.findOpcoesFiltro(instituicaoCodigo);
     }
 
     @Get(':id')
