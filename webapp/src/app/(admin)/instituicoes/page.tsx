@@ -13,6 +13,8 @@ interface Instituicao {
     INSAtivo: boolean;
     INSMaxExecucoesSimultaneas: number;
     INSFusoHorario?: number;
+    INSToleranciaEntradaMinutos?: number;
+    INSToleranciaSaidaMinutos?: number;
     INSConfigHardware?: any;
     cliente?: { CLINome: string };
 }
@@ -57,12 +59,16 @@ export default function InstituicoesGlobalPage() {
         CLICodigo: number;
         INSMaxExecucoesSimultaneas: number;
         INSFusoHorario: number;
+        INSToleranciaEntradaMinutos: number;
+        INSToleranciaSaidaMinutos: number;
         INSConfigHardware?: any;
     }>({
         INSNome: "",
         CLICodigo: 0,
         INSMaxExecucoesSimultaneas: 8,
         INSFusoHorario: -3,
+        INSToleranciaEntradaMinutos: 15,
+        INSToleranciaSaidaMinutos: 15,
     });
     const [saving, setSaving] = useState(false);
 
@@ -102,6 +108,8 @@ export default function InstituicoesGlobalPage() {
             CLICodigo: clientes[0]?.CLICodigo || 0,
             INSMaxExecucoesSimultaneas: 8,
             INSFusoHorario: -3,
+            INSToleranciaEntradaMinutos: 15,
+            INSToleranciaSaidaMinutos: 15,
             INSConfigHardware: host
                 ? {
                     controlid: {
@@ -140,6 +148,8 @@ export default function InstituicoesGlobalPage() {
             CLICodigo: i.CLICodigo,
             INSMaxExecucoesSimultaneas: i.INSMaxExecucoesSimultaneas || 8,
             INSFusoHorario: i.INSFusoHorario ?? -3,
+            INSToleranciaEntradaMinutos: i.INSToleranciaEntradaMinutos ?? 15,
+            INSToleranciaSaidaMinutos: i.INSToleranciaSaidaMinutos ?? 15,
             INSConfigHardware: newConfig
         });
         setShowModal(true);
@@ -370,6 +380,33 @@ export default function InstituicoesGlobalPage() {
                                 <p className="mt-1 text-[10px] text-gray-400">
                                     Offset em relação ao UTC (ex.: -3 para Brasília). Usado ao gravar eventos ControlID.
                                 </p>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tolerância de entrada (min)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={10080}
+                                        value={form.INSToleranciaEntradaMinutos}
+                                        onChange={(e) => setForm({ ...form, INSToleranciaEntradaMinutos: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                    />
+                                    <p className="mt-1 text-[10px] text-gray-400">Janela em minutos em relação ao horário de referência de entrada.</p>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tolerância de saída (min)</label>
+                                    <input
+                                        type="number"
+                                        min={0}
+                                        max={10080}
+                                        value={form.INSToleranciaSaidaMinutos}
+                                        onChange={(e) => setForm({ ...form, INSToleranciaSaidaMinutos: Math.max(0, parseInt(e.target.value, 10) || 0) })}
+                                        className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                                    />
+                                    <p className="mt-1 text-[10px] text-gray-400">Janela em minutos em relação ao horário de referência de saída.</p>
+                                </div>
                             </div>
 
                             <div className="pt-2 border-t border-gray-100 dark:border-gray-800">

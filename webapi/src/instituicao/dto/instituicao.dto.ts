@@ -40,6 +40,18 @@ export class CreateInstituicaoDto {
     INSFusoHorario?: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10080)
+    INSToleranciaEntradaMinutos?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10080)
+    INSToleranciaSaidaMinutos?: number;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
 
@@ -88,6 +100,18 @@ export class UpdateInstituicaoDto {
     @Min(-12)
     @Max(14)
     INSFusoHorario?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10080)
+    INSToleranciaEntradaMinutos?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(10080)
+    INSToleranciaSaidaMinutos?: number;
 
     @IsOptional()
     @IsObject()
