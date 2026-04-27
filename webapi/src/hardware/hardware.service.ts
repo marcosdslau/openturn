@@ -56,6 +56,7 @@ export class HardwareService {
             name: person.PESNome,
             cpf: person.PESDocumento || undefined,
             faceExtension: person.PESFotoExtensao || 'jpg',
+            grupo: person.PESGrupo ?? undefined,
             tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
             faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
             fingers: fingers,

@@ -28,6 +28,7 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    _grupo?: string,
   ): Promise<void> {
     this.logger.log(
       `[Hikvision] Creating person ${id} on equipment ${equipmentId} (Pass: ${password ? '***' : 'none'}, CPF: ${cpf}, Threshold: ${limiar})`,
@@ -41,6 +42,7 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    _grupo?: string,
   ): Promise<void> {
     this.logger.log(
       `[Hikvision] Modifying person ${id} on equipment ${equipmentId}`,

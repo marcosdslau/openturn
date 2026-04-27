@@ -954,3 +954,38 @@ pre[class*="language-"].line-numbers {
 .test-chip-connecting {
   animation: pulse-orange 1s infinite;
 }
+
+/* Scrollbar minimalista (uso em modais com overflow-y) */
+.modal-scroll-minimal {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(203 213 225) transparent;
+}
+
+.modal-scroll-minimal::-webkit-scrollbar {
+  width: 6px;
+}
+
+.modal-scroll-minimal::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.modal-scroll-minimal::-webkit-scrollbar-thumb {
+  background-color: rgb(203 213 225);
+  border-radius: 9999px;
+}
+
+.modal-scroll-minimal::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(148 163 184);
+}
+
+.dark .modal-scroll-minimal {
+  scrollbar-color: rgb(71 85 105) transparent;
+}
+
+.dark .modal-scroll-minimal::-webkit-scrollbar-thumb {
+  background-color: rgb(71 85 105);
+}
+
+.dark .modal-scroll-minimal::-webkit-scrollbar-thumb:hover {
+  background-color: rgb(100 116 139);
+}

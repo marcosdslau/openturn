@@ -28,6 +28,7 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    _grupo?: string,
   ): Promise<void> {
     this.logger.log(
       `[TopData] Creating person ${id} on equipment ${equipmentId}`,
@@ -41,6 +42,7 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    _grupo?: string,
   ): Promise<void> {
     this.logger.log(
       `[TopData] Modifying person ${id} on equipment ${equipmentId}`,

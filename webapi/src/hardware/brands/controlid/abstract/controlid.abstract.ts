@@ -89,98 +89,200 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     }
   }
 
+  /** POST com `withRetry` + `ensureSession`; path sem query — acrescenta `?session=` após obter sessão. */
+  private async postWithRetry(
+    fcgiPath: string,
+    body?: unknown,
+    headers?: Record<string, string>,
+  ): Promise<{ data: unknown }> {
+    return this.withRetry(async () => {
+      await this.ensureSession();
+      const path = `${fcgiPath}?session=${this.session}`;
+      return await this.transport.post(path, body, headers);
+    });
+  }
+
   async syncPerson(
     equipmentId: number,
     person: HardwareUser,
   ): Promise<{ idNoEquipamento: string }> {
-    return this.withRetry(async () => {
-      await this.ensureSession();
+    await this.ensureSession();
 
-      const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique(
-        {
-          where: {
-            PESCodigo_EQPCodigo: {
-              PESCodigo: person.id,
-              EQPCodigo: equipmentId,
-            },
+    const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique(
+      {
+        where: {
+          PESCodigo_EQPCodigo: {
+            PESCodigo: person.id,
+            EQPCodigo: equipmentId,
           },
         },
-      );
+      },
+    );
 
-      const hardwareId = mapping
-        ? parseInt(mapping.PEQIdNoEquipamento, 10)
-        : person.id;
+    const hardwareId = mapping
+      ? parseInt(mapping.PEQIdNoEquipamento, 10)
+      : person.id;
 
-      const userResponse = await this.transport.post(
+    const userResponse = await this.withRetry(async () => {
+      await this.ensureSession();
+      return await this.transport.post(
         `/load_objects.fcgi?session=${this.session}`,
         {
           object: 'users',
           where: { users: { id: hardwareId } },
         },
       );
+    });
 
-      const data = userResponse.data as any;
-      const exists = data.users && data.users.length > 0;
+    const data = userResponse.data as any;
+    const exists = data.users && data.users.length > 0;
 
-      if (exists) {
-        await this.modifyPerson(
-          equipmentId,
-          person.id,
-          person.name,
-          person.password,
-          person.cpf,
-          person.limiar,
-        );
-      } else {
-        await this.createPerson(
-          equipmentId,
-          person.id,
-          person.name,
-          person.password,
-          person.cpf,
-          person.limiar,
-        );
-      }
+    if (exists) {
+      await this.modifyPerson(
+        equipmentId,
+        person.id,
+        person.name,
+        person.password,
+        person.cpf,
+        person.limiar,
+        person.grupo,
+      );
+    } else {
+      await this.createPerson(
+        equipmentId,
+        person.id,
+        person.name,
+        person.password,
+        person.cpf,
+        person.limiar,
+        person.grupo,
+      );
+    }
 
-      if (person.tags) {
-        const tagsResponse = await this.transport.post(
+    if (person.tags) {
+      const tagsResponse = await this.withRetry(async () => {
+        await this.ensureSession();
+        return await this.transport.post(
           `/load_objects.fcgi?session=${this.session}`,
           {
             object: 'cards',
             where: { cards: { user_id: hardwareId } },
           },
         );
+      });
 
-        const tagsData = tagsResponse.data as any;
-        const currentTags: any[] = tagsData.cards || [];
-        const currentTagValues = currentTags.map((t) => t.value.toString());
+      const tagsData = tagsResponse.data as any;
+      const currentTags: any[] = tagsData.cards || [];
+      const currentTagValues = currentTags.map((t) => t.value.toString());
 
-        for (const tag of person.tags) {
-          if (!currentTagValues.includes(tag)) {
-            await this.setTag(hardwareId, tag);
-          }
-        }
-
-        for (const t of currentTags) {
-          if (!person.tags.includes(t.value.toString())) {
-            await this.removeTag(t.value.toString());
-          }
+      for (const tag of person.tags) {
+        if (!currentTagValues.includes(tag)) {
+          await this.setTag(hardwareId, tag);
         }
       }
 
-      if (person.faces && person.faces.length > 0) {
-        await this.setFace(
-          hardwareId,
-          person.faces[0],
-          person.faceExtension || 'jpg',
+      for (const t of currentTags) {
+        if (!person.tags.includes(t.value.toString())) {
+          await this.removeTag(t.value.toString());
+        }
+      }
+    }
+
+    if (person.faces && person.faces.length > 0) {
+      await this.setFace(
+        hardwareId,
+        person.faces[0],
+        person.faceExtension || 'jpg',
+      );
+    }
+    if (person.fingers?.length) {
+      await this.setFingers(hardwareId, person.fingers);
+    }
+
+    return { idNoEquipamento: hardwareId.toString() };
+  }
+
+  /**
+   * Sincroniza vínculos `user_groups` no Control iD com PESGrupo: busca `groups` no equipamento,
+   * encontra por nome (case-insensitive) ou por id numérico, e alinha os vínculos do usuário.
+   */
+  protected async syncUserGroupsFromDepartamento(
+    hardwareId: number,
+    grupo: string | null | undefined,
+  ): Promise<void> {
+    try {
+      const groupsRes = await this.postWithRetry('/load_objects.fcgi', {
+        object: 'groups',
+      });
+      const groups: any[] = (groupsRes.data as any)?.groups ?? [];
+
+      const ugRes = await this.postWithRetry('/load_objects.fcgi', {
+        object: 'user_groups',
+        where: { user_groups: { user_id: hardwareId } },
+      });
+      const currentLinks: any[] = (ugRes.data as any)?.user_groups ?? [];
+      const currentGroupIds = currentLinks.map((ug) => Number(ug.group_id));
+
+      const label = (grupo ?? '').trim();
+      const norm = (s: string) => s.trim().toLowerCase();
+
+      if (!label) {
+        for (const gid of currentGroupIds) {
+          await this.postWithRetry('/destroy_objects.fcgi', {
+            object: 'user_groups',
+            where: {
+              user_groups: { user_id: hardwareId, group_id: gid },
+            },
+          });
+        }
+        return;
+      }
+
+      const target = groups.find((g) => {
+        if (g?.name != null && norm(String(g.name)) === norm(label)) {
+          return true;
+        }
+        if (g?.id != null && String(g.id) === label) {
+          return true;
+        }
+        return false;
+      });
+
+      if (target == null || target.id == null) {
+        const names = groups
+          .map((g) => g?.name)
+          .filter((n) => n != null && String(n).length > 0)
+          .join(', ');
+        this.logger.warn(
+          `Departamento/grupo "${label}" não encontrado no equipamento (${this.config.host}). Grupos cadastrados: ${names || '(nenhum)'}`,
         );
-      }
-      if (person.fingers) {
-        await this.setFingers(hardwareId, person.fingers);
+        return;
       }
 
-      return { idNoEquipamento: hardwareId.toString() };
-    });
+      const targetId = Number(target.id);
+
+      for (const gid of currentGroupIds) {
+        if (gid !== targetId) {
+          await this.postWithRetry('/destroy_objects.fcgi', {
+            object: 'user_groups',
+            where: {
+              user_groups: { user_id: hardwareId, group_id: gid },
+            },
+          });
+        }
+      }
+
+      if (!currentGroupIds.some((gid) => gid === targetId)) {
+        await this.postWithRetry('/create_objects.fcgi', {
+          object: 'user_groups',
+          values: [{ user_id: hardwareId, group_id: targetId }],
+        });
+      }
+    } catch (error: any) {
+      this.logger.warn(
+        `Falha ao sincronizar departamento (PESGrupo) para usuário ${hardwareId}: ${this.getErrorDetails(error)}`,
+      );
+    }
   }
 
   async modifyPerson(
@@ -190,27 +292,29 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    grupo?: string,
   ): Promise<void> {
-    await this.ensureSession();
-
     const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
       where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } },
     });
 
     const hardwareId = mapping ? parseInt(mapping.PEQIdNoEquipamento, 10) : id;
 
-    await this.transport.post(`/modify_objects.fcgi?session=${this.session}`, {
-      object: 'users',
-      values: [
-        {
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/modify_objects.fcgi?session=${this.session}`, {
+        object: 'users',
+        values: {
           name,
           registration: hardwareId.toString(),
           password: password || undefined,
           salt: cpf || undefined,
         },
-      ],
-      where: { users: { id: hardwareId } },
+        where: { users: { id: hardwareId } },
+      });
     });
+
+    await this.syncUserGroupsFromDepartamento(hardwareId, grupo);
   }
 
   async createPerson(
@@ -220,9 +324,8 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    grupo?: string,
   ): Promise<void> {
-    await this.ensureSession();
-
     const hardwareId = id;
     await this.prisma.rls.pESEquipamentoMapeamento.upsert({
       where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } },
@@ -234,35 +337,44 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       },
     });
 
-    await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
-      object: 'users',
-      values: [
-        {
-          id: hardwareId,
-          name,
-          registration: hardwareId.toString(),
-          password: password || undefined,
-          salt: cpf || undefined,
-        },
-      ],
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
+        object: 'users',
+        values: [
+          {
+            id: hardwareId,
+            name,
+            registration: hardwareId.toString(),
+            password: password || undefined,
+            salt: cpf || undefined,
+          },
+        ],
+      });
     });
+
+    await this.syncUserGroupsFromDepartamento(hardwareId, grupo);
   }
 
   async setTag(userId: number, tag: string): Promise<void> {
-    await this.ensureSession();
     const val = parseInt(tag, 10);
-    await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
-      object: 'cards',
-      values: [{ value: val, user_id: userId }],
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
+        object: 'cards',
+        values: [{ value: val, user_id: userId }],
+      });
     });
   }
 
   async removeTag(tag: string): Promise<void> {
-    await this.ensureSession();
     const val = parseInt(tag, 10);
-    await this.transport.post(`/destroy_objects.fcgi?session=${this.session}`, {
-      object: 'cards',
-      where: { cards: { value: val } },
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/destroy_objects.fcgi?session=${this.session}`, {
+        object: 'cards',
+        where: { cards: { value: val } },
+      });
     });
   }
 
@@ -271,48 +383,55 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     faceBase64: string,
     extension: string,
   ): Promise<void> {
-    await this.ensureSession();
-
     const buffer = Buffer.from(faceBase64, 'base64');
     const timestamp = Math.floor(Date.now() / 1000);
 
-    await this.transport.post(
-      `/user_set_image.fcgi?session=${this.session}&user_id=${userId}&match=1&timestamp=${timestamp}`,
-      buffer,
-      {
-        'Content-Type': 'application/octet-stream',
-      },
-    );
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(
+        `/user_set_image.fcgi?session=${this.session}&user_id=${userId}&match=1&timestamp=${timestamp}`,
+        buffer,
+        {
+          'Content-Type': 'application/octet-stream',
+        },
+      );
+    });
   }
 
   async removeFace(userId: number): Promise<void> {
-    await this.ensureSession();
-    await this.transport.post(
-      `/user_destroy_image.fcgi?session=${this.session}`,
-      {
-        user_id: userId,
-      },
-    );
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(
+        `/user_destroy_image.fcgi?session=${this.session}`,
+        {
+          user_id: userId,
+        },
+      );
+    });
   }
 
   async setFingers(userId: number, templates: string[]): Promise<void> {
-    await this.ensureSession();
     const values = templates.map((template) => ({
       user_id: userId,
       template,
       timestamp: Math.floor(Date.now() / 1000),
     }));
-    await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
-      object: 'templates',
-      values,
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
+        object: 'templates',
+        values,
+      });
     });
   }
 
   async removeFingers(userId: number): Promise<void> {
-    await this.ensureSession();
-    await this.transport.post(`/destroy_objects.fcgi?session=${this.session}`, {
-      object: 'templates',
-      where: { templates: { user_id: userId } },
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/destroy_objects.fcgi?session=${this.session}`, {
+        object: 'templates',
+        where: { templates: { user_id: userId } },
+      });
     });
   }
 
@@ -335,35 +454,37 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     userId: number,
     groupIds: (number | string)[],
   ): Promise<void> {
-    await this.ensureSession();
-    for (const gid of groupIds) {
-      const id = typeof gid === 'string' ? parseInt(gid, 10) : gid;
-      await this.transport.post(
-        `/destroy_objects.fcgi?session=${this.session}`,
-        {
-          object: 'user_groups',
-          where: { user_groups: { user_id: userId, group_id: id } },
-        },
-      );
-    }
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      for (const gid of groupIds) {
+        const id = typeof gid === 'string' ? parseInt(gid, 10) : gid;
+        await this.transport.post(
+          `/destroy_objects.fcgi?session=${this.session}`,
+          {
+            object: 'user_groups',
+            where: { user_groups: { user_id: userId, group_id: id } },
+          },
+        );
+      }
+    });
   }
 
   async deletePerson(id: number): Promise<void> {
-    return this.withRetry(async () => {
-      await this.ensureSession();
-      await this.deletePersonImpl(id);
-    });
+    await this.deletePersonImpl(id);
   }
 
   protected async deletePersonImpl(id: number): Promise<void> {
     try {
-      await this.transport.post(
-        `/destroy_objects.fcgi?session=${this.session}`,
-        {
-          object: 'users',
-          where: { users: { id: id } },
-        },
-      );
+      await this.withRetry(async () => {
+        await this.ensureSession();
+        await this.transport.post(
+          `/destroy_objects.fcgi?session=${this.session}`,
+          {
+            object: 'users',
+            where: { users: { id: id } },
+          },
+        );
+      });
     } catch (error: any) {
       if (
         error.response?.data?.error_msg !== 'Object not found' &&
@@ -375,80 +496,80 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   }
 
   async executeAction(action: string, params?: any): Promise<void> {
-    return this.withRetry(async () => {
-      await this.ensureSession();
-      await this.executeActionImpl(action, params);
-    });
+    await this.executeActionImpl(action, params);
   }
 
   protected async executeActionImpl(
     action: string,
     params?: any,
   ): Promise<void> {
-    await this.transport.post(`/execute_actions.fcgi?session=${this.session}`, {
-      actions: [{ action, parameters: params }],
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/execute_actions.fcgi?session=${this.session}`, {
+        actions: [{ action, parameters: params }],
+      });
     });
   }
 
   async enroll(type: 'face' | 'biometry', userId: number): Promise<void> {
-    return this.withRetry(async () => {
-      await this.ensureSession();
-      await this.enrollImpl(type, userId);
-    });
+    await this.enrollImpl(type, userId);
   }
 
   protected async enrollImpl(
     type: 'face' | 'biometry',
     userId: number,
   ): Promise<void> {
-    await this.transport.post(`/remote_enroll.fcgi?session=${this.session}`, {
-      type: type,
-      save: false,
-      user_id: userId,
-      sync: false,
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(`/remote_enroll.fcgi?session=${this.session}`, {
+        type: type,
+        save: false,
+        user_id: userId,
+        sync: false,
+      });
     });
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {
-    return this.withRetry(async () => {
-      await this.ensureSession();
-      return this.customCommandImpl(cmd, params);
-    });
+    return this.customCommandImpl(cmd, params);
   }
 
   protected async customCommandImpl(cmd: string, params?: any): Promise<any> {
-    switch (cmd) {
-      case 'load_objects':
-        return (
-          await this.transport.post(
-            `/load_objects.fcgi?session=${this.session}`,
-            { ...params },
-          )
-        ).data;
-      case 'create_objects':
-        return (
-          await this.transport.post(
-            `/create_objects.fcgi?session=${this.session}`,
-            { ...params },
-          )
-        ).data;
-      case 'modify_objects':
-        return (
-          await this.transport.post(
-            `/modify_objects.fcgi?session=${this.session}`,
-            { ...params },
-          )
-        ).data;
-      case 'destroy_objects':
-        return (
-          await this.transport.post(
-            `/destroy_objects.fcgi?session=${this.session}`,
-            { ...params },
-          )
-        ).data;
-      default:
-        throw new Error(`Unknown command: ${cmd}`);
-    }
+    return this.withRetry(async () => {
+      await this.ensureSession();
+      switch (cmd) {
+        case 'load_objects':
+          return (
+            await this.transport.post(
+              `/load_objects.fcgi?session=${this.session}`,
+              { ...params },
+            )
+          ).data;
+        case 'create_objects':
+          return (
+            await this.transport.post(
+              `/create_objects.fcgi?session=${this.session}`,
+              { ...params },
+            )
+          ).data;
+        case 'modify_objects':
+          return (
+            await this.transport.post(
+              `/modify_objects.fcgi?session=${this.session}`,
+              { ...params },
+            )
+          ).data;
+        case 'destroy_objects':
+          return (
+            await this.transport.post(
+              `/destroy_objects.fcgi?session=${this.session}`,
+              { ...params },
+            )
+          ).data;
+        default:
+          throw new Error(`Unknown command: ${cmd}`);
+      }
+    });
   }
 
   async testConnection(): Promise<{

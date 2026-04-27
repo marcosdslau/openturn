@@ -13,6 +13,7 @@ export interface IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    grupo?: string,
   ): Promise<void>;
   modifyPerson(
     equipmentId: number,
@@ -21,6 +22,7 @@ export interface IHardwareProvider {
     password?: string,
     cpf?: string,
     limiar?: number,
+    grupo?: string,
   ): Promise<void>;
   deletePerson(id: number): Promise<void>;
 
