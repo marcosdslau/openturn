@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
@@ -498,14 +498,44 @@ interface TabProps {
     mainIp: string | null;
 }
 
-function useIpSelection(config: any, mainIp: string | null) {
-    const ips = [
-        { label: "Principal", ip: mainIp, type: "main" },
-        config?.ip_entry ? { label: "Entrada (Facial)", ip: config.ip_entry, type: "entry" } : null,
-        config?.ip_exit ? { label: "Saída (Facial)", ip: config.ip_exit, type: "exit" } : null,
-    ].filter(Boolean) as { label: string; ip: string; type: string }[];
+function normalizeHardwareIp(s: string | null | undefined): string {
+    return (s ?? "").trim();
+}
 
-    const [selectedIp, setSelectedIp] = useState<string>(mainIp || "");
+function useIpSelection(config: any, mainIp: string | null) {
+    const ips = useMemo((): { label: string; ip: string; type: string }[] => {
+        const main = normalizeHardwareIp(mainIp);
+        const entry = normalizeHardwareIp(config?.ip_entry);
+        const exit = normalizeHardwareIp(config?.ip_exit);
+        // Evita "Principal" duplicado quando é o mesmo host da catraca dos faciais
+        const mainIsRedundant = Boolean(main) && (main === entry || main === exit);
+
+        const out: { label: string; ip: string; type: string }[] = [];
+        if (main && !mainIsRedundant) {
+            out.push({ label: "Principal", ip: main, type: "main" });
+        }
+        if (config?.ip_entry) {
+            out.push({ label: "Entrada (Facial)", ip: entry, type: "entry" });
+        }
+        if (config?.ip_exit) {
+            out.push({ label: "Saída (Facial)", ip: exit, type: "exit" });
+        }
+        return out;
+    }, [mainIp, config?.ip_entry, config?.ip_exit]);
+
+    const [selectedIp, setSelectedIp] = useState<string>(() => ips[0]?.ip ?? "");
+
+    useEffect(() => {
+        if (ips.length === 0) {
+            setSelectedIp("");
+            return;
+        }
+        setSelectedIp((cur) => {
+            const valid = new Set(ips.map((i) => i.ip));
+            if (cur && valid.has(cur)) return cur;
+            return ips[0].ip;
+        });
+    }, [ips]);
 
     return { ips, selectedIp, setSelectedIp };
 }
@@ -837,7 +867,7 @@ function SchedulesTab({ institutionId, equipmentId, config, mainIp }: TabProps) 
             <div className="w-1/4 space-y-1">
                 {ips.map(item => (
                     <button
-                        key={item.ip}
+                        key={`${item.type}-${item.ip}`}
                         onClick={() => setSelectedIp(item.ip)}
                         className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors
                             ${selectedIp === item.ip
@@ -1335,7 +1365,7 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
             <div className="w-1/4 space-y-1">
                 {ips.map(item => (
                     <button
-                        key={item.ip}
+                        key={`${item.type}-${item.ip}`}
                         onClick={() => setSelectedIp(item.ip)}
                         className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors
                             ${selectedIp === item.ip
