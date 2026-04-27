@@ -5,8 +5,8 @@ import { EquipamentoService } from './equipamento.service';
 import { ConnectorModule } from '../connector/connector.module';
 
 @Module({
-    imports: [AuthModule, ConnectorModule],
-    controllers: [EquipamentoController],
-    providers: [EquipamentoService],
+  imports: [AuthModule, ConnectorModule],
+  controllers: [EquipamentoController],
+  providers: [EquipamentoService],
 })
-export class EquipamentoModule { }
+export class EquipamentoModule {}

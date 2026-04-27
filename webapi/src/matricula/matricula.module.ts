@@ -4,8 +4,8 @@ import { MatriculaController } from './matricula.controller';
 import { MatriculaService } from './matricula.service';
 
 @Module({
-    imports: [AuthModule],
-    controllers: [MatriculaController],
-    providers: [MatriculaService],
+  imports: [AuthModule],
+  controllers: [MatriculaController],
+  providers: [MatriculaService],
 })
-export class MatriculaModule { }
+export class MatriculaModule {}

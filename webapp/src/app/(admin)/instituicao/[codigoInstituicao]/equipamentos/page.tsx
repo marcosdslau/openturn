@@ -70,6 +70,10 @@ export default function EquipamentosPage() {
     const [deleteTarget, setDeleteTarget] = useState<Equipamento | null>(null);
     const [showPassword, setShowPassword] = useState(false);
 
+    type TestStatus = "idle" | "connecting" | "success" | "error";
+    const [testStatus, setTestStatus] = useState<TestStatus>("idle");
+    const [testError, setTestError] = useState<string | null>(null);
+
     const load = useCallback(async () => {
         setLoading(true);
         try {
@@ -94,6 +98,8 @@ export default function EquipamentosPage() {
                 entry_direction: 'clockwise',
             },
         });
+        setTestStatus("idle");
+        setTestError(null);
         equipmentModal.openModal();
     };
 
@@ -110,7 +116,82 @@ export default function EquipamentosPage() {
                 entry_direction_applied_by_equipment: cfg.entry_direction_applied_by_equipment ?? false,
             },
         });
+        setTestStatus("idle");
+        setTestError(null);
         equipmentModal.openModal();
+    };
+
+    const handleTestConnection = async () => {
+        const cfg = form.EQPConfig || {};
+        const roles: { role: "main" | "entry" | "exit"; ip: string }[] = [];
+        const pushRole = (role: "main" | "entry" | "exit", ip?: string) => {
+            const v = (ip || "").trim();
+            if (v) roles.push({ role, ip: v });
+        };
+        pushRole("main", form.EQPEnderecoIp);
+        pushRole("entry", cfg.ip_entry);
+        pushRole("exit", cfg.ip_exit);
+
+        if (roles.length === 0) {
+            setTestStatus("error");
+            setTestError("Informe ao menos um IP");
+            return;
+        }
+        if (!form.EQPMarca) {
+            setTestStatus("error");
+            setTestError("Selecione a Marca antes de testar");
+            return;
+        }
+
+        setTestStatus("connecting");
+        setTestError(null);
+
+        const payloadBase = {
+            EQPMarca: form.EQPMarca,
+            EQPModelo: form.EQPModelo || null,
+            EQPConfig: form.EQPConfig,
+        };
+
+        type RoleResult = { role: "main" | "entry" | "exit"; ip: string; ok: boolean; deviceId?: string; error?: string };
+        const roleResults: RoleResult[] = [];
+        for (const r of roles) {
+            try {
+                const res = await apiPost<{ ok: boolean; deviceId?: string; error?: string }>(
+                    `/instituicao/${codigoInstituicao}/hardware/test-connection`,
+                    { ...payloadBase, ip: r.ip }
+                );
+                roleResults.push({ role: r.role, ip: r.ip, ok: res.ok, deviceId: res.deviceId, error: res.error });
+            } catch (e: any) {
+                roleResults.push({ role: r.role, ip: r.ip, ok: false, error: e?.message || "Falha na requisição" });
+            }
+        }
+
+        const next = { ...form, EQPConfig: { ...(form.EQPConfig || {}) } } as typeof form;
+        for (const r of roleResults) {
+            if (!r.ok || !r.deviceId) continue;
+            if (r.role === "main") {
+                next.deviceId = r.deviceId;
+                next.EQPConfig.deviceId = r.deviceId;
+            } else if (r.role === "entry") {
+                next.EQPConfig.deviceId_entry = r.deviceId;
+            } else if (r.role === "exit") {
+                next.EQPConfig.deviceId_exit = r.deviceId;
+            }
+        }
+        setForm(next);
+
+        const allOk = roleResults.every((r) => r.ok);
+        if (allOk) {
+            setTestStatus("success");
+            setTestError(null);
+            showToast("success", "Conexão bem-sucedida", `Testados ${roleResults.length} endereço(s) com sucesso.`);
+        } else {
+            setTestStatus("error");
+            const firstFailed = roleResults.find((r) => !r.ok);
+            const msg = firstFailed?.error || "Falha ao conectar";
+            setTestError(msg);
+            showToast("error", "Falha na conexão", msg);
+        }
     };
 
     const handleSave = async () => {
@@ -440,6 +521,48 @@ export default function EquipamentosPage() {
                             </div>
                         )}
                     </div>
+
+                    {/* Test Connection */}
+                    <div className="flex items-center gap-3 pt-3 border-t border-gray-100 dark:border-gray-800">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleTestConnection}
+                            disabled={testStatus === "connecting"}
+                        >
+                            {testStatus === "connecting" ? "Testando..." : "Test Connection"}
+                        </Button>
+                        <span
+                            title={
+                                testStatus === "success"
+                                    ? "Conexão com sucesso"
+                                    : testStatus === "error"
+                                        ? testError || "Conexão falhou"
+                                        : testStatus === "connecting"
+                                            ? "Conexão em andamento..."
+                                            : "Não conectado"
+                            }
+                            className={`inline-block w-3.5 h-3.5 rounded-full ${testStatus === "success"
+                                    ? "bg-green-500"
+                                    : testStatus === "error"
+                                        ? "bg-red-500"
+                                        : testStatus === "connecting"
+                                            ? "test-chip-connecting"
+                                            : "bg-orange-500"
+                                }`}
+                        />
+                        {testStatus === "error" && testError && (
+                            <span className="text-xs text-red-500 truncate max-w-[16rem]">
+                                {testError}
+                            </span>
+                        )}
+                        {testStatus === "success" && (
+                            <span className="text-xs text-green-600 dark:text-green-400">
+                                Conexão OK
+                            </span>
+                        )}
+                    </div>
+
                     <div className="flex gap-3 justify-end pt-2">
                         <Button size="sm" variant="outline" onClick={equipmentModal.closeModal}>Cancelar</Button>
                         <Button size="sm" onClick={handleSave} disabled={saving}>

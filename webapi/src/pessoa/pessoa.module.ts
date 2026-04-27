@@ -6,6 +6,6 @@ import { PessoaService } from './pessoa.service';
 @Module({
   imports: [AuthModule],
   controllers: [PessoaController],
-  providers: [PessoaService]
+  providers: [PessoaService],
 })
 export class PessoaModule {}

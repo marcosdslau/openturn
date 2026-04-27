@@ -939,3 +939,18 @@ pre[class*="language-"].line-numbers {
 .animate-slide-in-right {
   animation: slide-in-right 0.3s ease-out;
 }
+
+/* Test Connection chip - alternating orange/light gray during connecting */
+@keyframes pulse-orange {
+  0%,
+  100% {
+    background-color: rgb(249 115 22);
+  }
+  50% {
+    background-color: rgb(229 231 235);
+  }
+}
+
+.test-chip-connecting {
+  animation: pulse-orange 1s infinite;
+}

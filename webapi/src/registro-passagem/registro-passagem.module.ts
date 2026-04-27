@@ -4,9 +4,9 @@ import { RegistroPassagemController } from './registro-passagem.controller';
 import { RegistroPassagemService } from './registro-passagem.service';
 
 @Module({
-    imports: [AuthModule],
-    controllers: [RegistroPassagemController],
-    providers: [RegistroPassagemService],
-    exports: [RegistroPassagemService],
+  imports: [AuthModule],
+  controllers: [RegistroPassagemController],
+  providers: [RegistroPassagemService],
+  exports: [RegistroPassagemService],
 })
-export class RegistroPassagemModule { }
+export class RegistroPassagemModule {}

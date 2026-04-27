@@ -6,9 +6,13 @@ export const ROTINA_TIMEOUT_CADASTRO_MAX_SECONDS = 1_000_000;
 
 /** Normaliza o valor salvo no banco (create/update). Inválido → 30. */
 export function clampRotinaTimeoutForPersist(value: unknown): number {
-    const n = typeof value === 'number' && !Number.isNaN(value) ? value : Number(value);
-    if (!Number.isFinite(n)) return 30;
-    return Math.min(ROTINA_TIMEOUT_CADASTRO_MAX_SECONDS, Math.max(1, Math.floor(n)));
+  const n =
+    typeof value === 'number' && !Number.isNaN(value) ? value : Number(value);
+  if (!Number.isFinite(n)) return 30;
+  return Math.min(
+    ROTINA_TIMEOUT_CADASTRO_MAX_SECONDS,
+    Math.max(1, Math.floor(n)),
+  );
 }
 
 /**
@@ -16,9 +20,10 @@ export function clampRotinaTimeoutForPersist(value: unknown): number {
  * Limitado para que `sec * 1000` caiba em timers estáveis.
  */
 export function routineTimeoutSecondsFromCadastro(value: unknown): number {
-    const n = typeof value === 'number' && !Number.isNaN(value) ? value : Number(value);
-    if (!Number.isFinite(n)) return 30;
-    const sec = Math.floor(Math.max(1, n));
-    const maxSec = Math.floor(ROUTINE_TIMEOUT_MS_CAP / 1000);
-    return Math.min(sec, maxSec);
+  const n =
+    typeof value === 'number' && !Number.isNaN(value) ? value : Number(value);
+  if (!Number.isFinite(n)) return 30;
+  const sec = Math.floor(Math.max(1, n));
+  const maxSec = Math.floor(ROUTINE_TIMEOUT_MS_CAP / 1000);
+  return Math.min(sec, maxSec);
 }

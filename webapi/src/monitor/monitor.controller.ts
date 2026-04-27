@@ -10,33 +10,33 @@ import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 @Controller('monitor')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class MonitorController {
-    constructor(
-        private readonly monitorService: MonitorService,
-        private readonly rabbitMgmtService: RabbitManagementService,
-        private readonly rotinaQueueService: RotinaQueueService,
-    ) { }
+  constructor(
+    private readonly monitorService: MonitorService,
+    private readonly rabbitMgmtService: RabbitManagementService,
+    private readonly rotinaQueueService: RotinaQueueService,
+  ) {}
 
-    @Get('stats')
-    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
-    async getStats() {
-        return this.monitorService.getGlobalStats();
-    }
+  @Get('stats')
+  @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+  async getStats() {
+    return this.monitorService.getGlobalStats();
+  }
 
-    @Get('rabbit-overview')
-    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
-    async getRabbitOverview() {
-        return this.rabbitMgmtService.getOverview();
-    }
+  @Get('rabbit-overview')
+  @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+  async getRabbitOverview() {
+    return this.rabbitMgmtService.getOverview();
+  }
 
-    @Post('rabbit/reprocess-dlq')
-    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
-    async reprocessDeadLetter() {
-        return this.rotinaQueueService.reprocessDeadLetterQueue();
-    }
+  @Post('rabbit/reprocess-dlq')
+  @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+  async reprocessDeadLetter() {
+    return this.rotinaQueueService.reprocessDeadLetterQueue();
+  }
 
-    @Post('refresh')
-    @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
-    async refreshSnapshot() {
-        return this.monitorService.forceRefreshSnapshot();
-    }
+  @Post('refresh')
+  @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
+  async refreshSnapshot() {
+    return this.monitorService.forceRefreshSnapshot();
+  }
 }

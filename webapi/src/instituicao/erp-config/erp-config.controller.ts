@@ -1,4 +1,12 @@
-import { Controller, Get, Put, Body, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Body,
+  Param,
+  ParseIntPipe,
+  UseGuards,
+} from '@nestjs/common';
 import { ERPConfigService } from './erp-config.service';
 import { UpdateERPConfigDto } from './erp-config.dto';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -10,18 +18,18 @@ import { GrupoAcesso } from '@prisma/client';
 @Roles(GrupoAcesso.SUPER_ROOT, GrupoAcesso.SUPER_ADMIN)
 @Controller('instituicoes/:id/erp-config')
 export class ERPConfigController {
-    constructor(private service: ERPConfigService) { }
+  constructor(private service: ERPConfigService) {}
 
-    @Get()
-    get(@Param('id', ParseIntPipe) id: number) {
-        return this.service.findByInstituicao(id);
-    }
+  @Get()
+  get(@Param('id', ParseIntPipe) id: number) {
+    return this.service.findByInstituicao(id);
+  }
 
-    @Put()
-    upsert(
-        @Param('id', ParseIntPipe) id: number,
-        @Body() dto: UpdateERPConfigDto,
-    ) {
-        return this.service.upsert(id, dto);
-    }
+  @Put()
+  upsert(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateERPConfigDto,
+  ) {
+    return this.service.upsert(id, dto);
+  }
 }

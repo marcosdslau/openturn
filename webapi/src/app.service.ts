@@ -13,11 +13,7 @@ export class AppService {
 
   /** Devolve o ambiente de deploy (NODE_ENV ou APP_DEPLOY_ENV no .env). */
   getDeployEnvironment(): DeployEnvironmentDto {
-    const raw = (
-      process.env.APP_DEPLOY_ENV ??
-      process.env.NODE_ENV ??
-      'DEV'
-    )
+    const raw = (process.env.APP_DEPLOY_ENV ?? process.env.NODE_ENV ?? 'DEV')
       .toString()
       .trim()
       .toUpperCase();

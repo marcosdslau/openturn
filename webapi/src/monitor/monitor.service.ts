@@ -4,13 +4,15 @@ import { MonitorSnapshotDto } from './monitor-snapshot.types';
 
 @Injectable()
 export class MonitorService {
-    constructor(private readonly monitorSnapshotService: MonitorSnapshotService) { }
+  constructor(
+    private readonly monitorSnapshotService: MonitorSnapshotService,
+  ) {}
 
-    async getGlobalStats(): Promise<MonitorSnapshotDto> {
-        return this.monitorSnapshotService.getOrRefresh();
-    }
+  async getGlobalStats(): Promise<MonitorSnapshotDto> {
+    return this.monitorSnapshotService.getOrRefresh();
+  }
 
-    async forceRefreshSnapshot(): Promise<MonitorSnapshotDto> {
-        return this.monitorSnapshotService.refreshSnapshot({ force: true });
-    }
+  async forceRefreshSnapshot(): Promise<MonitorSnapshotDto> {
+    return this.monitorSnapshotService.refreshSnapshot({ force: true });
+  }
 }

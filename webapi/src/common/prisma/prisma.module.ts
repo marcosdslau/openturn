@@ -4,7 +4,7 @@ import { TenantService } from '../tenant/tenant.service';
 
 @Global()
 @Module({
-    providers: [PrismaService, TenantService],
-    exports: [PrismaService, TenantService],
+  providers: [PrismaService, TenantService],
+  exports: [PrismaService, TenantService],
 })
-export class PrismaModule { }
+export class PrismaModule {}
