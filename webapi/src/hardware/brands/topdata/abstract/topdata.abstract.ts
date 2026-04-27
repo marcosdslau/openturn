@@ -20,13 +20,14 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     person: HardwareUser,
   ): Promise<{ idNoEquipamento: string }> {
     this.logger.log(
-      `[TopData] Syncing person ${person.id} on equipment ${equipmentId}`,
+      `[TopData] Syncing pescodigo=${person.pescodigo} id=${person.id} on equipment ${equipmentId}`,
     );
     return { idNoEquipamento: person.id.toString() };
   }
 
   async createPerson(
     equipmentId: number,
+    pescodigo: number,
     id: number,
     name: string,
     password?: string,
@@ -35,13 +36,13 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[TopData] Creating person ${id} on equipment ${equipmentId}`,
+      `[TopData] Creating pescodigo=${pescodigo} id=${id} on equipment ${equipmentId}`,
     );
   }
 
   async modifyPerson(
     equipmentId: number,
-    id: number,
+    pescodigo: number,
     name: string,
     password?: string,
     cpf?: string,
@@ -49,7 +50,7 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[TopData] Modifying person ${id} on equipment ${equipmentId}`,
+      `[TopData] Modifying pescodigo=${pescodigo} on equipment ${equipmentId}`,
     );
   }
 

@@ -20,13 +20,14 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     person: HardwareUser,
   ): Promise<{ idNoEquipamento: string }> {
     this.logger.log(
-      `[Hikvision] Syncing person ${person.id} on equipment ${equipmentId}`,
+      `[Hikvision] Syncing pescodigo=${person.pescodigo} id=${person.id} on equipment ${equipmentId}`,
     );
     return { idNoEquipamento: person.id.toString() };
   }
 
   async createPerson(
     equipmentId: number,
+    pescodigo: number,
     id: number,
     name: string,
     password?: string,
@@ -35,13 +36,13 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Hikvision] Creating person ${id} on equipment ${equipmentId} (Pass: ${password ? '***' : 'none'}, CPF: ${cpf}, Threshold: ${limiar})`,
+      `[Hikvision] Creating pescodigo=${pescodigo} id=${id} on equipment ${equipmentId} (Pass: ${password ? '***' : 'none'}, CPF: ${cpf}, Threshold: ${limiar})`,
     );
   }
 
   async modifyPerson(
     equipmentId: number,
-    id: number,
+    pescodigo: number,
     name: string,
     password?: string,
     cpf?: string,
@@ -49,7 +50,7 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Hikvision] Modifying person ${id} on equipment ${equipmentId}`,
+      `[Hikvision] Modifying pescodigo=${pescodigo} on equipment ${equipmentId}`,
     );
   }
 

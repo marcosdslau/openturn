@@ -17,6 +17,8 @@ import {
     RETRY_DLX_ROUTING_KEY,
 } from './rabbit-connection';
 import { workerLogLine } from './worker-log';
+import { HardwareFactory } from './hardware/factory/hardware.factory';
+import { HardwareResolver } from './hardware/hardware-resolver';
 import {
     channelCancel,
     channelFinished,
@@ -150,8 +152,13 @@ const SCHEMA_DEFINITION = {
     },
 };
 
-export async function startConsumer(prisma: PrismaClient, processManager: WorkerProcessManager, redisOptions: RedisOptions) {
-    const consumer = new RabbitRotinaConsumer(prisma, processManager, redisOptions);
+export async function startConsumer(
+    prisma: PrismaClient,
+    processManager: WorkerProcessManager,
+    redisOptions: RedisOptions,
+    hardwareFactory: HardwareFactory,
+) {
+    const consumer = new RabbitRotinaConsumer(prisma, processManager, redisOptions, hardwareFactory);
     await consumer.start();
     return consumer;
 }
@@ -175,6 +182,7 @@ class RabbitRotinaConsumer {
         private readonly prisma: PrismaClient,
         private readonly processManager: WorkerProcessManager,
         private readonly redisOptions: RedisOptions,
+        private readonly hardwareFactory: HardwareFactory,
     ) { }
 
     async start() {
@@ -513,7 +521,7 @@ class RabbitRotinaConsumer {
             throw new Error('Rotina não encontrada');
         }
 
-        const { context, rpcHandler } = buildContext(this.prisma, instituicaoCodigo, requestEnvelope);
+        const { context, rpcHandler } = buildContext(this.prisma, instituicaoCodigo, requestEnvelope, this.hardwareFactory);
         const result = await this.processManager.executeInProcess(
             exeId,
             rotinaCodigo,
@@ -703,10 +711,17 @@ class RabbitRotinaConsumer {
     }
 }
 
-function buildContext(prisma: PrismaClient, instituicaoCodigo: number, requestData?: any) {
+function buildContext(
+    prisma: PrismaClient,
+    instituicaoCodigo: number,
+    requestData: any,
+    hardwareFactory: HardwareFactory,
+) {
     const dbProxy = new DbTenantProxy(prisma, instituicaoCodigo);
     const realDb = dbProxy.createDbContext(ALLOWED_MODELS);
     const modelNames = Object.keys(realDb);
+
+    const hardwareResolver = new HardwareResolver(prisma, hardwareFactory, instituicaoCodigo);
 
     const rpcHandler = async (method: string, params: any) => {
         if (method === 'db.query') {
@@ -714,6 +729,10 @@ function buildContext(prisma: PrismaClient, instituicaoCodigo: number, requestDa
             if (!realDb[model]) throw new Error(`Access denied to model ${model}`);
             if (typeof realDb[model][dbMethod] !== 'function') throw new Error(`Method ${dbMethod} not found on model ${model}`);
             return realDb[model][dbMethod](...args);
+        }
+        if (method === 'hardware.exec') {
+            const { equipmentId, method: providerMethod, args } = params;
+            return hardwareResolver.exec(equipmentId, providerMethod, args as unknown[]);
         }
         throw new Error(`Unknown RPC method: ${method}`);
     };

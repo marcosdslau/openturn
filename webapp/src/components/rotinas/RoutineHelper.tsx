@@ -1,13 +1,102 @@
 import React, { useState } from 'react';
 import { ROUTINE_SCHEMA } from './RoutineSchema';
 import { SchemaVisualizer } from './SchemaVisualizer';
-import { CloseIcon, CloseLineIcon, InfoIcon } from '@/icons';
+import { CloseLineIcon, InfoIcon } from '@/icons';
+import { ALL_SNIPPETS as SNIPPETS } from './RoutineSnippets';
 
 interface RoutineHelperProps {
     onInsertSnippet: (snippet: string) => void;
 }
 
-import { ALL_SNIPPETS as SNIPPETS } from './RoutineSnippets';
+/** Referência alinhada a IHardwareProvider (worker + webapi); o 1º argumento é sempre o EQPCodigo. */
+const HARDWARE_REFERENCE: {
+    method: string;
+    params: string;
+    notes?: string;
+}[] = [
+    {
+        method: 'syncPerson',
+        params: 'person: { pescodigo, id, name, ... } (pescodigo=PESCodigo; id=id no leitor / PESIdExterno)',
+        notes: 'Sincroniza cadastro completo (incl. departamento via grupo).',
+    },
+    {
+        method: 'createPerson',
+        params: 'pescodigo, id, name, password?, cpf?, limiar?, grupo?',
+    },
+    {
+        method: 'modifyPerson',
+        params: 'pescodigo, name, password?, cpf?, limiar?, grupo?',
+        notes: 'Mapeamento por PESCodigo; id no leitor vem de PESEquipamentoMapeamento.',
+    },
+    { method: 'deletePerson', params: 'idUsuario' },
+    { method: 'setTag', params: 'userId, tag' },
+    { method: 'removeTag', params: 'tag' },
+    { method: 'setFace', params: 'userId, faceBase64, extension' },
+    { method: 'removeFace', params: 'userId' },
+    { method: 'setFingers', params: 'userId, templates[]' },
+    { method: 'removeFingers', params: 'userId' },
+    {
+        method: 'setGroups',
+        params: 'userId, groupIds: (number|string)[]',
+        notes: 'Departamentos/grupos no equipamento.',
+    },
+    { method: 'removeGroups', params: 'userId, groupIds: (number|string)[]' },
+    { method: 'executeAction', params: 'action, params?' },
+    { method: 'enroll', params: "'face' | 'biometry', userId" },
+    { method: 'customCommand', params: 'cmd, params?' },
+    {
+        method: 'testConnection',
+        params: 'nenhum outro parâmetro',
+        notes: 'Retorno: { ok, deviceId?, info?, error? }.',
+    },
+    {
+        method: 'applyEquipmentConfiguration',
+        params: 'device, tipo',
+        notes: 'device: registro EQPEquipamento (ex.: await db.Equipamento.findFirst(...)). tipo: "GERAL" | "BOX" | "WEBHOOK".',
+    },
+];
+
+const HARDWARE_INSERT_EXAMPLES: { label: string; detail: string; code: string }[] = [
+    {
+        label: 'Testar conexão com o equipamento',
+        detail: 'Útil no início da rotina para validar rede/relay.',
+        code: `const r = await context.hardware.testConnection(eqpId);
+console.log('hardware', r.ok, r.deviceId, r.error);`,
+    },
+    {
+        label: 'Sincronizar uma pessoa (objeto completo)',
+        detail: 'grupo casa com PESGrupo / departamentos no Control iD.',
+        code: `await context.hardware.syncPerson(eqpId, {
+  pescodigo: pessoa.PESCodigo,
+  id: Number(pessoa.PESIdExterno) || pessoa.PESCodigo,
+  name: pessoa.PESNome,
+  cpf: pessoa.PESDocumento || undefined,
+  grupo: pessoa.PESGrupo || undefined,
+  tags: pessoa.PESCartaoTag ? [pessoa.PESCartaoTag] : [],
+  faces: pessoa.PESFotoBase64 ? [pessoa.PESFotoBase64] : [],
+  faceExtension: pessoa.PESFotoExtensao || 'jpg',
+  fingers: [],
+});`,
+    },
+    {
+        label: 'Comando customizado (Control iD / API do provider)',
+        detail: 'Ex.: load_objects com session interna do provider.',
+        code: `const data = await context.hardware.customCommand(eqpId, 'load_objects', {
+  object: 'users',
+});
+console.log(data);`,
+    },
+    {
+        label: 'Aplicar configuração no equipamento (GERAL / BOX / WEBHOOK)',
+        detail: 'Carregue o device do Prisma antes; o eqpId deve ser o mesmo registro.',
+        code: `const device = await db.Equipamento.findFirst({
+  where: { EQPCodigo: eqpId },
+});
+if (device) {
+  await context.hardware.applyEquipmentConfiguration(eqpId, device, 'WEBHOOK');
+}`,
+    },
+];
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
     const [viewMode, setViewMode] = useState<'snippets' | 'dictionary'>('snippets');
@@ -62,7 +151,7 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.hardware</code>
-                                    <span className="text-gray-600 dark:text-gray-400">Controle de Equipamentos (Unified)</span>
+                                    <span className="text-gray-600 dark:text-gray-400">API do equipamento (pessoas, biometria, grupos/departamentos, config, comandos)</span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
@@ -73,6 +162,74 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                     <span className="text-gray-600 dark:text-gray-400">Log em Arquivo (.txt diário)</span>
                                 </li>
                             </ul>
+                        </div>
+
+                        <div className="rounded-lg border border-amber-200/80 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-3 space-y-3">
+                            <div>
+                                <h4 className="text-xs font-semibold text-amber-900 dark:text-amber-200 uppercase tracking-wider mb-1">
+                                    context.hardware — contrato do worker
+                                </h4>
+                                <p className="text-[11px] text-amber-950/80 dark:text-amber-100/80 leading-relaxed">
+                                    Cada método é invocado como{' '}
+                                    <code className="font-mono text-[10px] bg-white/70 dark:bg-black/30 px-1 rounded">
+                                        await context.hardware.&lt;nome&gt;(eqpId, …)
+                                    </code>
+                                    . O primeiro argumento é sempre o código do equipamento (
+                                    <code className="font-mono text-[10px]">EQPCodigo</code>
+                                    ) na instituição da rotina; o worker valida o tenant. Equipamentos com addon exigem relay (
+                                    <code className="font-mono text-[10px]">WEBAPI_WS_URL</code>,{' '}
+                                    <code className="font-mono text-[10px]">RELAY_INTERNAL_TOKEN</code>
+                                    ) no processo do worker.
+                                </p>
+                            </div>
+                            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                                {HARDWARE_REFERENCE.map((row) => (
+                                    <div
+                                        key={row.method}
+                                        className="text-[11px] border-b border-amber-200/50 dark:border-amber-900/30 pb-2 last:border-0 last:pb-0"
+                                    >
+                                        <div className="font-mono text-amber-900 dark:text-amber-100">
+                                            {row.method}
+                                            <span className="text-gray-600 dark:text-gray-400 font-sans">
+                                                {' '}
+                                                (eqpId, {row.params})
+                                            </span>
+                                        </div>
+                                        {row.notes && (
+                                            <p className="text-[10px] text-gray-600 dark:text-gray-400 mt-0.5 italic">
+                                                {row.notes}
+                                            </p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                            <div>
+                                <h5 className="text-[10px] font-semibold text-amber-900 dark:text-amber-200 uppercase tracking-wide mb-2">
+                                    Exemplos (inserir)
+                                </h5>
+                                <div className="space-y-2">
+                                    {HARDWARE_INSERT_EXAMPLES.map((ex, i) => (
+                                        <button
+                                            key={i}
+                                            type="button"
+                                            onClick={() => onInsertSnippet(ex.code)}
+                                            className="w-full text-left p-2 rounded-md bg-white/80 dark:bg-black/20 hover:bg-white dark:hover:bg-black/40 border border-amber-200/60 dark:border-amber-900/40 transition-colors group"
+                                        >
+                                            <div className="flex justify-between items-start gap-2 mb-0.5">
+                                                <span className="font-medium text-gray-800 dark:text-gray-200 text-xs group-hover:text-amber-700 dark:group-hover:text-amber-300">
+                                                    {ex.label}
+                                                </span>
+                                                <span className="text-[10px] text-amber-600 dark:text-amber-400 opacity-0 group-hover:opacity-100 shrink-0">
+                                                    + Inserir
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-gray-500 dark:text-gray-500 line-clamp-2">
+                                                {ex.detail}
+                                            </p>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
 
                         <div>

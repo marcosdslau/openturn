@@ -1,6 +1,4 @@
-import { BadRequestException, Logger } from '@nestjs/common';
-import { EQPEquipamento } from '@prisma/client';
-import { PrismaService } from '../../../../common/prisma/prisma.service';
+import { PrismaClient, EQPEquipamento } from '@prisma/client';
 import {
   HardwareEquipmentConfigType,
   HardwareUser,
@@ -12,7 +10,9 @@ import {
 } from '../controlid.types';
 import { IHttpTransport } from '../../../transport/http-transport.interface';
 import { DirectHttpTransport } from '../../../transport/direct-http.transport';
-import { WsRelayHttpTransport } from '../../../transport/ws-relay-http.transport';
+import { WsRelayClientHttpTransport } from '../../../transport/ws-relay-client-http.transport';
+import { badRequest } from '../../../util/bad-request';
+import { HardwareLogger } from '../../../util/hardware-logger';
 
 /** Trecho de `INSInstituicao.INSConfigHardware` usado para Monitor Control iD. */
 type InsConfigHardwareMonitorJson = {
@@ -26,12 +26,12 @@ type InsConfigHardwareMonitorJson = {
 };
 
 export abstract class AbstractControlIDProvider implements IHardwareProvider {
-  protected readonly logger = new Logger(AbstractControlIDProvider.name);
+  protected readonly logger = new HardwareLogger('AbstractControlID');
   protected session: string | null = null;
 
   constructor(
     protected readonly config: ControlIDConfig,
-    protected readonly prisma: PrismaService,
+    protected readonly prisma: PrismaClient,
     protected readonly transport: IHttpTransport,
     protected readonly relayMultiHost?: ControlIdRelayMultiHostContext,
   ) {}
@@ -129,7 +129,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   ): Promise<{ idNoEquipamento: string }> {
     await this.ensureSession();
 
-    const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique(
+    const mapping = await this.prisma.pESEquipamentoMapeamento.findUnique(
       {
         where: {
           PESCodigo_EQPCodigo: {
@@ -159,7 +159,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     const exists = data.users && data.users.length > 0;
 
     if (exists && !mapping) {
-      await this.prisma.rls.pESEquipamentoMapeamento.upsert({
+      await this.prisma.pESEquipamentoMapeamento.upsert({
         where: {
           PESCodigo_EQPCodigo: {
             PESCodigo: person.pescodigo,
@@ -333,7 +333,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     limiar?: number,
     grupo?: string,
   ): Promise<void> {
-    const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
+    const mapping = await this.prisma.pESEquipamentoMapeamento.findUnique({
       where: {
         PESCodigo_EQPCodigo: { PESCodigo: pescodigo, EQPCodigo: equipmentId },
       },
@@ -375,7 +375,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     grupo?: string,
   ): Promise<void> {
     const hardwareId = id;
-    await this.prisma.rls.pESEquipamentoMapeamento.upsert({
+    await this.prisma.pESEquipamentoMapeamento.upsert({
       where: {
         PESCodigo_EQPCodigo: { PESCodigo: pescodigo, EQPCodigo: equipmentId },
       },
@@ -652,19 +652,19 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     const ip = (device.EQPEnderecoIp ?? '').trim();
     const devId = (device.deviceId ?? '').trim();
     if (!ip) {
-      throw new BadRequestException(
+      throw badRequest(
         'Configuração BOX só se aplica ao equipamento primário: informe o endereço IP principal (EQPEnderecoIp).',
       );
     }
     if (!devId) {
-      throw new BadRequestException(
+      throw badRequest(
         'Configuração BOX só se aplica ao equipamento primário: informe o Device ID do Monitor (EQPDeviceId).',
       );
     }
     const sessionHost = this.monitorEndpointKey(this.config.host);
     const primaryHost = this.monitorEndpointKey(device.EQPEnderecoIp);
     if (!sessionHost || sessionHost !== primaryHost) {
-      throw new BadRequestException(
+      throw badRequest(
         `Configuração BOX deve ser enviada ao host primário do cadastro (${ip}). A conexão atual não corresponde a esse IP (ex.: leitor facial secundário).`,
       );
     }
@@ -761,13 +761,13 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     const baseURL = this.buildBaseUrlForHost(hostRaw);
     if (device.EQPUsaAddon) {
       if (!this.relayMultiHost) {
-        throw new BadRequestException(
+        throw badRequest(
           'Equipamento com addon exige contexto relay para configurar o monitor em múltiplos hosts.',
         );
       }
-      return new WsRelayHttpTransport(
+      return new WsRelayClientHttpTransport(
         this.relayMultiHost.wsRelay,
-        this.relayMultiHost.connectorCodigo,
+        this.relayMultiHost.instituicaoCodigo,
         this.relayMultiHost.equipmentId,
         baseURL,
       );
@@ -836,12 +836,12 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         : '';
 
     if (!hostname) {
-      throw new BadRequestException(
+      throw badRequest(
         'Defina INSConfigHardware.controlid.monitor.ip (hostname) na instituição para configurar o Monitor (WEBHOOK).',
       );
     }
     if (!port) {
-      throw new BadRequestException(
+      throw badRequest(
         'Defina INSConfigHardware.controlid.monitor.port na instituição para configurar o Monitor (WEBHOOK).',
       );
     }
@@ -858,7 +858,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
 
     const hosts = this.collectMonitorTargetHosts(device);
     if (hosts.length === 0) {
-      throw new BadRequestException(
+      throw badRequest(
         'Nenhum host para aplicar o monitor: informe EQPEnderecoIp e/ou ip_entry e ip_exit no equipamento.',
       );
     }
@@ -886,7 +886,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
 
     const failures = results.filter((r) => !r.ok);
     if (failures.length > 0) {
-      throw new BadRequestException({
+      throw badRequest({
         message:
           'Falha ao configurar o monitor em um ou mais hosts do equipamento.',
         results,
@@ -917,7 +917,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         return await this.configMonitor(device);
       default: {
         const _exhaustive: never = type;
-        throw new BadRequestException(
+        throw badRequest(
           `Tipo de configuração não suportado: ${_exhaustive}`,
         );
       }

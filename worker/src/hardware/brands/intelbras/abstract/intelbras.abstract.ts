@@ -1,18 +1,18 @@
-import { BadRequestException, Logger } from '@nestjs/common';
-import { EQPEquipamento } from '@prisma/client';
-import { PrismaService } from '../../../../common/prisma/prisma.service';
+import { PrismaClient, EQPEquipamento } from '@prisma/client';
 import {
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
+import { badRequest } from '../../../util/bad-request';
+import { HardwareLogger } from '../../../util/hardware-logger';
 
 export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
-  protected readonly logger = new Logger(AbstractIntelbrasProvider.name);
+  protected readonly logger = new HardwareLogger('AbstractIntelbras');
 
   constructor(
     protected readonly config: unknown,
-    protected readonly prisma: PrismaService,
+    protected readonly prisma: PrismaClient,
   ) {}
 
   async syncPerson(
@@ -116,7 +116,7 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     _device: EQPEquipamento,
     _type: HardwareEquipmentConfigType,
   ): Promise<unknown> {
-    throw new BadRequestException({
+    throw badRequest({
       supported: false,
       brand: 'Intelbras',
       message:

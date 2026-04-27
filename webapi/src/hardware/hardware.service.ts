@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EQPEquipamento, HttpMetodo, TipoRotina } from '@prisma/client';
+import { EQPEquipamento, HttpMetodo, PESPessoa, TipoRotina } from '@prisma/client';
 import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
@@ -21,6 +21,25 @@ export class HardwareService {
     private readonly hardwareFactory: HardwareFactory,
     private readonly rotinaQueueService: RotinaQueueService,
   ) {}
+
+  /**
+   * Id do usuário no leitor quando ainda não existe linha de mapeamento
+   * (PESIdExterno numérico, senão PESCodigo).
+   */
+  static deviceUserIdFromPessoa(person: PESPessoa): number {
+    if (person.PESIdExterno != null && String(person.PESIdExterno).trim() !== '') {
+      const s = String(person.PESIdExterno).trim();
+      const n = Number(s);
+      if (Number.isFinite(n) && Number.isInteger(n) && n > 0) {
+        return n;
+      }
+      const p = parseInt(s, 10);
+      if (!Number.isNaN(p) && p > 0) {
+        return p;
+      }
+    }
+    return person.PESCodigo;
+  }
 
   async instantiate(
     equipment: EQPEquipamento,
@@ -115,10 +134,13 @@ export class HardwareService {
               },
             });
 
+          const idNoEquipamento = HardwareService.deviceUserIdFromPessoa(person);
+
           await provider.syncPerson(dev.EQPCodigo, {
+            pescodigo: person.PESCodigo,
             id: mapping
               ? parseInt(mapping.PEQIdNoEquipamento, 10)
-              : person.PESCodigo,
+              : idNoEquipamento,
             name: person.PESNome,
             cpf: person.PESDocumento || undefined,
             faceExtension: person.PESFotoExtensao || 'jpg',

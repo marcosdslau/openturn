@@ -1,18 +1,18 @@
-import { BadRequestException, Logger } from '@nestjs/common';
-import { EQPEquipamento } from '@prisma/client';
-import { PrismaService } from '../../../../common/prisma/prisma.service';
+import { PrismaClient, EQPEquipamento } from '@prisma/client';
 import {
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
+import { badRequest } from '../../../util/bad-request';
+import { HardwareLogger } from '../../../util/hardware-logger';
 
-export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
-  protected readonly logger = new Logger(AbstractIntelbrasProvider.name);
+export abstract class AbstractTopdataProvider implements IHardwareProvider {
+  protected readonly logger = new HardwareLogger('AbstractTopdata');
 
   constructor(
     protected readonly config: unknown,
-    protected readonly prisma: PrismaService,
+    protected readonly prisma: PrismaClient,
   ) {}
 
   async syncPerson(
@@ -20,7 +20,7 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     person: HardwareUser,
   ): Promise<{ idNoEquipamento: string }> {
     this.logger.log(
-      `[Intelbras] Syncing pescodigo=${person.pescodigo} id=${person.id} on equipment ${equipmentId}`,
+      `[TopData] Syncing pescodigo=${person.pescodigo} id=${person.id} on equipment ${equipmentId}`,
     );
     return { idNoEquipamento: person.id.toString() };
   }
@@ -36,7 +36,7 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Intelbras] Creating pescodigo=${pescodigo} id=${id} on equipment ${equipmentId}`,
+      `[TopData] Creating pescodigo=${pescodigo} id=${id} on equipment ${equipmentId}`,
     );
   }
 
@@ -50,20 +50,20 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Intelbras] Modifying pescodigo=${pescodigo} on equipment ${equipmentId}`,
+      `[TopData] Modifying pescodigo=${pescodigo} on equipment ${equipmentId}`,
     );
   }
 
   async deletePerson(id: number): Promise<void> {
-    this.logger.log(`[Intelbras] Deleting person ${id}`);
+    this.logger.log(`[TopData] Deleting person ${id}`);
   }
 
   async setTag(userId: number, tag: string): Promise<void> {
-    this.logger.log(`[Intelbras] Setting tag ${tag} for user ${userId}`);
+    this.logger.log(`[TopData] Setting tag ${tag} for user ${userId}`);
   }
 
   async removeTag(tag: string): Promise<void> {
-    this.logger.log(`[Intelbras] Removing tag ${tag}`);
+    this.logger.log(`[TopData] Removing tag ${tag}`);
   }
 
   async setFace(
@@ -71,54 +71,54 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     faceBase64: string,
     extension: string,
   ): Promise<void> {
-    this.logger.log(`[Intelbras] Setting face for user ${userId}`);
+    this.logger.log(`[TopData] Setting face for user ${userId}`);
   }
 
   async removeFace(userId: number): Promise<void> {
-    this.logger.log(`[Intelbras] Removing face for user ${userId}`);
+    this.logger.log(`[TopData] Removing face for user ${userId}`);
   }
 
   async setFingers(userId: number, templates: string[]): Promise<void> {
-    this.logger.log(`[Intelbras] Setting fingers for user ${userId}`);
+    this.logger.log(`[TopData] Setting fingers for user ${userId}`);
   }
 
   async removeFingers(userId: number): Promise<void> {
-    this.logger.log(`[Intelbras] Removing fingers for user ${userId}`);
+    this.logger.log(`[TopData] Removing fingers for user ${userId}`);
   }
 
   async setGroups(
     userId: number,
     groupIds: (number | string)[],
   ): Promise<void> {
-    this.logger.log(`[Intelbras] Setting groups for user ${userId}`);
+    this.logger.log(`[TopData] Setting groups for user ${userId}`);
   }
 
   async removeGroups(
     userId: number,
     groupIds: (number | string)[],
   ): Promise<void> {
-    this.logger.log(`[Intelbras] Removing groups for user ${userId}`);
+    this.logger.log(`[TopData] Removing groups for user ${userId}`);
   }
 
   async executeAction(action: string, params?: any): Promise<void> {
-    this.logger.log(`[Intelbras] Executing action ${action}`);
+    this.logger.log(`[TopData] Executing action ${action}`);
   }
 
   async enroll(type: 'face' | 'biometry', userId: number): Promise<void> {
-    this.logger.log(`[Intelbras] Enrolling ${type} for user ${userId}`);
+    this.logger.log(`[TopData] Enrolling ${type} for user ${userId}`);
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {
-    this.logger.log(`[Intelbras] Custom command ${cmd}`);
+    this.logger.log(`[TopData] Custom command ${cmd}`);
   }
 
   async applyEquipmentConfiguration(
     _device: EQPEquipamento,
     _type: HardwareEquipmentConfigType,
   ): Promise<unknown> {
-    throw new BadRequestException({
+    throw badRequest({
       supported: false,
-      brand: 'Intelbras',
+      brand: 'TopData',
       message:
         'Configuração por tipo (GERAL/BOX/WEBHOOK) ainda não suportada para esta marca.',
     });
@@ -132,7 +132,7 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
   }> {
     return {
       ok: false,
-      error: 'Test Connection ainda não suportado para Intelbras',
+      error: 'Test Connection ainda não suportado para TopData',
     };
   }
 }

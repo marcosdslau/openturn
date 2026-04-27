@@ -348,15 +348,15 @@ const SNIPPET_CATEGORIES: Record<string, { label: string; code: string }[]> = {
   hardware: [
     {
       label: 'syncPerson (completo)',
-      code: `await context.hardware.syncPerson(equipId, { id, name, cpf, password, faceExtension, tags: ["tag"], faces: ["base64"], fingers: ["template"] })`,
+      code: `await context.hardware.syncPerson(equipId, { pescodigo, id, name, cpf, password, faceExtension, tags: ["tag"], faces: ["base64"], fingers: ["template"] })`,
     },
     {
       label: 'createPerson',
-      code: `await context.hardware.createPerson(equipId, pessoaId, "Nome", "senha", "cpf", limiar)`,
+      code: `await context.hardware.createPerson(equipId, pescodigo, idNoLeitor, "Nome", "senha", "cpf", limiar)`,
     },
     {
       label: 'modifyPerson',
-      code: `await context.hardware.modifyPerson(equipId, pessoaId, "NovoNome", "novaSenha", "cpf", limiar)`,
+      code: `await context.hardware.modifyPerson(equipId, pescodigo, "NovoNome", "novaSenha", "cpf", limiar)`,
     },
     {
       label: 'deletePerson',
