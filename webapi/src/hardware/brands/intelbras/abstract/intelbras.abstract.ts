@@ -20,13 +20,14 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     person: HardwareUser,
   ): Promise<{ idNoEquipamento: string }> {
     this.logger.log(
-      `[Intelbras] Syncing person ${person.id} on equipment ${equipmentId}`,
+      `[Intelbras] Syncing pescodigo=${person.pescodigo} id=${person.id} on equipment ${equipmentId}`,
     );
     return { idNoEquipamento: person.id.toString() };
   }
 
   async createPerson(
     equipmentId: number,
+    pescodigo: number,
     id: number,
     name: string,
     password?: string,
@@ -35,13 +36,13 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Intelbras] Creating person ${id} on equipment ${equipmentId}`,
+      `[Intelbras] Creating pescodigo=${pescodigo} id=${id} on equipment ${equipmentId}`,
     );
   }
 
   async modifyPerson(
     equipmentId: number,
-    id: number,
+    pescodigo: number,
     name: string,
     password?: string,
     cpf?: string,
@@ -49,7 +50,7 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     _grupo?: string,
   ): Promise<void> {
     this.logger.log(
-      `[Intelbras] Modifying person ${id} on equipment ${equipmentId}`,
+      `[Intelbras] Modifying pescodigo=${pescodigo} on equipment ${equipmentId}`,
     );
   }
 

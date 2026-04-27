@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { ConnectorModule } from '../connector/connector.module';
+import { RotinaModule } from '../rotina/rotina.module';
 import { HardwareService } from './hardware.service';
 import { HardwareController } from './controllers/hardware.controller';
 import { HardwareFactory } from './factory/hardware.factory';
@@ -17,7 +18,7 @@ import { ControlidPassagemService } from './brands/controlid/services/controlid-
 import { ControlidSyncService } from './brands/controlid/services/controlid-sync.service';
 
 @Module({
-  imports: [AuthModule, PrismaModule, ConnectorModule],
+  imports: [AuthModule, PrismaModule, ConnectorModule, RotinaModule],
   controllers: [HardwareController, ControlidMonitorController],
   providers: [
     HardwareService,

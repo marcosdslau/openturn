@@ -5,7 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EQPEquipamento } from '@prisma/client';
+import { EQPEquipamento, HttpMetodo, PESPessoa, TipoRotina } from '@prisma/client';
+import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
@@ -18,7 +19,27 @@ export class HardwareService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hardwareFactory: HardwareFactory,
+    private readonly rotinaQueueService: RotinaQueueService,
   ) {}
+
+  /**
+   * Id do usuário no leitor quando ainda não existe linha de mapeamento
+   * (PESIdExterno numérico, senão PESCodigo).
+   */
+  static deviceUserIdFromPessoa(person: PESPessoa): number {
+    if (person.PESIdExterno != null && String(person.PESIdExterno).trim() !== '') {
+      const s = String(person.PESIdExterno).trim();
+      const n = Number(s);
+      if (Number.isFinite(n) && Number.isInteger(n) && n > 0) {
+        return n;
+      }
+      const p = parseInt(s, 10);
+      if (!Number.isNaN(p) && p > 0) {
+        return p;
+      }
+    }
+    return person.PESCodigo;
+  }
 
   async instantiate(
     equipment: EQPEquipamento,
@@ -28,6 +49,64 @@ export class HardwareService {
   }
 
   async syncAll(instituicaoId: number) {
+    const inst = await this.prisma.iNSInstituicao.findUnique({
+      where: { INSCodigo: instituicaoId },
+      select: { INSRotinaPessoasCodigo: true },
+    });
+    const rotinaPessoasCodigo = inst?.INSRotinaPessoasCodigo ?? null;
+
+    if (rotinaPessoasCodigo != null) {
+      const rotina = await this.prisma.rOTRotina.findFirst({
+        where: {
+          ROTCodigo: rotinaPessoasCodigo,
+          INSInstituicaoCodigo: instituicaoId,
+          ROTTipo: TipoRotina.WEBHOOK,
+          ROTAtivo: true,
+        },
+      });
+      const pathRaw = rotina?.ROTWebhookPath?.trim();
+      if (rotina && pathRaw && rotina.ROTWebhookMetodo) {
+        const path = pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`;
+        const method = rotina.ROTWebhookMetodo;
+        const people = await this.prisma.pESPessoa.findMany({
+          where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
+        });
+        for (const person of people) {
+          const body = {
+            PESCodigo: person.PESCodigo,
+            PESNome: person.PESNome,
+          };
+          const query =
+            method === HttpMetodo.GET
+              ? {
+                  PESCodigo: String(person.PESCodigo),
+                  PESNome: person.PESNome,
+                }
+              : {};
+          await this.rotinaQueueService.enqueue(
+            rotina.ROTCodigo,
+            instituicaoId,
+            'WEBHOOK',
+            {
+              body,
+              query,
+              headers: {},
+              method,
+              path,
+              params: {},
+            },
+          );
+        }
+        this.logger.log(
+          `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${people.length} job(s) enfileirado(s)`,
+        );
+        return;
+      }
+      this.logger.warn(
+        `[${instituicaoId}] INSRotinaPessoasCodigo=${rotinaPessoasCodigo} inválido ou inativo; usando sync físico.`,
+      );
+    }
+
     const devices = await this.prisma.eQPEquipamento.findMany({
       where: { INSInstituicaoCodigo: instituicaoId, EQPAtivo: true },
     });
@@ -55,10 +134,13 @@ export class HardwareService {
               },
             });
 
+          const idNoEquipamento = HardwareService.deviceUserIdFromPessoa(person);
+
           await provider.syncPerson(dev.EQPCodigo, {
+            pescodigo: person.PESCodigo,
             id: mapping
               ? parseInt(mapping.PEQIdNoEquipamento, 10)
-              : person.PESCodigo,
+              : idNoEquipamento,
             name: person.PESNome,
             cpf: person.PESDocumento || undefined,
             faceExtension: person.PESFotoExtensao || 'jpg',

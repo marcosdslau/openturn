@@ -263,10 +263,10 @@ export const HARDWARE_SNIPPETS: RoutineSnippet[] = [
     {
         label: 'Hardware - Sincronizar Pessoa (Completo)',
         detail: 'Sincroniza todos os dados (Tags, Biometria, Mapping) com o equipamento',
-        code: `// Sincroniza a Pessoa 101 no Equipamento 1
-// O sistema gerencia o DE-PARA automaticamente no Banco de Dados
+        code: `// pescodigo = PESCodigo; id = id do usuário no leitor (ex.: PESIdExterno numérico)
 await context.hardware.syncPerson(1, {
-    id: 101,
+    pescodigo: 101,
+    id: 501,
     name: "João Silva",
     cpf: "123.456.789-00",
     password: "123",
@@ -279,13 +279,14 @@ await context.hardware.syncPerson(1, {
     {
         label: 'Hardware - Criar Usuário',
         detail: 'Cria apenas o objeto Usuário no hardware e registra Mapping',
-        code: `// cria o ID 101 (Nome, Senha, CPF, Limiar) no Equipamento 1
-await context.hardware.createPerson(1, 101, "João", "123", "123.456.789-00", 80);`,
+        code: `// (eqp, pescodigo, idNoLeitor, nome, ...): idNoLeitor = PESIdExterno no equipamento
+await context.hardware.createPerson(1, 101, 501, "João", "123", "123.456.789-00", 80);`,
     },
     {
         label: 'Hardware - Atualizar Usuário',
         detail: 'Atualiza dados cadastrais do usuário no hardware',
-        code: `await context.hardware.modifyPerson(1, 101, "João Novo Nome", "456", "321.654.987-00", 85);`,
+        code: `// (eqp, pescodigo, ...): altera cadastro; id no leitor vem do mapeamento
+await context.hardware.modifyPerson(1, 101, "João Novo Nome", "456", "321.654.987-00", 85);`,
     },
     {
         label: 'Hardware - Excluir Usuário',

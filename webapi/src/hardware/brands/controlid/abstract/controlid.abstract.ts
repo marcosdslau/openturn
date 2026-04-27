@@ -133,7 +133,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       {
         where: {
           PESCodigo_EQPCodigo: {
-            PESCodigo: person.id,
+            PESCodigo: person.pescodigo,
             EQPCodigo: equipmentId,
           },
         },
@@ -158,10 +158,27 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     const data = userResponse.data as any;
     const exists = data.users && data.users.length > 0;
 
+    if (exists && !mapping) {
+      await this.prisma.rls.pESEquipamentoMapeamento.upsert({
+        where: {
+          PESCodigo_EQPCodigo: {
+            PESCodigo: person.pescodigo,
+            EQPCodigo: equipmentId,
+          },
+        },
+        create: {
+          PESCodigo: person.pescodigo,
+          EQPCodigo: equipmentId,
+          PEQIdNoEquipamento: hardwareId.toString(),
+        },
+        update: { PEQIdNoEquipamento: hardwareId.toString() },
+      });
+    }
+
     if (exists) {
       await this.modifyPerson(
         equipmentId,
-        person.id,
+        person.pescodigo,
         person.name,
         person.password,
         person.cpf,
@@ -171,6 +188,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     } else {
       await this.createPerson(
         equipmentId,
+        person.pescodigo,
         person.id,
         person.name,
         person.password,
@@ -308,7 +326,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
 
   async modifyPerson(
     equipmentId: number,
-    id: number,
+    pescodigo: number,
     name: string,
     password?: string,
     cpf?: string,
@@ -316,10 +334,18 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     grupo?: string,
   ): Promise<void> {
     const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
-      where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } },
+      where: {
+        PESCodigo_EQPCodigo: { PESCodigo: pescodigo, EQPCodigo: equipmentId },
+      },
     });
 
-    const hardwareId = mapping ? parseInt(mapping.PEQIdNoEquipamento, 10) : id;
+    if (!mapping) {
+      throw new Error(
+        `Mapeamento não encontrado para PESCodigo ${pescodigo} no equipamento ${equipmentId}`,
+      );
+    }
+
+    const hardwareId = parseInt(mapping.PEQIdNoEquipamento, 10);
 
     await this.withRetry(async () => {
       await this.ensureSession();
@@ -340,6 +366,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
 
   async createPerson(
     equipmentId: number,
+    pescodigo: number,
     id: number,
     name: string,
     password?: string,
@@ -349,10 +376,12 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   ): Promise<void> {
     const hardwareId = id;
     await this.prisma.rls.pESEquipamentoMapeamento.upsert({
-      where: { PESCodigo_EQPCodigo: { PESCodigo: id, EQPCodigo: equipmentId } },
+      where: {
+        PESCodigo_EQPCodigo: { PESCodigo: pescodigo, EQPCodigo: equipmentId },
+      },
       update: { PEQIdNoEquipamento: hardwareId.toString() },
       create: {
-        PESCodigo: id,
+        PESCodigo: pescodigo,
         EQPCodigo: equipmentId,
         PEQIdNoEquipamento: hardwareId.toString(),
       },

@@ -32,6 +32,7 @@ interface Instituicao {
     INSConfigHardware?: any;
     INSControlidMonitorRotinaAtiva?: boolean;
     INSControlidMonitorRotinaCodigo?: number | null;
+    INSRotinaPessoasCodigo?: number | null;
 }
 
 interface RotinaListItem {
@@ -91,6 +92,7 @@ export default function InstitutionERPPage() {
     const [monitorPath, setMonitorPath] = useState("");
     const [monitorRotinaAtiva, setMonitorRotinaAtiva] = useState(false);
     const [monitorRotinaCodigo, setMonitorRotinaCodigo] = useState<number | null>(null);
+    const [rotinaPessoasCodigo, setRotinaPessoasCodigo] = useState<number | null>(null);
     const [webhookRotinas, setWebhookRotinas] = useState<RotinaListItem[]>([]);
 
     // Connector On-Premise
@@ -128,6 +130,11 @@ export default function InstitutionERPPage() {
             setMonitorRotinaCodigo(
                 instRes.INSControlidMonitorRotinaCodigo != null
                     ? instRes.INSControlidMonitorRotinaCodigo
+                    : null,
+            );
+            setRotinaPessoasCodigo(
+                instRes.INSRotinaPessoasCodigo != null
+                    ? instRes.INSRotinaPessoasCodigo
                     : null,
             );
             setWebhookRotinas(
@@ -217,6 +224,7 @@ export default function InstitutionERPPage() {
                 INSConfigHardware: newConfig,
                 INSControlidMonitorRotinaAtiva: monitorRotinaAtiva,
                 INSControlidMonitorRotinaCodigo: monitorRotinaAtiva ? monitorRotinaCodigo : null,
+                INSRotinaPessoasCodigo: rotinaPessoasCodigo,
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -651,6 +659,44 @@ export default function InstitutionERPPage() {
                             value={instLimiarFacialDefault}
                             onChange={setInstLimiarFacialDefault}
                             disabled={saving}
+                        />
+                    </div>
+                </ComponentCard>
+
+                <ComponentCard
+                    title="Sincronização de pessoas (webhook)"
+                    desc="Ao escolher uma rotina WEBHOOK, o botão “Sincronizar todos” na página de equipamentos não envia dados aos dispositivos: enfileira uma execução da rotina por pessoa ativa, com PESCodigo e PESNome no corpo da requisição simulada (e na query se o método for GET). Instituições muito grandes podem gerar muitas execuções na fila."
+                >
+                    <div className="max-w-xl space-y-2">
+                        <Label>Rotina WEBHOOK para sync de pessoas</Label>
+                        <Select
+                            key={`rp-${String(id)}-${rotinaPessoasCodigo ?? "none"}-${webhookRotinas.length}`}
+                            options={[
+                                {
+                                    value: "__none__",
+                                    label: "Nenhuma (sincronização tradicional nos equipamentos)",
+                                },
+                                ...webhookRotinas.map((r) => ({
+                                    value: String(r.ROTCodigo),
+                                    label: `${r.ROTNome}${r.ROTWebhookPath ? ` — ${r.ROTWebhookPath}` : ""}`,
+                                })),
+                            ]}
+                            defaultValue={
+                                rotinaPessoasCodigo != null
+                                    ? String(rotinaPessoasCodigo)
+                                    : "__none__"
+                            }
+                            placeholder={
+                                webhookRotinas.length
+                                    ? "Escolha uma opção"
+                                    : "Nenhuma rotina WEBHOOK nesta instituição"
+                            }
+                            onChange={(v) =>
+                                setRotinaPessoasCodigo(
+                                    v && v !== "__none__" ? parseInt(v, 10) : null,
+                                )
+                            }
+                            className={saving ? "pointer-events-none opacity-60" : ""}
                         />
                     </div>
                 </ComponentCard>
