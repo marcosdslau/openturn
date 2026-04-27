@@ -7,6 +7,6 @@ import { RotinaModule } from '../rotina/rotina.module';
 @Module({
   imports: [ERPConfigModule, RotinaModule],
   controllers: [InstituicaoController],
-  providers: [InstituicaoService]
+  providers: [InstituicaoService],
 })
-export class InstituicaoModule { }
+export class InstituicaoModule {}

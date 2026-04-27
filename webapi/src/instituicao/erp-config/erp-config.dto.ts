@@ -1,19 +1,25 @@
-import { IsString, IsNotEmpty, IsOptional, IsObject, IsUrl } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsObject,
+  IsUrl,
+} from 'class-validator';
 
 export class UpdateERPConfigDto {
-    @IsString()
-    @IsNotEmpty()
-    ERPSistema: string;
+  @IsString()
+  @IsNotEmpty()
+  ERPSistema: string;
 
-    @IsUrl()
-    @IsOptional()
-    ERPUrlBase?: string;
+  @IsUrl()
+  @IsOptional()
+  ERPUrlBase?: string;
 
-    @IsString()
-    @IsOptional()
-    ERPToken?: string;
+  @IsString()
+  @IsOptional()
+  ERPToken?: string;
 
-    @IsObject()
-    @IsOptional()
-    ERPConfigJson?: any;
+  @IsObject()
+  @IsOptional()
+  ERPConfigJson?: any;
 }

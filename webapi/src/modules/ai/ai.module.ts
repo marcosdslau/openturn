@@ -10,23 +10,21 @@ import { OpenAiAdapter } from './providers/openai.adapter';
 import { PrismaService } from '../../common/prisma/prisma.service';
 
 @Module({
-    controllers: [
-        AiController
-    ],
-    providers: [
-        LlmOrchestratorService,
-        AiConversationService,
-        AiPermissionService,
-        AiUsageService,
-        AiPricingService,
-        OpenAiAdapter,
-        PrismaService
-    ],
-    exports: [
-        LlmOrchestratorService,
-        AiConversationService,
-        AiPermissionService,
-        AiUsageService
-    ]
+  controllers: [AiController],
+  providers: [
+    LlmOrchestratorService,
+    AiConversationService,
+    AiPermissionService,
+    AiUsageService,
+    AiPricingService,
+    OpenAiAdapter,
+    PrismaService,
+  ],
+  exports: [
+    LlmOrchestratorService,
+    AiConversationService,
+    AiPermissionService,
+    AiUsageService,
+  ],
 })
-export class AiModule { }
+export class AiModule {}

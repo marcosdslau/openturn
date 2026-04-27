@@ -14,19 +14,28 @@ import { LogCleanupService } from './log-cleanup.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 
 @Module({
-    imports: [AuthModule],
-    controllers: [RotinaController, RotinaExecutionController, RotinaWebhookController],
-    providers: [
-        RotinaService,
-        RotinaExecutionService,
-        SchedulerService,
-        ExecutionService,
-        ProcessManager,
-        ConsoleGateway,
-        PrismaService,
-        LogCleanupService,
-        RotinaQueueService,
-    ],
-    exports: [RotinaService, ExecutionService, ProcessManager, RotinaQueueService],
+  imports: [AuthModule],
+  controllers: [
+    RotinaController,
+    RotinaExecutionController,
+    RotinaWebhookController,
+  ],
+  providers: [
+    RotinaService,
+    RotinaExecutionService,
+    SchedulerService,
+    ExecutionService,
+    ProcessManager,
+    ConsoleGateway,
+    PrismaService,
+    LogCleanupService,
+    RotinaQueueService,
+  ],
+  exports: [
+    RotinaService,
+    ExecutionService,
+    ProcessManager,
+    RotinaQueueService,
+  ],
 })
-export class RotinaModule { }
+export class RotinaModule {}

@@ -13,7 +13,6 @@ import { MatriculaModule } from './matricula/matricula.module';
 import { EquipamentoModule } from './equipamento/equipamento.module';
 import { RegistroPassagemModule } from './registro-passagem/registro-passagem.module';
 import { HardwareModule } from './hardware/hardware.module';
-import { ControlidModule } from './controlid/controlid.module';
 import { UsuarioModule } from './usuario/usuario.module';
 import { AdminUsuarioModule } from './admin-usuario/admin-usuario.module';
 import { RotinaModule } from './rotina/rotina.module';
@@ -31,10 +30,8 @@ import { MonitorModule } from './monitor/monitor.module';
     PessoaModule,
     MatriculaModule,
     EquipamentoModule,
-    EquipamentoModule,
     RegistroPassagemModule,
     HardwareModule,
-    ControlidModule,
     UsuarioModule,
     AdminUsuarioModule,
     RotinaModule,
@@ -51,5 +48,4 @@ import { MonitorModule } from './monitor/monitor.module';
     },
   ],
 })
-export class AppModule { }
-
+export class AppModule {}

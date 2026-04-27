@@ -1,0 +1,6 @@
+-- AlterTable
+ALTER TABLE "INSInstituicao" ADD COLUMN     "INSTLimiarFacialDefault" INTEGER NOT NULL DEFAULT 680;
+
+-- AlterTable
+ALTER TABLE "PESPessoa" ADD COLUMN     "PESGemeo" BOOLEAN NOT NULL DEFAULT false,
+ADD COLUMN     "PESLimiarFacial" INTEGER NOT NULL DEFAULT 680;

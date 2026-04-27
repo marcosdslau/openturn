@@ -8,15 +8,15 @@ import { BrevoMailService } from './brevo-mail.service';
 import { PermissionsGuard } from './permissions.guard';
 
 @Module({
-    imports: [
-        PassportModule,
-        JwtModule.register({
-            secret: process.env.JWT_SECRET || 'openturn_super_secret_key',
-            signOptions: { expiresIn: '24h' },
-        }),
-    ],
-    controllers: [AuthController],
-    providers: [AuthService, JwtStrategy, BrevoMailService, PermissionsGuard],
-    exports: [AuthService, PermissionsGuard],
+  imports: [
+    PassportModule,
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'openturn_super_secret_key',
+      signOptions: { expiresIn: '24h' },
+    }),
+  ],
+  controllers: [AuthController],
+  providers: [AuthService, JwtStrategy, BrevoMailService, PermissionsGuard],
+  exports: [AuthService, PermissionsGuard],
 })
-export class AuthModule { }
+export class AuthModule {}

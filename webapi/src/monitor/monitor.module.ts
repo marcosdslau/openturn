@@ -12,16 +12,16 @@ import { MonitorInstituicaoController } from './monitor-instituicao.controller';
 import { MonitorInstituicaoDashboardService } from './monitor-instituicao-dashboard.service';
 
 @Module({
-    imports: [AuthModule, RotinaModule],
-    controllers: [MonitorController, MonitorInstituicaoController],
-    providers: [
-        PrismaService,
-        MonitorSnapshotBuilder,
-        MonitorSnapshotService,
-        MonitorSnapshotCronService,
-        RabbitManagementService,
-        MonitorService,
-        MonitorInstituicaoDashboardService,
-    ],
+  imports: [AuthModule, RotinaModule],
+  controllers: [MonitorController, MonitorInstituicaoController],
+  providers: [
+    PrismaService,
+    MonitorSnapshotBuilder,
+    MonitorSnapshotService,
+    MonitorSnapshotCronService,
+    RabbitManagementService,
+    MonitorService,
+    MonitorInstituicaoDashboardService,
+  ],
 })
-export class MonitorModule { }
+export class MonitorModule {}

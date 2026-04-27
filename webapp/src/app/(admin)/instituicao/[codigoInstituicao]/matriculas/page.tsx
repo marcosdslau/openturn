@@ -11,15 +11,22 @@ import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
 import { AlertIcon, UserCircleIcon } from "@/icons";
 import SearchableSelect from "@/components/form/SearchableSelect";
+import MatriculasFiltros, {
+    MATRICULA_FILTROS_VAZIOS,
+    buildMatriculaListQuery,
+    type MatriculaFiltrosAplicados,
+} from "./components/MatriculasFiltros";
 
 interface Matricula {
     MATCodigo: number;
+    PESCodigo: number;
     MATNumero: string;
     MATCurso: string | null;
     MATSerie: string | null;
     MATTurma: string | null;
     MATAtivo: boolean;
     pessoa: {
+        PESCodigo: number;
         PESNome: string;
         PESFotoBase64?: string | null;
         PESFotoExtensao?: string | null;
@@ -40,10 +47,18 @@ export default function MatriculasPage() {
     const { showToast } = useToast();
     const [matriculas, setMatriculas] = useState<Matricula[]>([]);
     const [pessoas, setPessoas] = useState<Pessoa[]>([]);
+    const [opcoesFiltro, setOpcoesFiltro] = useState<{
+        cursos: string[];
+        series: string[];
+        turmas: string[];
+    }>({ cursos: [], series: [], turmas: [] });
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 10, totalPages: 0 });
     const [loading, setLoading] = useState(true);
     const [page, setPage] = useState(1);
     const [limit, setLimit] = useState(10);
+    const [filtrosAplicados, setFiltrosAplicados] = useState<MatriculaFiltrosAplicados>(
+        MATRICULA_FILTROS_VAZIOS
+    );
 
     // Modals
     const enrollmentModal = useModal();
@@ -58,34 +73,89 @@ export default function MatriculasPage() {
         if (!codigoInstituicao) return;
         setLoading(true);
         try {
-            const [matRes, pesRes] = await Promise.all([
-                apiGet<{ data: Matricula[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/matricula?page=${page}&limit=${limit}`),
-                apiGet<{ data: Pessoa[] }>(`/instituicao/${codigoInstituicao}/pessoa?limit=100`)
-            ]);
+            const qs = buildMatriculaListQuery(page, limit, filtrosAplicados);
+            const matRes = await apiGet<{ data: Matricula[]; meta: Meta }>(
+                `/instituicao/${codigoInstituicao}/matricula?${qs}`
+            );
             setMatriculas(matRes.data || []);
             setMeta(matRes.meta);
-            setPessoas(pesRes.data || []);
         } catch (error: any) {
             showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as matrículas.");
-        } finally { setLoading(false); }
-    }, [codigoInstituicao, page, limit, showToast]);
+        } finally {
+            setLoading(false);
+        }
+    }, [codigoInstituicao, page, limit, filtrosAplicados, showToast]);
+
+    const loadPessoasParaModal = useCallback(async (): Promise<Pessoa[]> => {
+        if (!codigoInstituicao) return [];
+        const pesRes = await apiGet<{ data: Pessoa[] }>(
+            `/instituicao/${codigoInstituicao}/pessoa?limit=100`
+        );
+        const list = pesRes.data || [];
+        setPessoas(list);
+        return list;
+    }, [codigoInstituicao]);
+
+    const loadOpcoesFiltro = useCallback(async () => {
+        if (!codigoInstituicao) return;
+        try {
+            const data = await apiGet<{
+                cursos: string[];
+                series: string[];
+                turmas: string[];
+            }>(`/instituicao/${codigoInstituicao}/matricula/opcoes-filtro`);
+            setOpcoesFiltro({
+                cursos: data.cursos ?? [],
+                series: data.series ?? [],
+                turmas: data.turmas ?? [],
+            });
+        } catch {
+            setOpcoesFiltro({ cursos: [], series: [], turmas: [] });
+        }
+    }, [codigoInstituicao]);
+
+    useEffect(() => {
+        loadOpcoesFiltro();
+    }, [loadOpcoesFiltro]);
 
     useEffect(() => { load(); }, [load]);
 
-    const openNew = () => {
+    const openNew = async () => {
         setEditing(null);
-        setForm({ MATNumero: "", PESCodigo: pessoas[0]?.PESCodigo || 0, MATCurso: "", MATSerie: "", MATTurma: "" });
+        let list: Pessoa[] = [];
+        try {
+            list = await loadPessoasParaModal();
+        } catch (error: any) {
+            showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as pessoas.");
+        }
+        setForm({
+            MATNumero: "",
+            PESCodigo: list[0]?.PESCodigo || 0,
+            MATCurso: "",
+            MATSerie: "",
+            MATTurma: "",
+        });
         enrollmentModal.openModal();
     };
 
-    const openEdit = (m: Matricula) => {
+    const openEdit = async (m: Matricula) => {
         setEditing(m);
+        let list: Pessoa[] = [];
+        try {
+            list = await loadPessoasParaModal();
+        } catch (error: any) {
+            showToast("error", "Erro ao carregar", error.message || "Não foi possível carregar as pessoas.");
+        }
+        const comAtual = list.some((p) => p.PESCodigo === m.PESCodigo)
+            ? list
+            : [{ PESCodigo: m.PESCodigo, PESNome: m.pessoa.PESNome }, ...list];
+        setPessoas(comAtual);
         setForm({
             MATNumero: m.MATNumero,
-            PESCodigo: (m as any).PESCodigo || 0,
+            PESCodigo: m.PESCodigo,
             MATCurso: m.MATCurso || "",
             MATSerie: m.MATSerie || "",
-            MATTurma: m.MATTurma || ""
+            MATTurma: m.MATTurma || "",
         });
         enrollmentModal.openModal();
     };
@@ -102,6 +172,7 @@ export default function MatriculasPage() {
             }
             enrollmentModal.closeModal();
             load();
+            loadOpcoesFiltro();
         } catch (error: any) {
             showToast("error", "Erro ao salvar", error.message || "Ocorreu um erro ao processar a solicitação.");
         } finally { setSaving(false); }
@@ -120,6 +191,7 @@ export default function MatriculasPage() {
             showToast("success", "Matrícula excluída", "O registro foi removido com sucesso.");
             deleteModal.closeModal();
             load();
+            loadOpcoesFiltro();
         } catch (error: any) {
             showToast("error", "Erro ao excluir", error.message || "Não foi possível excluir a matrícula.");
         } finally { setSaving(false); }
@@ -133,6 +205,21 @@ export default function MatriculasPage() {
                     <Button size="sm" onClick={openNew}>+ Nova Matrícula</Button>
                 )}
             </div>
+
+            <MatriculasFiltros
+                aplicados={filtrosAplicados}
+                cursosDisponiveis={opcoesFiltro.cursos}
+                seriesDisponiveis={opcoesFiltro.series}
+                turmasDisponiveis={opcoesFiltro.turmas}
+                onAplicar={(f) => {
+                    setFiltrosAplicados(f);
+                    setPage(1);
+                }}
+                onLimpar={() => {
+                    setFiltrosAplicados(MATRICULA_FILTROS_VAZIOS);
+                    setPage(1);
+                }}
+            />
 
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
                 <table className="w-full">
@@ -178,13 +265,37 @@ export default function MatriculasPage() {
                                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${m.MATAtivo ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400" : "bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
                                         }`}>{m.MATAtivo ? "Ativa" : "Inativa"}</span>
                                 </td>
-                                <td className="px-5 py-3 flex gap-2">
-                                    {can("matricula", "update") && (
-                                        <button type="button" onClick={() => openEdit(m)} className="text-xs text-brand-500 hover:underline">Editar</button>
-                                    )}
-                                    {can("matricula", "delete") && (
-                                        <button type="button" onClick={() => handleDeleteClick(m)} className="text-xs text-red-500 hover:underline">Excluir</button>
-                                    )}
+                                <td className="px-5 py-3">
+                                    <div className="flex flex-wrap gap-2">
+                                        {can("pessoa", "update") && (
+                                            <a
+                                                href={`/instituicao/${codigoInstituicao}/pessoas/${m.PESCodigo}/edit`}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-gray-700 hover:underline dark:text-gray-300"
+                                            >
+                                                Cadastro pessoa
+                                            </a>
+                                        )}
+                                        {can("matricula", "update") && (
+                                            <button
+                                                type="button"
+                                                onClick={() => openEdit(m)}
+                                                className="text-xs text-brand-500 hover:underline"
+                                            >
+                                                Editar
+                                            </button>
+                                        )}
+                                        {can("matricula", "delete") && (
+                                            <button
+                                                type="button"
+                                                onClick={() => handleDeleteClick(m)}
+                                                className="text-xs text-red-500 hover:underline"
+                                            >
+                                                Excluir
+                                            </button>
+                                        )}
+                                    </div>
                                 </td>
                             </tr>
                         ))}

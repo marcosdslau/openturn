@@ -2,6 +2,7 @@
 
 import React from "react";
 import Button from "@/components/ui/button/Button";
+import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 import PessoaPhoto from "./PessoaPhoto";
 import BiometryCapture from "./BiometryCapture";
 
@@ -33,6 +34,8 @@ export default function PessoaForm({
         PESGrupo: initialData?.PESGrupo || "",
         PESCartaoTag: initialData?.PESCartaoTag || "",
         PESAtivo: initialData?.PESAtivo ?? true,
+        PESLimiarFacial: initialData?.PESLimiarFacial ?? 680,
+        PESGemeo: initialData?.PESGemeo ?? false,
         PESFotoBase64: initialData?.PESFotoBase64 || null,
         PESFotoExtensao: initialData?.PESFotoExtensao || null,
     });
@@ -195,6 +198,31 @@ export default function PessoaForm({
                             className={inputClasses}
                             disabled={disabled}
                         />
+                    </div>
+
+                    <div className="md:col-span-2">
+                        <LimiarFacialSlider
+                            id="pessoa-limiar-facial"
+                            label="Limiar facial"
+                            value={formData.PESLimiarFacial}
+                            onChange={(n) => setFormData((prev) => ({ ...prev, PESLimiarFacial: n }))}
+                            disabled={disabled}
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-3 pt-2">
+                        <input
+                            id="PESGemeo"
+                            name="PESGemeo"
+                            type="checkbox"
+                            checked={formData.PESGemeo}
+                            onChange={handleChange}
+                            className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500"
+                            disabled={disabled}
+                        />
+                        <label htmlFor="PESGemeo" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                            Gemeo?
+                        </label>
                     </div>
 
                     {/* Status */}

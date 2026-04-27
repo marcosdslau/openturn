@@ -1,67 +1,67 @@
 import { IsString, IsOptional, IsInt, IsBoolean } from 'class-validator';
 
 export class CreateEquipamentoDto {
-    @IsOptional()
-    @IsString()
-    EQPDescricao?: string;
+  @IsOptional()
+  @IsString()
+  EQPDescricao?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPMarca?: string;
+  @IsOptional()
+  @IsString()
+  EQPMarca?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPModelo?: string;
+  @IsOptional()
+  @IsString()
+  EQPModelo?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPEnderecoIp?: string;
+  @IsOptional()
+  @IsString()
+  EQPEnderecoIp?: string;
 
-    @IsOptional()
-    @IsString()
-    deviceId?: string;
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
 
-    @IsOptional()
-    EQPConfig?: any;
+  @IsOptional()
+  EQPConfig?: any;
 
-    @IsOptional()
-    @IsBoolean()
-    EQPUsaAddon?: boolean;
+  @IsOptional()
+  @IsBoolean()
+  EQPUsaAddon?: boolean;
 
-    @IsOptional()
-    @IsInt()
-    INSInstituicaoCodigo?: number;
+  @IsOptional()
+  @IsInt()
+  INSInstituicaoCodigo?: number;
 }
 
 export class UpdateEquipamentoDto {
-    @IsOptional()
-    @IsString()
-    EQPDescricao?: string;
+  @IsOptional()
+  @IsString()
+  EQPDescricao?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPMarca?: string;
+  @IsOptional()
+  @IsString()
+  EQPMarca?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPModelo?: string;
+  @IsOptional()
+  @IsString()
+  EQPModelo?: string;
 
-    @IsOptional()
-    @IsString()
-    EQPEnderecoIp?: string;
+  @IsOptional()
+  @IsString()
+  EQPEnderecoIp?: string;
 
-    @IsOptional()
-    @IsString()
-    deviceId?: string;
+  @IsOptional()
+  @IsString()
+  deviceId?: string;
 
-    @IsOptional()
-    @IsBoolean()
-    EQPUsaAddon?: boolean;
+  @IsOptional()
+  @IsBoolean()
+  EQPUsaAddon?: boolean;
 
-    @IsOptional()
-    @IsBoolean()
-    EQPAtivo?: boolean;
+  @IsOptional()
+  @IsBoolean()
+  EQPAtivo?: boolean;
 
-    @IsOptional()
-    EQPConfig?: any;
+  @IsOptional()
+  EQPConfig?: any;
 }

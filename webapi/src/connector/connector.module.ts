@@ -6,8 +6,8 @@ import { RemoteSessionService } from './remote-session.service';
 import { RemoteSessionController } from './remote-session.controller';
 
 @Module({
-    controllers: [ConnectorController, RemoteSessionController],
-    providers: [ConnectorService, WsRelayGateway, RemoteSessionService],
-    exports: [ConnectorService, WsRelayGateway, RemoteSessionService],
+  controllers: [ConnectorController, RemoteSessionController],
+  providers: [ConnectorService, WsRelayGateway, RemoteSessionService],
+  exports: [ConnectorService, WsRelayGateway, RemoteSessionService],
 })
-export class ConnectorModule { }
+export class ConnectorModule {}

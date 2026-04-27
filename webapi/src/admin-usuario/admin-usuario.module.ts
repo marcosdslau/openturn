@@ -4,8 +4,8 @@ import { AdminUsuarioService } from './admin-usuario.service';
 import { AuthModule } from '../auth/auth.module';
 
 @Module({
-    imports: [AuthModule],
-    controllers: [AdminUsuarioController],
-    providers: [AdminUsuarioService],
+  imports: [AuthModule],
+  controllers: [AdminUsuarioController],
+  providers: [AdminUsuarioService],
 })
-export class AdminUsuarioModule { }
+export class AdminUsuarioModule {}
