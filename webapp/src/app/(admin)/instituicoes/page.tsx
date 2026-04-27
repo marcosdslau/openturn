@@ -5,6 +5,7 @@ import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import { useAuth } from "@/context/AuthContext";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
+import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 
 interface Instituicao {
     INSCodigo: number;
@@ -15,6 +16,7 @@ interface Instituicao {
     INSFusoHorario?: number;
     INSToleranciaEntradaMinutos?: number;
     INSToleranciaSaidaMinutos?: number;
+    INSTLimiarFacialDefault?: number;
     INSConfigHardware?: any;
     cliente?: { CLINome: string };
 }
@@ -61,6 +63,7 @@ export default function InstituicoesGlobalPage() {
         INSFusoHorario: number;
         INSToleranciaEntradaMinutos: number;
         INSToleranciaSaidaMinutos: number;
+        INSTLimiarFacialDefault: number;
         INSConfigHardware?: any;
     }>({
         INSNome: "",
@@ -69,6 +72,7 @@ export default function InstituicoesGlobalPage() {
         INSFusoHorario: -3,
         INSToleranciaEntradaMinutos: 15,
         INSToleranciaSaidaMinutos: 15,
+        INSTLimiarFacialDefault: 680,
     });
     const [saving, setSaving] = useState(false);
 
@@ -110,6 +114,7 @@ export default function InstituicoesGlobalPage() {
             INSFusoHorario: -3,
             INSToleranciaEntradaMinutos: 15,
             INSToleranciaSaidaMinutos: 15,
+            INSTLimiarFacialDefault: 680,
             INSConfigHardware: host
                 ? {
                     controlid: {
@@ -150,6 +155,7 @@ export default function InstituicoesGlobalPage() {
             INSFusoHorario: i.INSFusoHorario ?? -3,
             INSToleranciaEntradaMinutos: i.INSToleranciaEntradaMinutos ?? 15,
             INSToleranciaSaidaMinutos: i.INSToleranciaSaidaMinutos ?? 15,
+            INSTLimiarFacialDefault: i.INSTLimiarFacialDefault ?? 680,
             INSConfigHardware: newConfig
         });
         setShowModal(true);
@@ -408,6 +414,13 @@ export default function InstituicoesGlobalPage() {
                                     <p className="mt-1 text-[10px] text-gray-400">Janela em minutos em relação ao horário de referência de saída.</p>
                                 </div>
                             </div>
+
+                            <LimiarFacialSlider
+                                id="inst-limiar-facial"
+                                label="Limiar facial padrão (instituição)"
+                                value={form.INSTLimiarFacialDefault}
+                                onChange={(n) => setForm({ ...form, INSTLimiarFacialDefault: n })}
+                            />
 
                             <div className="pt-2 border-t border-gray-100 dark:border-gray-800">
                                 <h4 className="text-sm font-semibold text-gray-800 dark:text-white mb-2">Hardware (ControlID Monitor)</h4>

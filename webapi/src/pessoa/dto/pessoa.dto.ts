@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean, IsInt, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt, MaxLength, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
@@ -44,6 +44,16 @@ export class CreatePessoaDto {
     @IsOptional()
     @IsString()
     PESIdExterno?: string;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(1000)
+    PESLimiarFacial?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    PESGemeo?: boolean;
 
     @IsOptional()
     @IsInt()
@@ -94,6 +104,16 @@ export class UpdatePessoaDto {
     @IsOptional()
     @IsBoolean()
     PESAtivo?: boolean;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(1000)
+    PESLimiarFacial?: number;
+
+    @IsOptional()
+    @IsBoolean()
+    PESGemeo?: boolean;
 }
 
 export class QueryPessoaDto extends PaginationDto {

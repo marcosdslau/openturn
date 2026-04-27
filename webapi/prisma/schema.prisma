@@ -62,6 +62,8 @@ model INSInstituicao {
   INSToleranciaEntradaMinutos Int         @default(15)
   /// Tolerância em minutos (saída) — janela em relação ao horário de referência.
   INSToleranciaSaidaMinutos   Int         @default(15)
+  /// Limiar facial padrão (0–1000) para reconhecimento quando não houver valor na pessoa.
+  INSTLimiarFacialDefault     Int         @default(680)
   INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   INSControlidMonitorRotinaAtiva    Boolean @default(false)
   INSControlidMonitorRotinaCodigo   Int?
@@ -101,6 +103,8 @@ model PESPessoa {
   PESCartaoTag         String?
   PESTemplates         Json?
   PESAtivo             Boolean               @default(true)
+  PESLimiarFacial      Int                   @default(680)
+  PESGemeo             Boolean               @default(false)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime              @default(now())

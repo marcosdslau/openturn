@@ -11,6 +11,7 @@ import Select from "@/components/form/Select";
 import Button from "@/components/ui/button/Button";
 import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
+import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 
 interface ConnectorStatus {
     paired: boolean;
@@ -27,6 +28,7 @@ interface Instituicao {
     CLICodigo: number;
     cliente?: { CLINome: string };
     INSFusoHorario?: number;
+    INSTLimiarFacialDefault?: number;
     INSConfigHardware?: any;
     INSControlidMonitorRotinaAtiva?: boolean;
     INSControlidMonitorRotinaCodigo?: number | null;
@@ -81,6 +83,7 @@ export default function InstitutionERPPage() {
     const [autoExcluirLogs, setAutoExcluirLogs] = useState(true);
     const [diasRetencao, setDiasRetencao] = useState(90);
     const [insFusoHorario, setInsFusoHorario] = useState(-3);
+    const [instLimiarFacialDefault, setInstLimiarFacialDefault] = useState(680);
 
     // Hardware Monitor settings
     const [monitorIp, setMonitorIp] = useState("");
@@ -113,6 +116,7 @@ export default function InstitutionERPPage() {
             setAutoExcluirLogs(instRes.INSLogsAutoExcluir ?? true);
             setDiasRetencao(instRes.INSLogsDiasRetencao ?? 90);
             setInsFusoHorario(instRes.INSFusoHorario ?? -3);
+            setInstLimiarFacialDefault(instRes.INSTLimiarFacialDefault ?? 680);
 
             // Load Monitor Config
             const hwConfig = instRes.INSConfigHardware || {};
@@ -633,6 +637,21 @@ export default function InstitutionERPPage() {
                             onChange={(e: any) => setInsFusoHorario(parseInt(e.target.value, 10) || 0)}
                         />
                         <p className="mt-2 text-xs text-gray-500">Padrão -3 (ex. Brasília). Intervalo típico -12 a +14.</p>
+                    </div>
+                </ComponentCard>
+
+                <ComponentCard
+                    title="Reconhecimento facial"
+                    desc="Limiar padrão da instituição (0–1000). Pessoas podem ter limiar próprio no cadastro."
+                >
+                    <div className="max-w-md">
+                        <LimiarFacialSlider
+                            id="settings-inst-limiar-facial"
+                            label="Limiar facial padrão"
+                            value={instLimiarFacialDefault}
+                            onChange={setInstLimiarFacialDefault}
+                            disabled={saving}
+                        />
                     </div>
                 </ComponentCard>
 

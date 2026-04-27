@@ -52,6 +52,12 @@ export class CreateInstituicaoDto {
     INSToleranciaSaidaMinutos?: number;
 
     @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(1000)
+    INSTLimiarFacialDefault?: number;
+
+    @IsOptional()
     @IsObject()
     INSConfigHardware?: any;
 
@@ -112,6 +118,12 @@ export class UpdateInstituicaoDto {
     @Min(0)
     @Max(10080)
     INSToleranciaSaidaMinutos?: number;
+
+    @IsOptional()
+    @IsInt()
+    @Min(0)
+    @Max(1000)
+    INSTLimiarFacialDefault?: number;
 
     @IsOptional()
     @IsObject()

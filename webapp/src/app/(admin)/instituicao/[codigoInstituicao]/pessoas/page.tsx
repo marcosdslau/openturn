@@ -16,6 +16,7 @@ import PessoasFiltros, {
     buildPessoaListQuery,
     type PessoaFiltrosAplicados,
 } from "./components/PessoasFiltros";
+import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 
 interface Pessoa {
     PESCodigo: number;
@@ -29,6 +30,8 @@ interface Pessoa {
     PESFotoBase64: string | null;
     PESFotoExtensao: string | null;
     PESAtivo: boolean;
+    PESLimiarFacial?: number;
+    PESGemeo?: boolean;
 }
 
 interface Mapeamento {
@@ -64,7 +67,15 @@ export default function PessoasPage() {
     const deactivateModal = useModal();
     const mappingModal = useModal();
 
-    const [form, setForm] = useState({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
+    const [form, setForm] = useState({
+        PESNome: "",
+        PESDocumento: "",
+        PESEmail: "",
+        PESCelular: "",
+        PESCartaoTag: "",
+        PESLimiarFacial: 680,
+        PESGemeo: false,
+    });
     const [saving, setSaving] = useState(false);
     const [deactivateTarget, setDeactivateTarget] = useState<Pessoa | null>(null);
     const [editing, setEditing] = useState<Pessoa | null>(null);
@@ -107,7 +118,15 @@ export default function PessoasPage() {
     }, [loadGrupos]);
 
     const openNew = () => {
-        setForm({ PESNome: "", PESDocumento: "", PESEmail: "", PESCelular: "", PESCartaoTag: "" });
+        setForm({
+            PESNome: "",
+            PESDocumento: "",
+            PESEmail: "",
+            PESCelular: "",
+            PESCartaoTag: "",
+            PESLimiarFacial: 680,
+            PESGemeo: false,
+        });
         personModal.openModal();
     };
 
@@ -317,6 +336,26 @@ export default function PessoasPage() {
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
                         <input placeholder="Cartão/Tag" value={form.PESCartaoTag} onChange={(e) => setForm({ ...form, PESCartaoTag: e.target.value })}
                             className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none" />
+                        <LimiarFacialSlider
+                            id="modal-pessoa-limiar"
+                            label="Limiar facial"
+                            value={form.PESLimiarFacial}
+                            onChange={(n) => setForm({ ...form, PESLimiarFacial: n })}
+                            disabled={saving}
+                        />
+                        <div className="flex items-center gap-3 pt-1">
+                            <input
+                                id="modal-PESGemeo"
+                                type="checkbox"
+                                checked={form.PESGemeo}
+                                onChange={(e) => setForm({ ...form, PESGemeo: e.target.checked })}
+                                disabled={saving}
+                                className="h-4 w-4 rounded border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <label htmlFor="modal-PESGemeo" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                                Gemeo?
+                            </label>
+                        </div>
                     </div>
                     <div className="flex gap-3 justify-end pt-2">
                         <Button size="sm" variant="outline" onClick={personModal.closeModal}>Cancelar</Button>
