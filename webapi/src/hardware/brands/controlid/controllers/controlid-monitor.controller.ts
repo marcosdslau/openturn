@@ -45,7 +45,7 @@ export class ControlidMonitorController {
     return instEquip !== null && instEquip === codigoInstituicao;
   }
 
-  @Get('push')
+  /*@Get('push')
   async getPush(
     @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
     @Query('deviceId') deviceId: string,
@@ -190,7 +190,7 @@ export class ControlidMonitorController {
       `[${codigoInstituicao}] [ControlID] User Image Event received`,
     );
     return {};
-  }
+  }//*/
 
   @Post('catra_event')
   async catraEvent(

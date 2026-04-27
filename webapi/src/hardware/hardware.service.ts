@@ -1,7 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { EQPEquipamento } from '@prisma/client';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
+import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
 import { ControlIDConfig } from './brands/controlid/controlid.types';
 
@@ -66,6 +72,31 @@ export class HardwareService {
         this.logger.error(`Failed to sync device ${dev.EQPCodigo}`, e);
       }
     }
+  }
+
+  async applyEquipmentConfiguration(
+    instituicaoCodigo: number,
+    equipmentId: number,
+    type: HardwareEquipmentConfigType,
+  ): Promise<unknown> {
+    if (!Object.values(HardwareEquipmentConfigType).includes(type)) {
+      throw new BadRequestException(`Tipo de configuração inválido: ${type}`);
+    }
+
+    const device = await this.prisma.eQPEquipamento.findUnique({
+      where: { EQPCodigo: equipmentId },
+    });
+
+    if (!device) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    if (device.INSInstituicaoCodigo !== instituicaoCodigo) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    const provider = await this.instantiate(device);
+    return provider.applyEquipmentConfiguration(device, type);
   }
 
   async executeCommand(

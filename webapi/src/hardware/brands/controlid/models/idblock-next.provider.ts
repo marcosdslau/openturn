@@ -1,6 +1,9 @@
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import { AbstractControlIDProvider } from '../abstract/controlid.abstract';
-import { ControlIDConfig } from '../controlid.types';
+import {
+  ControlIDConfig,
+  ControlIdRelayMultiHostContext,
+} from '../controlid.types';
 import { IHttpTransport } from '../../../transport/http-transport.interface';
 
 /** Stub: iDBlock Next — especializar `*Impl` conforme necessário. */
@@ -9,7 +12,8 @@ export class IdBlockNextControlIDProvider extends AbstractControlIDProvider {
     config: ControlIDConfig,
     prisma: PrismaService,
     transport: IHttpTransport,
+    relayMultiHost?: ControlIdRelayMultiHostContext,
   ) {
-    super(config, prisma, transport);
+    super(config, prisma, transport, relayMultiHost);
   }
 }

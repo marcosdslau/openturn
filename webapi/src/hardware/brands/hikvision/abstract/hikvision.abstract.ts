@@ -1,6 +1,10 @@
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
+import { EQPEquipamento } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
-import { HardwareUser } from '../../../interfaces/hardware.types';
+import {
+  HardwareEquipmentConfigType,
+  HardwareUser,
+} from '../../../interfaces/hardware.types';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
 
 export abstract class AbstractHikvisionProvider implements IHardwareProvider {
@@ -107,6 +111,18 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
 
   async customCommand(cmd: string, params?: any): Promise<any> {
     this.logger.log(`[Hikvision] Custom command ${cmd}`);
+  }
+
+  async applyEquipmentConfiguration(
+    _device: EQPEquipamento,
+    _type: HardwareEquipmentConfigType,
+  ): Promise<unknown> {
+    throw new BadRequestException({
+      supported: false,
+      brand: 'Hikvision',
+      message:
+        'Configuração por tipo (GERAL/BOX/WEBHOOK) ainda não suportada para esta marca.',
+    });
   }
 
   async testConnection(): Promise<{

@@ -12,6 +12,7 @@ import {
   ControlIDConfig,
   ControlIDModel,
   ControlIDMode,
+  ControlIdRelayMultiHostContext,
   normalizeControlIdModel,
 } from './controlid.types';
 import { ControlIdDefaultProvider } from './models/controlid-default.provider';
@@ -58,7 +59,10 @@ export class ControlIdBrandFactory implements IBrandFactory {
       model: equipment.EQPModelo || cfg.model,
     };
 
-    const transport = await this.createTransport(equipment, effectiveConfig);
+    const { transport, relayMultiHost } = await this.createTransport(
+      equipment,
+      effectiveConfig,
+    );
     const model = normalizeControlIdModel(equipment.EQPModelo);
 
     switch (model) {
@@ -67,36 +71,42 @@ export class ControlIdBrandFactory implements IBrandFactory {
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
       case ControlIDModel.IDBLOCK_NEXT:
         return new IdBlockNextControlIDProvider(
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
       case ControlIDModel.IDBLOCK_FACIAL:
         return new IdBlockFacialControlIDProvider(
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
       case ControlIDModel.IDFACEMAX:
         return new IdFaceMaxControlIDProvider(
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
       case ControlIDModel.IDFACE:
         return new IdFaceControlIDProvider(
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
       default:
         return new ControlIdDefaultProvider(
           effectiveConfig,
           this.prisma,
           transport,
+          relayMultiHost,
         );
     }
   }
@@ -104,7 +114,10 @@ export class ControlIdBrandFactory implements IBrandFactory {
   private async createTransport(
     equipment: EQPEquipamento,
     config: ControlIDConfig,
-  ): Promise<IHttpTransport> {
+  ): Promise<{
+    transport: IHttpTransport;
+    relayMultiHost?: ControlIdRelayMultiHostContext;
+  }> {
     let host = config.host;
     let protocol = 'http';
 
@@ -119,18 +132,27 @@ export class ControlIdBrandFactory implements IBrandFactory {
       baseURL += `:${config.port || 80}`;
     }
 
+    let relayMultiHost: ControlIdRelayMultiHostContext | undefined;
     if (equipment.EQPUsaAddon) {
       const connector = await this.connectorService.findByInstituicao(
         equipment.INSInstituicaoCodigo,
       );
-      return new WsRelayHttpTransport(
-        this.wsRelay,
-        connector.CONCodigo,
-        equipment.EQPCodigo,
-        baseURL,
-      );
+      relayMultiHost = {
+        wsRelay: this.wsRelay,
+        connectorCodigo: connector.CONCodigo,
+        equipmentId: equipment.EQPCodigo,
+      };
+      return {
+        transport: new WsRelayHttpTransport(
+          this.wsRelay,
+          relayMultiHost.connectorCodigo,
+          equipment.EQPCodigo,
+          baseURL,
+        ),
+        relayMultiHost,
+      };
     }
 
-    return new DirectHttpTransport(baseURL);
+    return { transport: new DirectHttpTransport(baseURL) };
   }
 }

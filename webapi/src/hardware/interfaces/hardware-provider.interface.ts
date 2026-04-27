@@ -1,6 +1,7 @@
 import { HardwareUser } from './hardware.types';
+import { IHardwareEquipmentConfiguration } from './hardware-equipment-config.interface';
 
-export interface IHardwareProvider {
+export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
   syncPerson(
     equipmentId: number,
     person: HardwareUser,

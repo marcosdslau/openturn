@@ -1,3 +1,12 @@
+import type { WsRelayGateway } from '../../../connector/ws-relay.gateway';
+
+/** Contexto para abrir HTTP em outros hosts do mesmo equipamento quando usa addon (relay). */
+export type ControlIdRelayMultiHostContext = {
+  wsRelay: WsRelayGateway;
+  connectorCodigo: number;
+  equipmentId: number;
+};
+
 /** Modelos ControlID suportados pela factory (normalização em `normalizeControlIdModel`). */
 export enum ControlIDModel {
   IDBLOCK = 'IDBLOCK',

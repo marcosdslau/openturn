@@ -46,6 +46,9 @@ export default function ControlIDConfigPage() {
     const [usaAddon, setUsaAddon] = useState(false);
     const [sessions, setSessions] = useState<any[]>([]);
     const [loadingSessions, setLoadingSessions] = useState(false);
+    const [configureTypeLoading, setConfigureTypeLoading] = useState<
+        null | "GERAL" | "BOX" | "WEBHOOK"
+    >(null);
 
     const loadSessions = useCallback(async () => {
         if (!codigoEquipamento) return;
@@ -128,6 +131,38 @@ export default function ControlIDConfigPage() {
             loadEquipment();
         }
     }, [authLoading, mayMutateEquip, codigoEquipamento, codigoInstituicao, router, showToast, loadEquipment]);
+
+    const handleConfigureEquipment = async (type: "GERAL" | "BOX" | "WEBHOOK") => {
+        if (!equipment) return;
+        setConfigureTypeLoading(type);
+        try {
+            const res = await apiPost<{
+                applied?: boolean;
+                type?: string;
+                reason?: string;
+            }>(
+                `/instituicao/${codigoInstituicao}/hardware/${equipment.EQPCodigo}/configure-equipment`,
+                { type },
+            );
+            if (res && typeof res === "object" && res.applied === false) {
+                showToast(
+                    "info",
+                    "Configuração",
+                    res.reason || "Nenhuma alteração aplicada no equipamento.",
+                );
+            } else {
+                showToast("success", "Configuração", "Operação concluída com sucesso.");
+            }
+        } catch (error: any) {
+            const msg =
+                error?.message ||
+                error?.response?.data?.message ||
+                "Não foi possível aplicar a configuração.";
+            showToast("error", "Erro", String(msg));
+        } finally {
+            setConfigureTypeLoading(null);
+        }
+    };
 
     const handleSaveGeneral = async () => {
         if (!equipment) return;
@@ -261,6 +296,29 @@ export default function ControlIDConfigPage() {
                                     onChange={(e) => setUsaAddon(e.target.checked)}
                                     className="w-4 h-4 text-brand-600 border-gray-300 rounded focus:ring-brand-500 dark:bg-gray-700 dark:border-gray-600"
                                 />
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Configurações</p>
+                            <div className="flex flex-wrap gap-2">
+                                {(
+                                    [
+                                        { type: "GERAL" as const, label: "Geral" },
+                                        { type: "BOX" as const, label: "Box" },
+                                        { type: "WEBHOOK" as const, label: "Webhooks" },
+                                    ] as const
+                                ).map(({ type, label }) => (
+                                    <Button
+                                        key={type}
+                                        variant="outline"
+                                        size="sm"
+                                        disabled={configureTypeLoading !== null}
+                                        onClick={() => handleConfigureEquipment(type)}
+                                    >
+                                        {configureTypeLoading === type ? "Aplicando..." : label}
+                                    </Button>
+                                ))}
                             </div>
                         </div>
 

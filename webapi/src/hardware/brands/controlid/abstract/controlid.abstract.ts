@@ -1,9 +1,29 @@
-import { Logger } from '@nestjs/common';
+import { BadRequestException, Logger } from '@nestjs/common';
+import { EQPEquipamento } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
-import { HardwareUser } from '../../../interfaces/hardware.types';
+import {
+  HardwareEquipmentConfigType,
+  HardwareUser,
+} from '../../../interfaces/hardware.types';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
-import { ControlIDConfig } from '../controlid.types';
+import {
+  ControlIDConfig,
+  ControlIdRelayMultiHostContext,
+} from '../controlid.types';
 import { IHttpTransport } from '../../../transport/http-transport.interface';
+import { DirectHttpTransport } from '../../../transport/direct-http.transport';
+import { WsRelayHttpTransport } from '../../../transport/ws-relay-http.transport';
+
+/** Trecho de `INSInstituicao.INSConfigHardware` usado para Monitor Control iD. */
+type InsConfigHardwareMonitorJson = {
+  controlid?: {
+    monitor?: {
+      ip?: string;
+      port?: number | string;
+      path?: string;
+    };
+  };
+};
 
 export abstract class AbstractControlIDProvider implements IHardwareProvider {
   protected readonly logger = new Logger(AbstractControlIDProvider.name);
@@ -13,6 +33,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     protected readonly config: ControlIDConfig,
     protected readonly prisma: PrismaService,
     protected readonly transport: IHttpTransport,
+    protected readonly relayMultiHost?: ControlIdRelayMultiHostContext,
   ) {}
 
   private getErrorDetails(error: any): string {
@@ -528,6 +549,350 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         sync: false,
       });
     });
+  }
+
+  /** 0 = horário (clockwise), 1 = anti-horário (counter_clockwise) — alinhado ao cadastro do equipamento. */
+  private resolveCatraSideToEnter(device: EQPEquipamento): '0' | '1' {
+    const cfg = (device.EQPConfig || {}) as unknown as ControlIDConfig;
+    if (cfg.entry_direction === 'counter_clockwise') return '1';
+    if (cfg.entry_direction === 'clockwise') return '0';
+    if (cfg.entry_side === 'left') return '1';
+    if (cfg.entry_side === 'right') return '0';
+    return '0';
+  }
+
+  /** Remove protocolo e path; devolve host com porta se vier no cadastro (ex.: `192.168.1.1:55580`). */
+  private parseHostSpec(raw: string): {
+    protocol: string;
+    hostWithOptionalPort: string;
+  } {
+    let s = raw.trim();
+    let protocol = 'http';
+    if (s.includes('://')) {
+      const idx = s.indexOf('://');
+      protocol = s.slice(0, idx).toLowerCase() || 'http';
+      s = s.slice(idx + 3);
+    }
+    s = (s.split('/')[0] ?? s).trim();
+    return { protocol, hostWithOptionalPort: s };
+  }
+
+  /**
+   * Chave para deduplicar / comparar endpoint (host + porta explícita ou porta default de `config`).
+   * Evita fundir `187.94.98.90:55580` com `187.94.98.90:55581`.
+   */
+  private monitorEndpointKey(hostRaw: string | null | undefined): string {
+    if (hostRaw == null) return '';
+    const { hostWithOptionalPort } = this.parseHostSpec(String(hostRaw));
+    const h = hostWithOptionalPort.toLowerCase();
+    if (!h) return '';
+    const defaultPort = this.config.port ?? 80;
+
+    const ipv4 = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?$/.exec(h);
+    if (ipv4) {
+      const ip = ipv4[1];
+      const p = ipv4[2];
+      return p !== undefined ? `${ip}:${p}` : `${ip}:${defaultPort}`;
+    }
+
+    if (h.startsWith('[')) {
+      const close = h.indexOf(']');
+      if (close > 0) {
+        const addr = h.slice(0, close + 1).toLowerCase();
+        const rest = h.slice(close + 1);
+        if (rest.startsWith(':') && /^\d{1,5}$/.test(rest.slice(1))) {
+          return `${addr}:${rest.slice(1)}`;
+        }
+        return `${addr}:${defaultPort}`;
+      }
+    }
+
+    const lastColon = h.lastIndexOf(':');
+    if (lastColon > 0 && /^\d{1,5}$/.test(h.slice(lastColon + 1))) {
+      return h;
+    }
+
+    return `${h}:${defaultPort}`;
+  }
+
+  /**
+   * BOX (`sec_box`) só no equipamento primário: cadastro com IP principal e Device ID,
+   * e sessão HTTP apontando para esse IP (não leitor entrada/saída).
+   */
+  private assertBoxConfigOnPrimaryDevice(device: EQPEquipamento): void {
+    const ip = (device.EQPEnderecoIp ?? '').trim();
+    const devId = (device.deviceId ?? '').trim();
+    if (!ip) {
+      throw new BadRequestException(
+        'Configuração BOX só se aplica ao equipamento primário: informe o endereço IP principal (EQPEnderecoIp).',
+      );
+    }
+    if (!devId) {
+      throw new BadRequestException(
+        'Configuração BOX só se aplica ao equipamento primário: informe o Device ID do Monitor (EQPDeviceId).',
+      );
+    }
+    const sessionHost = this.monitorEndpointKey(this.config.host);
+    const primaryHost = this.monitorEndpointKey(device.EQPEnderecoIp);
+    if (!sessionHost || sessionHost !== primaryHost) {
+      throw new BadRequestException(
+        `Configuração BOX deve ser enviada ao host primário do cadastro (${ip}). A conexão atual não corresponde a esse IP (ex.: leitor facial secundário).`,
+      );
+    }
+  }
+
+  private configGeral(device: EQPEquipamento): unknown {
+    console.log(
+      `[ControlID] configGeral equipamento=${device.EQPCodigo} inst=${device.INSInstituicaoCodigo}`,
+    );
+    this.logger.log(`[ControlID] configGeral EQP=${device.EQPCodigo}`);
+    return { applied: true, type: HardwareEquipmentConfigType.GERAL };
+  }
+
+  private async configBox(device: EQPEquipamento): Promise<unknown> {
+    this.assertBoxConfigOnPrimaryDevice(device);
+    const catra_side_to_enter = this.resolveCatraSideToEnter(device);
+    const payload = {
+      sec_box: {
+        catra_role: '1',
+        catra_default_fsm: '0',
+        catra_side_to_enter,
+      },
+    };
+    const res = await this.postWithRetry('/set_configuration.fcgi', payload);
+    return {
+      applied: true,
+      type: HardwareEquipmentConfigType.BOX,
+      sec_box: payload.sec_box,
+      response: res.data,
+    };
+  }
+
+  /** IPs distintos: principal, entrada e saída (faciais), para aplicar `monitor` em cada aparelho. */
+  private collectMonitorTargetHosts(device: EQPEquipamento): string[] {
+    const cfg = (device.EQPConfig || {}) as unknown as ControlIDConfig;
+    const candidates: string[] = [];
+    const add = (s: string | null | undefined) => {
+      const t = (s ?? '').trim();
+      if (t) candidates.push(t);
+    };
+    add(device.EQPEnderecoIp);
+    add(cfg.ip_entry);
+    add(cfg.ip_exit);
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const raw of candidates) {
+      const key = this.monitorEndpointKey(raw);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(raw);
+    }
+    return out;
+  }
+
+  private buildBaseUrlForHost(hostRaw: string): string {
+    const { protocol, hostWithOptionalPort } = this.parseHostSpec(hostRaw);
+    const host = hostWithOptionalPort;
+    const defaultPort = this.config.port ?? 80;
+
+    const ipv4 = /^(\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?$/.exec(
+      host.toLowerCase(),
+    );
+    if (ipv4) {
+      const ip = ipv4[1];
+      const explicit = ipv4[2];
+      const portNum = explicit !== undefined ? explicit : String(defaultPort);
+      return `${protocol}://${ip}:${portNum}`;
+    }
+
+    if (host.startsWith('[')) {
+      const close = host.indexOf(']');
+      if (close > 0) {
+        const addr = host.slice(0, close + 1);
+        const rest = host.slice(close + 1);
+        if (rest.startsWith(':') && /^\d{1,5}$/.test(rest.slice(1))) {
+          return `${protocol}://${addr}${rest}`;
+        }
+        return `${protocol}://${addr}:${defaultPort}`;
+      }
+    }
+
+    const lastColon = host.lastIndexOf(':');
+    if (lastColon > 0 && /^\d{1,5}$/.test(host.slice(lastColon + 1))) {
+      return `${protocol}://${host}`;
+    }
+
+    return `${protocol}://${host}:${defaultPort}`;
+  }
+
+  private transportForHost(
+    device: EQPEquipamento,
+    hostRaw: string,
+  ): IHttpTransport {
+    const baseURL = this.buildBaseUrlForHost(hostRaw);
+    if (device.EQPUsaAddon) {
+      if (!this.relayMultiHost) {
+        throw new BadRequestException(
+          'Equipamento com addon exige contexto relay para configurar o monitor em múltiplos hosts.',
+        );
+      }
+      return new WsRelayHttpTransport(
+        this.relayMultiHost.wsRelay,
+        this.relayMultiHost.connectorCodigo,
+        this.relayMultiHost.equipmentId,
+        baseURL,
+      );
+    }
+    return new DirectHttpTransport(baseURL);
+  }
+
+  /** Login + set_configuration em um transport isolado (não usa `this.session`). */
+  private async sendSetConfigurationOnHost(
+    transport: IHttpTransport,
+    payload: unknown,
+  ): Promise<unknown> {
+    let lastError: any;
+    const attempts = 5;
+    const delay = 2000;
+    for (let i = 0; i < attempts; i++) {
+      try {
+        const loginRes = await transport.post('/login.fcgi', {
+          login: this.config.user,
+          password: this.config.pass,
+        });
+        const session = (loginRes.data as any)?.session ?? null;
+        if (!session) {
+          throw new Error('Device login failed: empty session');
+        }
+        const res = await transport.post(
+          `/set_configuration.fcgi?session=${session}`,
+          payload,
+        );
+        return res.data;
+      } catch (error: any) {
+        lastError = error;
+        const message = this.getErrorDetails(error);
+        const isRetryable =
+          message === 'Invalid session' ||
+          message === 'write ECONNABORTED' ||
+          message === 'read ECONNRESET' ||
+          message === 'socket hang up' ||
+          (error.response?.status === 401 && i < attempts - 1);
+        if (isRetryable && i < attempts - 1) {
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw lastError;
+  }
+
+  private async configMonitor(device: EQPEquipamento): Promise<unknown> {
+    const inst = await this.prisma.iNSInstituicao.findUnique({
+      where: { INSCodigo: device.INSInstituicaoCodigo },
+      select: { INSConfigHardware: true },
+    });
+    const hw = (inst?.INSConfigHardware ?? null) as InsConfigHardwareMonitorJson | null;
+    const monitor = hw?.controlid?.monitor;
+    const hostname = (monitor?.ip ?? '').trim();
+    const path =
+      monitor?.path !== undefined && monitor?.path !== null
+        ? String(monitor.path)
+        : '';
+    const portRaw = monitor?.port;
+    const port =
+      portRaw !== undefined && portRaw !== null && String(portRaw).trim() !== ''
+        ? String(portRaw).trim()
+        : '';
+
+    if (!hostname) {
+      throw new BadRequestException(
+        'Defina INSConfigHardware.controlid.monitor.ip (hostname) na instituição para configurar o Monitor (WEBHOOK).',
+      );
+    }
+    if (!port) {
+      throw new BadRequestException(
+        'Defina INSConfigHardware.controlid.monitor.port na instituição para configurar o Monitor (WEBHOOK).',
+      );
+    }
+
+    const payload = {
+      monitor: {
+        path,
+        hostname,
+        port,
+        request_timeout: '8000',
+        inform_access_event_id: '1',
+      },
+    };
+
+    const hosts = this.collectMonitorTargetHosts(device);
+    if (hosts.length === 0) {
+      throw new BadRequestException(
+        'Nenhum host para aplicar o monitor: informe EQPEnderecoIp e/ou ip_entry e ip_exit no equipamento.',
+      );
+    }
+
+    const results: Array<{
+      host: string;
+      ok: boolean;
+      data?: unknown;
+      error?: string;
+    }> = [];
+
+    for (const host of hosts) {
+      try {
+        const transport = this.transportForHost(device, host);
+        const data = await this.sendSetConfigurationOnHost(transport, payload);
+        results.push({ host, ok: true, data });
+      } catch (error: any) {
+        results.push({
+          host,
+          ok: false,
+          error: this.getErrorDetails(error),
+        });
+      }
+    }
+
+    const failures = results.filter((r) => !r.ok);
+    if (failures.length > 0) {
+      throw new BadRequestException({
+        message:
+          'Falha ao configurar o monitor em um ou mais hosts do equipamento.',
+        results,
+      });
+    }
+
+    return {
+      applied: true,
+      type: HardwareEquipmentConfigType.WEBHOOK,
+      monitor: payload.monitor,
+      results,
+    };
+  }
+
+  async applyEquipmentConfiguration(
+    device: EQPEquipamento,
+    type: HardwareEquipmentConfigType,
+  ): Promise<unknown> {
+    this.logger.log(
+      `[ControlID] applyEquipmentConfiguration EQP=${device.EQPCodigo} tipo=${type}`,
+    );
+    switch (type) {
+      case HardwareEquipmentConfigType.GERAL:
+        return this.configGeral(device);
+      case HardwareEquipmentConfigType.BOX:
+        return await this.configBox(device);
+      case HardwareEquipmentConfigType.WEBHOOK:
+        return await this.configMonitor(device);
+      default: {
+        const _exhaustive: never = type;
+        throw new BadRequestException(
+          `Tipo de configuração não suportado: ${_exhaustive}`,
+        );
+      }
+    }
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

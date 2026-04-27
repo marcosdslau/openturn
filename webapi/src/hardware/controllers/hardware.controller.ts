@@ -12,6 +12,7 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/permissions.guard';
 import { RequirePermission } from '../../auth/permissions.decorator';
 import { TestConnectionDto } from '../dto/test-connection.dto';
+import { ConfigureEquipmentDto } from '../dto/configure-equipment.dto';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('instituicao/:instituicaoCodigo/hardware')
@@ -28,6 +29,23 @@ export class HardwareController {
     this.logger.log(`[${instituicaoCodigo}] Starting full synchronization...`);
     await this.hardwareService.syncAll(instituicaoCodigo);
     return { message: 'Synchronization started' };
+  }
+
+  @Post(':equipmentId/configure-equipment')
+  @RequirePermission('equipamento', 'update')
+  async configureEquipment(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('equipmentId', ParseIntPipe) equipmentId: number,
+    @Body() dto: ConfigureEquipmentDto,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] configure-equipment type=${dto.type} on device ${equipmentId}`,
+    );
+    return await this.hardwareService.applyEquipmentConfiguration(
+      instituicaoCodigo,
+      equipmentId,
+      dto.type,
+    );
   }
 
   @Post(':equipmentId/command')

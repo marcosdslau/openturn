@@ -2,7 +2,6 @@ import { AcaoPassagem } from '@prisma/client';
 import {
   ControlIDConfig,
   ControlidDeviceMatchField,
-  EntrySide,
 } from '../controlid.types';
 
 /**
@@ -27,30 +26,44 @@ export function extractControlidCatraRotationCode(body: any): number | null {
   return null;
 }
 
-/** `entry_side` explícito ou derivado de `entry_direction` legado. */
-export function effectiveEntrySide(config: ControlIDConfig): EntrySide {
-  if (config.entry_side === 'left' || config.entry_side === 'right') {
-    return config.entry_side;
-  }
-  if (config.entry_direction === 'counter_clockwise') return 'left';
-  return 'right';
-}
-
 function nativeControlidAcao(rotation: number | null): AcaoPassagem {
   if (rotation === 8) return AcaoPassagem.SAIDA;
   return AcaoPassagem.ENTRADA;
 }
 
-function acaoFromEquipmentSide(
-  side: EntrySide,
+/**
+ * Determina ENTRADA/SAIDA pelo IP da perna que disparou o evento, identificada
+ * via `body.device_id` casando com `EQPConfig.deviceId_entry`/`deviceId_exit`.
+ * `rotation` (7 ou 8) é apenas validação de tipo de evento válido — não dita direção.
+ *
+ * Fallback: quando `device_id` casa com o device principal (`config.deviceId`),
+ * compara `config.host` com `config.ip_entry`/`config.ip_exit`. Se nada casar, retorna `null`.
+ */
+function acaoFromEquipmentEventIp(
+  config: ControlIDConfig,
+  body: any,
   rotation: number | null,
 ): AcaoPassagem | null {
   if (rotation !== 7 && rotation !== 8) return null;
-  const clockwise = rotation === 7;
-  const entradaIsClockwise = side === 'right';
-  return clockwise === entradaIsClockwise
-    ? AcaoPassagem.ENTRADA
-    : AcaoPassagem.SAIDA;
+
+  const deviceIdStr = body?.device_id != null ? String(body.device_id) : '';
+  if (!deviceIdStr) return null;
+
+  const idEntry = config.deviceId_entry?.trim();
+  const idExit = config.deviceId_exit?.trim();
+  if (idEntry && deviceIdStr === idEntry) return AcaoPassagem.ENTRADA;
+  if (idExit && deviceIdStr === idExit) return AcaoPassagem.SAIDA;
+
+  const idMain = config.deviceId?.trim();
+  if (idMain && deviceIdStr === idMain) {
+    const host = normalizeControlidHostOrIp(config.host);
+    const ipEntry = normalizeControlidHostOrIp(config.ip_entry);
+    const ipExit = normalizeControlidHostOrIp(config.ip_exit);
+    if (host && ipEntry && host === ipEntry) return AcaoPassagem.ENTRADA;
+    if (host && ipExit && host === ipExit) return AcaoPassagem.SAIDA;
+  }
+
+  return null;
 }
 
 /** Normaliza host/IP para comparação (sem porta, sem protocolo, minúsculas). */
@@ -189,9 +202,8 @@ export function resolveControlidCatraAcaoPassagem(params: {
     return nativeControlidAcao(rotation);
   }
 
-  const side = effectiveEntrySide(params.config);
-  const fromSide = acaoFromEquipmentSide(side, rotation);
-  if (fromSide != null) return fromSide;
+  const fromIp = acaoFromEquipmentEventIp(params.config, params.body, rotation);
+  if (fromIp != null) return fromIp;
 
   return nativeControlidAcao(rotation);
 }
