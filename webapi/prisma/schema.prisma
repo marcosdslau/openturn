@@ -68,6 +68,9 @@ model INSInstituicao {
   INSControlidMonitorRotinaAtiva    Boolean @default(false)
   INSControlidMonitorRotinaCodigo   Int?
   controlidMonitorRotina            ROTRotina?            @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
+  /// Rotina WEBHOOK opcional: "Sincronizar todos" nos equipamentos enfileira uma execução por pessoa ativa em vez do sync físico.
+  INSRotinaPessoasCodigo            Int?
+  rotinaPessoasWebhook              ROTRotina?            @relation("InstituicaoRotinaPessoasWebhook", fields: [INSRotinaPessoasCodigo], references: [ROTCodigo], onDelete: SetNull)
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -377,6 +380,7 @@ model ROTRotina {
   INSInstituicaoCodigo Int
   instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   instituicoesControlidMonitor INSInstituicao[] @relation("InstituicaoControlidMonitorRotina")
+  instituicoesRotinaPessoasWebhook INSInstituicao[] @relation("InstituicaoRotinaPessoasWebhook")
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
   createdBy             Int

@@ -5,7 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EQPEquipamento } from '@prisma/client';
+import { EQPEquipamento, HttpMetodo, TipoRotina } from '@prisma/client';
+import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
@@ -18,6 +19,7 @@ export class HardwareService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly hardwareFactory: HardwareFactory,
+    private readonly rotinaQueueService: RotinaQueueService,
   ) {}
 
   async instantiate(
@@ -28,6 +30,64 @@ export class HardwareService {
   }
 
   async syncAll(instituicaoId: number) {
+    const inst = await this.prisma.iNSInstituicao.findUnique({
+      where: { INSCodigo: instituicaoId },
+      select: { INSRotinaPessoasCodigo: true },
+    });
+    const rotinaPessoasCodigo = inst?.INSRotinaPessoasCodigo ?? null;
+
+    if (rotinaPessoasCodigo != null) {
+      const rotina = await this.prisma.rOTRotina.findFirst({
+        where: {
+          ROTCodigo: rotinaPessoasCodigo,
+          INSInstituicaoCodigo: instituicaoId,
+          ROTTipo: TipoRotina.WEBHOOK,
+          ROTAtivo: true,
+        },
+      });
+      const pathRaw = rotina?.ROTWebhookPath?.trim();
+      if (rotina && pathRaw && rotina.ROTWebhookMetodo) {
+        const path = pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`;
+        const method = rotina.ROTWebhookMetodo;
+        const people = await this.prisma.pESPessoa.findMany({
+          where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
+        });
+        for (const person of people) {
+          const body = {
+            PESCodigo: person.PESCodigo,
+            PESNome: person.PESNome,
+          };
+          const query =
+            method === HttpMetodo.GET
+              ? {
+                  PESCodigo: String(person.PESCodigo),
+                  PESNome: person.PESNome,
+                }
+              : {};
+          await this.rotinaQueueService.enqueue(
+            rotina.ROTCodigo,
+            instituicaoId,
+            'WEBHOOK',
+            {
+              body,
+              query,
+              headers: {},
+              method,
+              path,
+              params: {},
+            },
+          );
+        }
+        this.logger.log(
+          `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${people.length} job(s) enfileirado(s)`,
+        );
+        return;
+      }
+      this.logger.warn(
+        `[${instituicaoId}] INSRotinaPessoasCodigo=${rotinaPessoasCodigo} inválido ou inativo; usando sync físico.`,
+      );
+    }
+
     const devices = await this.prisma.eQPEquipamento.findMany({
       where: { INSInstituicaoCodigo: instituicaoId, EQPAtivo: true },
     });

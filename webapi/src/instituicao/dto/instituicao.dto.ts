@@ -77,6 +77,11 @@ export class CreateInstituicaoDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   INSControlidMonitorRotinaCodigo?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsInt()
+  INSRotinaPessoasCodigo?: number | null;
 }
 
 export class UpdateInstituicaoDto {
@@ -145,6 +150,11 @@ export class UpdateInstituicaoDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   INSControlidMonitorRotinaCodigo?: number | null;
+
+  @IsOptional()
+  @ValidateIf((_, v) => v !== null && v !== undefined)
+  @IsInt()
+  INSRotinaPessoasCodigo?: number | null;
 }
 
 export class SetWorkerStatusBodyDto {

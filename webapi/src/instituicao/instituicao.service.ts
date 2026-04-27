@@ -45,6 +45,7 @@ export class InstituicaoService {
       ...(dto as Prisma.INSInstituicaoUncheckedCreateInput),
       INSControlidMonitorRotinaAtiva: false,
       INSControlidMonitorRotinaCodigo: null,
+      INSRotinaPessoasCodigo: null,
     };
     const instituicao = await this.prisma.iNSInstituicao.create({ data });
     await this.publishQueueRefresh(instituicao, 'created');
@@ -124,6 +125,35 @@ export class InstituicaoService {
       if (!rotina.ROTWebhookPath?.trim() || !rotina.ROTWebhookMetodo) {
         throw new BadRequestException(
           'A rotina deve ter path e método HTTP de webhook configurados.',
+        );
+      }
+    }
+
+    if (dto.INSRotinaPessoasCodigo != null) {
+      const codigoPessoas = dto.INSRotinaPessoasCodigo;
+      const rotinaPessoas = await this.prisma.rOTRotina.findFirst({
+        where: {
+          ROTCodigo: codigoPessoas,
+          INSInstituicaoCodigo: id,
+          ROTTipo: TipoRotina.WEBHOOK,
+        },
+      });
+      if (!rotinaPessoas) {
+        throw new BadRequestException(
+          'Rotina WEBHOOK (sincronização de pessoas) não encontrada para esta instituição.',
+        );
+      }
+      if (!rotinaPessoas.ROTAtivo) {
+        throw new BadRequestException(
+          'A rotina de sincronização de pessoas está inativa.',
+        );
+      }
+      if (
+        !rotinaPessoas.ROTWebhookPath?.trim() ||
+        !rotinaPessoas.ROTWebhookMetodo
+      ) {
+        throw new BadRequestException(
+          'A rotina de sincronização de pessoas deve ter path e método HTTP de webhook configurados.',
         );
       }
     }
