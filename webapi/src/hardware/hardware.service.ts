@@ -5,8 +5,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
-import { EQPEquipamento, HttpMetodo, PESPessoa, TipoRotina } from '@prisma/client';
+import {
+  EQPEquipamento,
+  HttpMetodo,
+  PESPessoa,
+  StatusExecucao,
+  TipoRotina,
+} from '@prisma/client';
 import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
+import { RotinaJobData } from '../rotina/queue/rotina-job.dto';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
@@ -72,39 +79,119 @@ export class HardwareService {
           where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
         });
         let enfileirados = 0;
+        const MAX_TENTATIVAS = 3;
+        const BACKOFF_MS = [200, 500, 1000];
+        const MAX_TENTATIVAS_PESSOA = 3;
+        const BACKOFF_PESSOA_MS = [500, 1500, 3000];
+
         for (const person of people) {
-          try {
-            const body = {
-              PESCodigo: person.PESCodigo,
-              PESNome: person.PESNome,
-            };
-            const query =
-              method === HttpMetodo.GET
-                ? {
-                    PESCodigo: String(person.PESCodigo),
-                    PESNome: person.PESNome,
+          const body = {
+            PESCodigo: person.PESCodigo,
+            PESNome: person.PESNome,
+          };
+          const query =
+            method === HttpMetodo.GET
+              ? {
+                  PESCodigo: String(person.PESCodigo),
+                  PESNome: person.PESNome,
+                }
+              : {};
+          const requestEnvelope = {
+            body,
+            query,
+            headers: {},
+            method,
+            path,
+            params: {},
+          };
+
+          let exeIdComitado: string | null = null;
+          let lastPersonError: unknown = null;
+
+          for (
+            let pessoaAttempt = 1;
+            pessoaAttempt <= MAX_TENTATIVAS_PESSOA;
+            pessoaAttempt++
+          ) {
+            try {
+              exeIdComitado = await this.prisma.$transaction(
+                async (tx) => {
+                  const exec = await tx.rOTExecucaoLog.create({
+                    data: {
+                      ROTCodigo: rotina.ROTCodigo,
+                      INSInstituicaoCodigo: instituicaoId,
+                      EXEStatus: StatusExecucao.EM_EXECUCAO,
+                      EXEInicio: new Date(),
+                      EXETrigger: 'WEBHOOK',
+                      EXERequestBody: body,
+                      EXERequestParams: {},
+                      EXERequestPath: path,
+                    },
+                  });
+
+                  const jobData: RotinaJobData = {
+                    exeId: exec.EXEIdExterno,
+                    rotinaCodigo: rotina.ROTCodigo,
+                    instituicaoCodigo: instituicaoId,
+                    trigger: 'WEBHOOK',
+                    requestEnvelope,
+                    enqueuedAt: new Date().toISOString(),
+                  };
+
+                  let lastError: unknown = null;
+                  for (let attempt = 1; attempt <= MAX_TENTATIVAS; attempt++) {
+                    try {
+                      await this.rotinaQueueService.publishJobWithConfirm(
+                        jobData,
+                        exec.EXEIdExterno,
+                      );
+                      return exec.EXEIdExterno;
+                    } catch (e) {
+                      lastError = e;
+                      this.logger.warn(
+                        `[${instituicaoId}] Publicação falhou tentativa ${attempt}/${MAX_TENTATIVAS} ` +
+                          `(PESCodigo=${person.PESCodigo}, exeId=${exec.EXEIdExterno}): ${(e as Error)?.message}`,
+                      );
+                      if (attempt < MAX_TENTATIVAS) {
+                        await new Promise((r) =>
+                          setTimeout(r, BACKOFF_MS[attempt - 1]),
+                        );
+                      }
+                    }
                   }
-                : {};
-            await this.rotinaQueueService.enqueue(
-              rotina.ROTCodigo,
-              instituicaoId,
-              'WEBHOOK',
-              {
-                body,
-                query,
-                headers: {},
-                method,
-                path,
-                params: {},
-              },
-            );
-            enfileirados++;
-          } catch (e) {
-            this.logger.error(
-              `[${instituicaoId}] Falha ao enfileirar webhook sync pessoa PESCodigo=${person.PESCodigo}`,
-              e,
-            );
+                  throw new Error(
+                    `Rabbit publish falhou após ${MAX_TENTATIVAS} tentativas: ${(lastError as Error)?.message}`,
+                  );
+                },
+                { timeout: 30000, maxWait: 5000 },
+              );
+
+              enfileirados++;
+              break;
+            } catch (e) {
+              lastPersonError = e;
+              this.logger.warn(
+                `[${instituicaoId}] Tentativa ${pessoaAttempt}/${MAX_TENTATIVAS_PESSOA} falhou para PESCodigo=${person.PESCodigo}: ${(e as Error)?.message}`,
+              );
+              if (pessoaAttempt < MAX_TENTATIVAS_PESSOA) {
+                await new Promise((r) =>
+                  setTimeout(r, BACKOFF_PESSOA_MS[pessoaAttempt - 1]),
+                );
+              }
+            }
           }
+
+          if (!exeIdComitado) {
+            this.logger.error(
+              `[${instituicaoId}] Pessoa PESCodigo=${person.PESCodigo} desistida após ${MAX_TENTATIVAS_PESSOA} tentativas: ${(lastPersonError as Error)?.message}`,
+              lastPersonError,
+            );
+            continue;
+          }
+
+          void this.rotinaQueueService
+            .setPendingMarker(exeIdComitado)
+            .catch(() => {});
         }
         this.logger.log(
           `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${enfileirados}/${people.length} job(s) enfileirado(s)`,

@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
@@ -604,6 +605,23 @@ export default function EquipamentosPage() {
                     </div>
                 </div>
             </Modal >
+
+            {typeof document !== "undefined" &&
+                syncingAll &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-gray-900/40 backdrop-blur-[2px] dark:bg-black/55"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                    >
+                        <div className="flex flex-col items-center gap-4 rounded-2xl bg-white px-8 py-7 shadow-xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-white/10">
+                            <RefreshIcon className="h-10 w-10 animate-spin text-brand-500" aria-hidden />
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Processando…</p>
+                        </div>
+                    </div>,
+                    document.body
+                )}
         </div >
     );
 }

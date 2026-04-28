@@ -39,6 +39,7 @@ export class RotinaQueueService {
   private readonly logger = new Logger(RotinaQueueService.name);
   private connectionPromise: Promise<amqp.ChannelModel> | null = null;
   private channelPromise: Promise<amqp.Channel> | null = null;
+  private confirmChannelPromise: Promise<amqp.ConfirmChannel> | null = null;
   private redis: Redis | null = null;
 
   constructor(private readonly prisma: PrismaService) {
@@ -146,7 +147,7 @@ export class RotinaQueueService {
   }
 
   /** Marcador opcional (UX): worker remove ao consumir. TTL evita chave órfã se o Redis da API reiniciar. */
-  private async setPendingMarker(exeId: string): Promise<void> {
+  async setPendingMarker(exeId: string): Promise<void> {
     if (!this.redis) return;
     const ttl = Math.max(
       60,
@@ -510,6 +511,36 @@ export class RotinaQueueService {
     );
   }
 
+  /**
+   * Publica no exchange com Ack do broker (`ConfirmChannel`).
+   * Usado onde precisa garantir aceite antes de commit em banco (ex.: sync webhook por pessoa).
+   */
+  async publishJobWithConfirm(data: RotinaJobData, exeId: string): Promise<void> {
+    const channel = await this.getConfirmChannel();
+    const properties: Options.Publish = {
+      persistent: true,
+      messageId: exeId,
+      correlationId: exeId,
+      contentType: 'application/json',
+      timestamp: Date.now(),
+      headers: {
+        'x-rotina-retry-count': 0,
+      },
+    };
+
+    const payload = Buffer.from(JSON.stringify(data));
+    const ok = channel.publish(
+      getJobsExchange(),
+      String(data.instituicaoCodigo),
+      payload,
+      properties,
+    );
+    if (!ok) {
+      throw new Error('Buffer do RabbitMQ cheio (publish retornou false)');
+    }
+    await channel.waitForConfirms();
+  }
+
   private async getChannel(): Promise<amqp.Channel> {
     if (!this.channelPromise) {
       this.channelPromise = this.getConnection().then(async (connection) => {
@@ -521,6 +552,19 @@ export class RotinaQueueService {
       });
     }
     return this.channelPromise;
+  }
+
+  private async getConfirmChannel(): Promise<amqp.ConfirmChannel> {
+    if (!this.confirmChannelPromise) {
+      this.confirmChannelPromise = this.getConnection().then(async (connection) => {
+        const channel = await connection.createConfirmChannel();
+        await channel.assertExchange(getJobsExchange(), 'direct', {
+          durable: true,
+        });
+        return channel;
+      });
+    }
+    return this.confirmChannelPromise;
   }
 
   private async getConnection(): Promise<amqp.ChannelModel> {
