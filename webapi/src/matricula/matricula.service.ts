@@ -8,6 +8,7 @@ import {
   CreateMatriculaDto,
   ExportMatriculaQueryDto,
   MatriculaExportFormat,
+  MatriculaPdfOrientation,
   QueryMatriculaDto,
   UpdateMatriculaDto,
 } from './dto/matricula.dto';
@@ -19,8 +20,10 @@ import {
   buildCsvBuffer,
   buildPdfBuffer,
   buildXlsxBuffer,
+  computeMatriculaPdfPhotoPxForResize,
   type MatriculaExportRow,
   type MatriculaPdfExportRow,
+  type MatriculaPdfLayoutOptions,
 } from './matricula-export.builder';
 
 const MAX_EXPORT_ROWS = 50_000;
@@ -169,13 +172,41 @@ export class MatriculaService {
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         break;
       case MatriculaExportFormat.pdf: {
+        const pdfOrientation =
+          query.pdfOrientation ?? MatriculaPdfOrientation.landscape;
+        const pdfColumns =
+          query.pdfColumns !== undefined && query.pdfColumns !== null
+            ? query.pdfColumns
+            : 1;
+        const pdfRowsPerPageRaw =
+          query.pdfRowsPerPage !== undefined &&
+          query.pdfRowsPerPage !== null
+            ? query.pdfRowsPerPage
+            : 10;
+        const pdfRowsPerPage =
+          Number.isFinite(pdfRowsPerPageRaw as unknown as number)
+            ? Number(pdfRowsPerPageRaw)
+            : 10;
+        const rowsClamp = Math.min(60, Math.max(3, Math.round(pdfRowsPerPage)));
+
+        const pdfLayout: MatriculaPdfLayoutOptions = {
+          orientation:
+            pdfOrientation === MatriculaPdfOrientation.portrait
+              ? 'portrait'
+              : 'landscape',
+          columns: pdfColumns === 2 ? 2 : 1,
+          rowsPerColumn: rowsClamp,
+        };
+
+        const photoPx = computeMatriculaPdfPhotoPxForResize(pdfLayout);
+
         const pdfRows = await Promise.all(
           (data as MatriculaPdfExportRow[]).map(async (m) => {
             if (m.pessoa?.PESFotoBase64) {
               const resized = await resizeBase64Image(
                 m.pessoa.PESFotoBase64,
-                48,
-                48,
+                photoPx,
+                photoPx,
               );
               return {
                 ...m,
@@ -185,7 +216,7 @@ export class MatriculaService {
             return m;
           }),
         );
-        buffer = await buildPdfBuffer(pdfRows);
+        buffer = await buildPdfBuffer(pdfRows, pdfLayout);
         contentType = 'application/pdf';
         break;
       }

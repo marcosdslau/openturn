@@ -80,10 +80,18 @@ export function buildMatriculaListQuery(
     return p.toString();
 }
 
+/** Opções de layout apenas para exportação em PDF (query string). */
+export type MatriculaExportPdfOptions = {
+    pdfOrientation: "portrait" | "landscape";
+    pdfColumns: 1 | 2;
+    pdfRowsPerPage: number;
+};
+
 /** Query string para GET /matricula/export (filtros já aplicados, sem paginação). */
 export function buildMatriculaExportQuery(
     format: "csv" | "xlsx" | "pdf",
-    f: MatriculaFiltrosAplicados
+    f: MatriculaFiltrosAplicados,
+    pdfOptions?: MatriculaExportPdfOptions
 ): string {
     const p = new URLSearchParams({ format });
     const nome = f.nome.trim();
@@ -93,6 +101,11 @@ export function buildMatriculaExportQuery(
     for (const c of f.cursos) p.append("curso", c);
     for (const s of f.series) p.append("serie", s);
     for (const t of f.turmas) p.append("turma", t);
+    if (format === "pdf" && pdfOptions) {
+        p.set("pdfOrientation", pdfOptions.pdfOrientation);
+        p.set("pdfColumns", String(pdfOptions.pdfColumns));
+        p.set("pdfRowsPerPage", String(pdfOptions.pdfRowsPerPage));
+    }
     return p.toString();
 }
 

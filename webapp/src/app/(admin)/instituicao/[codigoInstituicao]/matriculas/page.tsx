@@ -16,6 +16,7 @@ import MatriculasFiltros, {
     buildMatriculaListQuery,
     buildMatriculaExportQuery,
     type MatriculaFiltrosAplicados,
+    type MatriculaExportPdfOptions,
 } from "./components/MatriculasFiltros";
 
 interface Matricula {
@@ -70,6 +71,9 @@ export default function MatriculasPage() {
 
     const [exportFormat, setExportFormat] = useState<MatriculaExportFormatUi>("csv");
     const [exporting, setExporting] = useState(false);
+    const [pdfOrientation, setPdfOrientation] = useState<"landscape" | "portrait">("landscape");
+    const [pdfColumns, setPdfColumns] = useState<1 | 2>(1);
+    const [pdfRowsPerPage, setPdfRowsPerPage] = useState(10);
 
     const [editing, setEditing] = useState<Matricula | null>(null);
     const [form, setForm] = useState({ MATNumero: "", PESCodigo: 0, MATCurso: "", MATSerie: "", MATTurma: "" });
@@ -206,14 +210,40 @@ export default function MatriculasPage() {
 
     const openExportModal = () => {
         setExportFormat("csv");
+        setPdfOrientation("landscape");
+        setPdfColumns(1);
+        setPdfRowsPerPage(10);
         exportModal.openModal();
     };
 
     const handleExportDownload = async () => {
         if (!codigoInstituicao) return;
+        let pdfOptions: MatriculaExportPdfOptions | undefined;
+        if (exportFormat === "pdf") {
+            let r = Number(pdfRowsPerPage);
+            if (!Number.isFinite(r)) r = 10;
+            r = Math.round(r);
+            if (r < 3 || r > 60) {
+                showToast(
+                    "error",
+                    "PDF",
+                    "Informe entre 3 e 60 registros por coluna."
+                );
+                return;
+            }
+            pdfOptions = {
+                pdfOrientation,
+                pdfColumns,
+                pdfRowsPerPage: r,
+            };
+        }
         setExporting(true);
         try {
-            const qs = buildMatriculaExportQuery(exportFormat, filtrosAplicados);
+            const qs = buildMatriculaExportQuery(
+                exportFormat,
+                filtrosAplicados,
+                pdfOptions
+            );
             const { blob, suggestedFilename } = await apiFetchBlob(
                 `/instituicao/${codigoInstituicao}/matricula/export?${qs}`,
                 { timeoutMs: 120_000 }
@@ -445,7 +475,7 @@ export default function MatriculasPage() {
                 onClose={() => {
                     if (!exporting) exportModal.closeModal();
                 }}
-                className="max-w-md p-6"
+                className="max-w-lg p-6 max-h-[90vh] overflow-y-auto"
             >
                 <div className="space-y-4">
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
@@ -492,6 +522,89 @@ export default function MatriculasPage() {
                             PDF
                         </label>
                     </fieldset>
+                    {exportFormat === "pdf" && (
+                        <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-white/[0.04] space-y-4">
+                            <fieldset className="space-y-2.5 border-0 p-0 m-0">
+                                <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Orientação
+                                </legend>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfOrientMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfOrientation === "landscape"}
+                                        onChange={() => setPdfOrientation("landscape")}
+                                        disabled={exporting}
+                                    />
+                                    Paisagem
+                                </label>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfOrientMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfOrientation === "portrait"}
+                                        onChange={() => setPdfOrientation("portrait")}
+                                        disabled={exporting}
+                                    />
+                                    Retrato
+                                </label>
+                            </fieldset>
+                            <fieldset className="space-y-2.5 border-0 p-0 m-0">
+                                <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Colunas na página
+                                </legend>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfColsMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfColumns === 1}
+                                        onChange={() => setPdfColumns(1)}
+                                        disabled={exporting}
+                                    />
+                                    1 coluna
+                                </label>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfColsMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfColumns === 2}
+                                        onChange={() => setPdfColumns(2)}
+                                        disabled={exporting}
+                                    />
+                                    2 colunas
+                                </label>
+                            </fieldset>
+                            <div>
+                                <label
+                                    htmlFor="pdf-rows-per-col-mat"
+                                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                                >
+                                    Registros por coluna
+                                </label>
+                                <input
+                                    id="pdf-rows-per-col-mat"
+                                    type="number"
+                                    min={3}
+                                    max={60}
+                                    step={1}
+                                    value={pdfRowsPerPage}
+                                    onChange={(e) => {
+                                        const n = parseInt(e.target.value, 10);
+                                        if (!Number.isNaN(n)) setPdfRowsPerPage(n);
+                                    }}
+                                    disabled={exporting}
+                                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Com 2 colunas, até o dobro de matrículas por página (padrão 10 por faixa).
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     <div className="flex gap-3 justify-end pt-2">
                         <Button
                             size="sm"
