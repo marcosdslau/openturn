@@ -545,6 +545,25 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     }
   }
 
+  async deleteAllUsers(equipmentId: number): Promise<void> {
+    await this.withRetry(async () => {
+      await this.ensureSession();
+      await this.transport.post(
+        `/destroy_objects.fcgi?session=${this.session}`,
+        { object: 'users' },
+      );
+    });
+
+    const removed = await this.prisma.rls.pESEquipamentoMapeamento.deleteMany({
+      where: { EQPCodigo: equipmentId },
+    });
+
+    this.logger.log(
+      `[ControlID] deleteAllUsers equipmentId=${equipmentId}: usuários removidos no equipamento; ` +
+        `${removed.count} mapeamento(s) PESEquipamentoMapeamento apagado(s).`,
+    );
+  }
+
   async executeAction(action: string, params?: any): Promise<void> {
     await this.executeActionImpl(action, params);
   }

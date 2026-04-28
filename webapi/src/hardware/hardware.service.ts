@@ -15,7 +15,7 @@ import {
 import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import { RotinaJobData } from '../rotina/queue/rotina-job.dto';
 import { IHardwareProvider } from './interfaces/hardware-provider.interface';
-import { HardwareEquipmentConfigType } from './interfaces/hardware.types';
+import { HardwareEquipmentConfigType, HardwareUser } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
 import { ControlIDConfig } from './brands/controlid/controlid.types';
 
@@ -53,6 +53,190 @@ export class HardwareService {
     overrideHost?: string,
   ): Promise<IHardwareProvider> {
     return this.hardwareFactory.resolve(equipment, overrideHost);
+  }
+
+  private async buildHardwareUser(
+    person: PESPessoa,
+    equipmentId: number,
+  ): Promise<HardwareUser> {
+    let fingers: string[] = [];
+    if (person.PESTemplates && Array.isArray(person.PESTemplates)) {
+      fingers = person.PESTemplates as string[];
+    }
+
+    const mapping =
+      await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
+        where: {
+          PESCodigo_EQPCodigo: {
+            PESCodigo: person.PESCodigo,
+            EQPCodigo: equipmentId,
+          },
+        },
+      });
+
+    const idNoEquipamento = HardwareService.deviceUserIdFromPessoa(person);
+
+    return {
+      pescodigo: person.PESCodigo,
+      id: mapping
+        ? parseInt(mapping.PEQIdNoEquipamento, 10)
+        : idNoEquipamento,
+      name: person.PESNome,
+      cpf: person.PESDocumento || undefined,
+      faceExtension: person.PESFotoExtensao || 'jpg',
+      grupo: person.PESGrupo ?? undefined,
+      tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
+      faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
+      fingers,
+    };
+  }
+
+  /**
+   * Sincroniza uma pessoa em todos os equipamentos ativos da instituição (sync físico).
+   * Falhas por equipamento não interrompem os demais.
+   */
+  async syncPersonAcrossInstitution(
+    instituicaoCodigo: number,
+    pescodigo: number,
+  ): Promise<{
+    results: Array<{ equipmentId: number; ok: boolean; error?: string }>;
+    synced: number;
+    failed: number;
+  }> {
+    const person = await this.prisma.pESPessoa.findFirst({
+      where: {
+        PESCodigo: pescodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+        PESAtivo: true,
+      },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Pessoa ${pescodigo} não encontrada ou inativa para esta instituição`,
+      );
+    }
+
+    const devices = await this.prisma.eQPEquipamento.findMany({
+      where: { INSInstituicaoCodigo: instituicaoCodigo, EQPAtivo: true },
+    });
+
+    const results: Array<{
+      equipmentId: number;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    let synced = 0;
+    let failed = 0;
+
+    for (const dev of devices) {
+      try {
+        const provider = await this.instantiate(dev);
+        const hardwareUser = await this.buildHardwareUser(
+          person,
+          dev.EQPCodigo,
+        );
+        await provider.syncPerson(dev.EQPCodigo, hardwareUser);
+        results.push({ equipmentId: dev.EQPCodigo, ok: true });
+        synced++;
+      } catch (e) {
+        const msg = (e as Error)?.message ?? String(e);
+        this.logger.warn(
+          `[${instituicaoCodigo}] syncPerson PESCodigo=${pescodigo} EQP=${dev.EQPCodigo}: ${msg}`,
+        );
+        results.push({ equipmentId: dev.EQPCodigo, ok: false, error: msg });
+        failed++;
+      }
+    }
+
+    return { results, synced, failed };
+  }
+
+  /**
+   * Remove a pessoa de todos os equipamentos ativos da instituição e, ao fim,
+   * apaga mapeamentos locais dessa pessoa para esses equipamentos.
+   */
+  async deletePersonAcrossInstitution(
+    instituicaoCodigo: number,
+    pescodigo: number,
+  ): Promise<{
+    results: Array<{ equipmentId: number; ok: boolean; error?: string }>;
+    deleted: number;
+    failed: number;
+    mappingsRemoved: number;
+  }> {
+    const person = await this.prisma.pESPessoa.findFirst({
+      where: {
+        PESCodigo: pescodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+        PESAtivo: true,
+      },
+    });
+
+    if (!person) {
+      throw new NotFoundException(
+        `Pessoa ${pescodigo} não encontrada ou inativa para esta instituição`,
+      );
+    }
+
+    const devices = await this.prisma.eQPEquipamento.findMany({
+      where: { INSInstituicaoCodigo: instituicaoCodigo, EQPAtivo: true },
+    });
+
+    const equipmentIds = devices.map((d) => d.EQPCodigo);
+
+    const results: Array<{
+      equipmentId: number;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    let deleted = 0;
+    let failed = 0;
+
+    for (const dev of devices) {
+      try {
+        const provider = await this.instantiate(dev);
+        const hardwareUser = await this.buildHardwareUser(
+          person,
+          dev.EQPCodigo,
+        );
+        if (
+          !Number.isFinite(hardwareUser.id) ||
+          Number.isNaN(hardwareUser.id)
+        ) {
+          throw new Error(
+            `ID no equipamento inválido para EQP ${dev.EQPCodigo}`,
+          );
+        }
+        await provider.deletePerson(hardwareUser.id);
+        results.push({ equipmentId: dev.EQPCodigo, ok: true });
+        deleted++;
+      } catch (e) {
+        const msg = (e as Error)?.message ?? String(e);
+        this.logger.warn(
+          `[${instituicaoCodigo}] deletePerson PESCodigo=${pescodigo} EQP=${dev.EQPCodigo}: ${msg}`,
+        );
+        results.push({ equipmentId: dev.EQPCodigo, ok: false, error: msg });
+        failed++;
+      }
+    }
+
+    const delMaps =
+      equipmentIds.length > 0
+        ? await this.prisma.rls.pESEquipamentoMapeamento.deleteMany({
+            where: {
+              PESCodigo: pescodigo,
+              EQPCodigo: { in: equipmentIds },
+            },
+          })
+        : { count: 0 };
+
+    return {
+      results,
+      deleted,
+      failed,
+      mappingsRemoved: delMaps.count,
+    };
   }
 
   async syncAll(instituicaoId: number) {
@@ -215,36 +399,11 @@ export class HardwareService {
       try {
         const provider = await this.instantiate(dev);
         for (const person of people) {
-          let fingers: string[] = [];
-          if (person.PESTemplates && Array.isArray(person.PESTemplates)) {
-            fingers = person.PESTemplates as string[];
-          }
-
-          const mapping =
-            await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
-              where: {
-                PESCodigo_EQPCodigo: {
-                  PESCodigo: person.PESCodigo,
-                  EQPCodigo: dev.EQPCodigo,
-                },
-              },
-            });
-
-          const idNoEquipamento = HardwareService.deviceUserIdFromPessoa(person);
-
-          await provider.syncPerson(dev.EQPCodigo, {
-            pescodigo: person.PESCodigo,
-            id: mapping
-              ? parseInt(mapping.PEQIdNoEquipamento, 10)
-              : idNoEquipamento,
-            name: person.PESNome,
-            cpf: person.PESDocumento || undefined,
-            faceExtension: person.PESFotoExtensao || 'jpg',
-            grupo: person.PESGrupo ?? undefined,
-            tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
-            faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
-            fingers: fingers,
-          });
+          const hardwareUser = await this.buildHardwareUser(
+            person,
+            dev.EQPCodigo,
+          );
+          await provider.syncPerson(dev.EQPCodigo, hardwareUser);
         }
       } catch (e) {
         this.logger.error(`Failed to sync device ${dev.EQPCodigo}`, e);
@@ -275,6 +434,31 @@ export class HardwareService {
 
     const provider = await this.instantiate(device);
     return provider.applyEquipmentConfiguration(device, type);
+  }
+
+  /**
+   * Solicita exclusão de todos os usuários no equipamento (delega à marca).
+   * Por enquanto os providers abstratos apenas registram log (stub).
+   */
+  async deleteAllUsers(
+    instituicaoCodigo: number,
+    equipmentId: number,
+  ): Promise<{ ok: boolean }> {
+    const device = await this.prisma.eQPEquipamento.findUnique({
+      where: { EQPCodigo: equipmentId },
+    });
+
+    if (!device) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    if (device.INSInstituicaoCodigo !== instituicaoCodigo) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    const provider = await this.instantiate(device);
+    await provider.deleteAllUsers(device.EQPCodigo);
+    return { ok: true };
   }
 
   async executeCommand(

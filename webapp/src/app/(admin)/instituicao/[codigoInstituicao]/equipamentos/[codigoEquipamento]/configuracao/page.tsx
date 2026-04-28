@@ -49,6 +49,8 @@ export default function ControlIDConfigPage() {
     const [configureTypeLoading, setConfigureTypeLoading] = useState<
         null | "GERAL" | "BOX" | "WEBHOOK"
     >(null);
+    const [confirmDeleteUsersOpen, setConfirmDeleteUsersOpen] = useState(false);
+    const [deletingUsers, setDeletingUsers] = useState(false);
 
     const loadSessions = useCallback(async () => {
         if (!codigoEquipamento) return;
@@ -164,6 +166,31 @@ export default function ControlIDConfigPage() {
         }
     };
 
+    const handleConfirmDeleteAllUsers = async () => {
+        if (!equipment) return;
+        setConfirmDeleteUsersOpen(false);
+        setDeletingUsers(true);
+        try {
+            await apiPost<{ ok?: boolean }>(
+                `/instituicao/${codigoInstituicao}/hardware/${equipment.EQPCodigo}/delete-all-users`,
+                {},
+            );
+            showToast(
+                "success",
+                "Operação enviada",
+                "Solicitação de exclusão de todos os usuários no equipamento foi processada.",
+            );
+        } catch (error: any) {
+            const msg =
+                error?.message ||
+                error?.response?.data?.message ||
+                "Não foi possível executar a exclusão.";
+            showToast("error", "Erro", String(msg));
+        } finally {
+            setDeletingUsers(false);
+        }
+    };
+
     const handleSaveGeneral = async () => {
         if (!equipment) return;
         setSaving(true);
@@ -205,7 +232,64 @@ export default function ControlIDConfigPage() {
     }
 
     return (
-        <div className="space-y-6">
+        <div className="space-y-6 relative">
+            {deletingUsers && (
+                <div
+                    className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 backdrop-blur-[1px]"
+                    role="status"
+                    aria-live="polite"
+                    aria-busy="true"
+                >
+                    <div className="flex flex-col items-center gap-4 rounded-xl border border-gray-200 bg-white px-10 py-8 shadow-2xl dark:border-gray-600 dark:bg-gray-800">
+                        <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+                        <p className="text-sm font-medium text-gray-800 dark:text-white">
+                            Excluindo usuários do equipamento...
+                        </p>
+                        <p className="max-w-xs text-center text-xs text-gray-500 dark:text-gray-400">
+                            Aguarde até a operação ser concluída.
+                        </p>
+                    </div>
+                </div>
+            )}
+            {confirmDeleteUsersOpen && (
+                <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4">
+                    <div
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="confirm-delete-users-title"
+                        className="w-full max-w-md rounded-xl border border-gray-200 bg-white shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                    >
+                        <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-700">
+                            <h4
+                                id="confirm-delete-users-title"
+                                className="text-lg font-semibold text-gray-900 dark:text-white"
+                            >
+                                Confirmar exclusão
+                            </h4>
+                            <p className="mt-3 text-sm text-gray-700 dark:text-gray-300">
+                                Você tem certeza que deseja excluir <strong>todos os usuários</strong> cadastrados
+                                neste equipamento? Esta operação é <strong>irreversível</strong>.
+                            </p>
+                        </div>
+                        <div className="flex justify-end gap-2 px-5 py-4">
+                            <Button
+                                variant="outline"
+                                type="button"
+                                onClick={() => setConfirmDeleteUsersOpen(false)}
+                            >
+                                Cancelar
+                            </Button>
+                            <Button
+                                type="button"
+                                className="!bg-red-600 !text-white hover:!bg-red-700 border-transparent"
+                                onClick={() => void handleConfirmDeleteAllUsers()}
+                            >
+                                Confirmar exclusão
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="flex items-center gap-4 flex-1">
                 <Button variant="outline" size="sm" onClick={() => router.back()}>
                     <ChevronLeftIcon className="w-5 h-5" />
@@ -301,7 +385,7 @@ export default function ControlIDConfigPage() {
 
                         <div className="space-y-2">
                             <p className="text-sm font-medium text-gray-800 dark:text-gray-200">Configurações</p>
-                            <div className="flex flex-wrap gap-2">
+                            <div className="flex flex-wrap gap-2 items-center">
                                 {(
                                     [
                                         { type: "GERAL" as const, label: "Geral" },
@@ -313,12 +397,21 @@ export default function ControlIDConfigPage() {
                                         key={type}
                                         variant="outline"
                                         size="sm"
-                                        disabled={configureTypeLoading !== null}
+                                        disabled={configureTypeLoading !== null || deletingUsers}
                                         onClick={() => handleConfigureEquipment(type)}
                                     >
                                         {configureTypeLoading === type ? "Aplicando..." : label}
                                     </Button>
                                 ))}
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={configureTypeLoading !== null || deletingUsers}
+                                    className="border-red-300 text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+                                    onClick={() => setConfirmDeleteUsersOpen(true)}
+                                >
+                                    Excluir usuários
+                                </Button>
                             </div>
                         </div>
 

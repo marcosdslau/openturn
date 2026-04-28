@@ -58,6 +58,12 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     this.logger.log(`[Intelbras] Deleting person ${id}`);
   }
 
+  async deleteAllUsers(equipmentId: number): Promise<void> {
+    this.logger.log(
+      `[Intelbras] deleteAllUsers (stub) — equipmentId=${equipmentId} — implementação pendente`,
+    );
+  }
+
   async setTag(userId: number, tag: string): Promise<void> {
     this.logger.log(`[Intelbras] Setting tag ${tag} for user ${userId}`);
   }

@@ -58,6 +58,12 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     this.logger.log(`[TopData] Deleting person ${id}`);
   }
 
+  async deleteAllUsers(equipmentId: number): Promise<void> {
+    this.logger.log(
+      `[TopData] deleteAllUsers (stub) — equipmentId=${equipmentId} — implementação pendente`,
+    );
+  }
+
   async setTag(userId: number, tag: string): Promise<void> {
     this.logger.log(`[TopData] Setting tag ${tag} for user ${userId}`);
   }

@@ -31,6 +31,36 @@ export class HardwareController {
     return { message: 'Synchronization started' };
   }
 
+  @Post('person/:pescodigo/sync')
+  @RequirePermission('equipamento', 'update')
+  async syncPersonAcrossInstitution(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('pescodigo', ParseIntPipe) pescodigo: number,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] sync person ${pescodigo} across equipment`,
+    );
+    return this.hardwareService.syncPersonAcrossInstitution(
+      instituicaoCodigo,
+      pescodigo,
+    );
+  }
+
+  @Post('person/:pescodigo/delete-from-devices')
+  @RequirePermission('equipamento', 'update')
+  async deletePersonAcrossInstitution(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('pescodigo', ParseIntPipe) pescodigo: number,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] delete person ${pescodigo} from all active equipment`,
+    );
+    return this.hardwareService.deletePersonAcrossInstitution(
+      instituicaoCodigo,
+      pescodigo,
+    );
+  }
+
   @Post(':equipmentId/configure-equipment')
   @RequirePermission('equipamento', 'update')
   async configureEquipment(
@@ -46,6 +76,18 @@ export class HardwareController {
       equipmentId,
       dto.type,
     );
+  }
+
+  @Post(':equipmentId/delete-all-users')
+  @RequirePermission('equipamento', 'update')
+  async deleteAllUsers(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('equipmentId', ParseIntPipe) equipmentId: number,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] delete-all-users on equipment ${equipmentId}`,
+    );
+    return await this.hardwareService.deleteAllUsers(instituicaoCodigo, equipmentId);
   }
 
   @Post(':equipmentId/command')
