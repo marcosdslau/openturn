@@ -17,17 +17,53 @@ import {
   StatusExecucao,
 } from '@prisma/client';
 import { clampRotinaTimeoutForPersist } from './engine/routine-timeout.util';
+import Redis from 'ioredis';
+import { getRedisConnectionOptions } from '../common/redis/redis-connection';
+import { channelRotinaRefresh } from '../common/redis/redis-keys';
 
 @Injectable()
 export class RotinaService {
   private readonly logger = new Logger(RotinaService.name);
+  private redisPub: Redis | null = null;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly executionService: ExecutionService,
     private readonly processManager: ProcessManager,
     private readonly rotinaQueueService: RotinaQueueService,
     private readonly schedulerService: SchedulerService,
-  ) {}
+  ) {
+    try {
+      this.redisPub = new Redis({
+        ...getRedisConnectionOptions(),
+        lazyConnect: true,
+      });
+      this.redisPub.connect().catch(() => {
+        this.logger.warn('Redis indisponível para rotina:meta:refresh');
+        this.redisPub = null;
+      });
+    } catch {
+      this.redisPub = null;
+    }
+  }
+
+  private async publishRotinaMetaRefresh(
+    instituicaoCodigo: number,
+    rotinaCodigo: number,
+  ) {
+    if (!this.redisPub) return;
+    const payload = JSON.stringify({
+      INSCodigo: instituicaoCodigo,
+      ROTCodigo: rotinaCodigo,
+    });
+    try {
+      await this.redisPub.publish(channelRotinaRefresh(), payload);
+    } catch (error) {
+      this.logger.warn(
+        `Falha ao publicar refresh de meta da rotina ${rotinaCodigo}: ${(error as Error).message}`,
+      );
+    }
+  }
 
   async findAll(instituicaoCodigo: number) {
     return this.prisma.rOTRotina.findMany({
@@ -156,6 +192,10 @@ export class RotinaService {
       );
     }
 
+    await this.publishRotinaMetaRefresh(
+      rotina.INSInstituicaoCodigo,
+      rotina.ROTCodigo,
+    );
     return rotina;
   }
 
@@ -248,6 +288,10 @@ export class RotinaService {
       }
     }
 
+    await this.publishRotinaMetaRefresh(
+      updated.INSInstituicaoCodigo,
+      updated.ROTCodigo,
+    );
     return updated;
   }
 
@@ -268,7 +312,7 @@ export class RotinaService {
 
     // Deletar registros dependentes (exclusão em cascata manual)
     // Usando transação para garantir atomicidade
-    return this.prisma.$transaction(async (tx) => {
+    const deleted = await this.prisma.$transaction(async (tx) => {
       // 1. Deletar logs de execução
       await tx.rOTExecucaoLog.deleteMany({
         where: { ROTCodigo: id },
@@ -284,6 +328,11 @@ export class RotinaService {
         where: { ROTCodigo: id },
       });
     });
+    await this.publishRotinaMetaRefresh(
+      deleted.INSInstituicaoCodigo,
+      deleted.ROTCodigo,
+    );
+    return deleted;
   }
 
   /**
