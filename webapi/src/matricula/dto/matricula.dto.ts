@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsArray,
   MaxLength,
+  IsEnum,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
@@ -73,6 +74,51 @@ export class UpdateMatriculaDto {
 }
 
 export class QueryMatriculaDto extends PaginationDto {
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(200)
+  nome?: string;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(120)
+  numero?: string;
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  curso?: string[];
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  serie?: string[];
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  turma?: string[];
+}
+
+export enum MatriculaExportFormat {
+  csv = 'csv',
+  xlsx = 'xlsx',
+  pdf = 'pdf',
+}
+
+/** Filtros de listagem/export sem paginação */
+export class ExportMatriculaQueryDto {
+  @IsEnum(MatriculaExportFormat)
+  format: MatriculaExportFormat;
+
   @IsOptional()
   @Transform(trimOrUndefined)
   @IsString()

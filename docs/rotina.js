@@ -42,9 +42,9 @@ if (pessoa?.PESTemplates) {
  * `person.pescodigo` = PESCodigo (chave em PESEquipamentoMapeamento).
  * `person.id` = id do usuário no leitor (PESIdExterno numérico, ou PESCodigo se ausente).
  */
-function idNoEquipamentoLeitor(pesIdExternoBruto, fallbackPescodigo) {
+function idNoEquipamentoLeitor(pesIdExternoBruto) {
   if (pesIdExternoBruto == null || String(pesIdExternoBruto).trim() === '') {
-    return fallbackPescodigo;
+    throw new Error(`PESIdExterno inválido; usando PESCodigo como id no leitor: ${pesIdExternoBruto}`);
   }
   const s = String(pesIdExternoBruto).trim();
   const n = Number(s);
@@ -58,12 +58,11 @@ function idNoEquipamentoLeitor(pesIdExternoBruto, fallbackPescodigo) {
   console.warn('PESIdExterno inválido; usando PESCodigo como id no leitor', {
     PESIdExterno: pesIdExternoBruto,
   });
-  return fallbackPescodigo;
+  throw new Error(`PESIdExterno inválido; usando PESCodigo como id no leitor: ${pesIdExternoBruto}`);
 }
 
 const idHardware = idNoEquipamentoLeitor(
-  body.PESIdExterno ?? pessoa?.PESIdExterno,
-  PESCodigo,
+  body.PESIdExterno ?? pessoa?.PESIdExterno
 );
 
 const person = {

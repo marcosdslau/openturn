@@ -939,6 +939,17 @@ function buildContext(
             const { equipmentId, method: providerMethod, args } = params;
             return hardwareResolver.exec(equipmentId, providerMethod, args as unknown[]);
         }
+        if (method === 'hardware.institution.exec') {
+            const { method: instMethod, args } = params;
+            if (instMethod === 'deletePersonAcrossInstitution') {
+                const pescodigo = (args as unknown[])[0];
+                if (typeof pescodigo !== 'number') {
+                    throw new Error('deletePersonAcrossInstitution: pescodigo must be a number');
+                }
+                return hardwareResolver.deletePersonAcrossInstitution(pescodigo);
+            }
+            throw new Error(`Unknown institution hardware method: ${String(instMethod)}`);
+        }
         throw new Error(`Unknown RPC method: ${method}`);
     };
 

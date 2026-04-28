@@ -504,6 +504,26 @@ export class ExecutionService {
         );
       }
 
+      if (method === 'hardware.institution.exec') {
+        const { method: instMethod, args } = params;
+        const hardwareService = await this.getHardwareService();
+        if (instMethod === 'deletePersonAcrossInstitution') {
+          const pescodigo = args[0];
+          if (typeof pescodigo !== 'number') {
+            throw new Error(
+              'deletePersonAcrossInstitution: pescodigo must be a number',
+            );
+          }
+          return await hardwareService.deletePersonAcrossInstitution(
+            instituicaoCodigo,
+            pescodigo,
+          );
+        }
+        throw new Error(
+          `Unknown institution hardware method: ${String(instMethod)}`,
+        );
+      }
+
       throw new Error(`Unknown RPC method: ${method}`);
     };
 

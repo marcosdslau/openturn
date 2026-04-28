@@ -125,10 +125,16 @@ function createDbProxy(models: string[]) {
  * Cria Proxy para hardware que encaminha chamadas via RPC
  */
 function createHardwareProxy() {
+  const INSTITUTIONAL_METHODS = new Set(['deletePersonAcrossInstitution']);
+
   return new Proxy(
     {},
     {
       get: (target, prop: string) => {
+        if (INSTITUTIONAL_METHODS.has(prop)) {
+          return (...args: any[]) =>
+            sendRpc('hardware.institution.exec', { method: prop, args });
+        }
         return (equipmentId: number, ...args: any[]) => {
           return sendRpc('hardware.exec', { equipmentId, method: prop, args });
         };

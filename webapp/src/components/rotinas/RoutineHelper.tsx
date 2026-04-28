@@ -8,11 +8,13 @@ interface RoutineHelperProps {
     onInsertSnippet: (snippet: string) => void;
 }
 
-/** Referência alinhada a IHardwareProvider (worker + webapi); o 1º argumento é sempre o EQPCodigo. */
+/** Referência alinhada a IHardwareProvider + métodos institucionais (worker + webapi). Em geral o 1º argumento é o EQPCodigo; exceções têm institutional: true. */
 const HARDWARE_REFERENCE: {
     method: string;
     params: string;
     notes?: string;
+    /** Métodos de âmbito institucional: sem eqpId na chamada (ex.: deletePersonAcrossInstitution). */
+    institutional?: boolean;
 }[] = [
     {
         method: 'syncPerson',
@@ -53,6 +55,13 @@ const HARDWARE_REFERENCE: {
         method: 'applyEquipmentConfiguration',
         params: 'device, tipo',
         notes: 'device: registro EQPEquipamento (ex.: await db.Equipamento.findFirst(...)). tipo: "GERAL" | "BOX" | "WEBHOOK".',
+    },
+    {
+        method: 'deletePersonAcrossInstitution',
+        params: 'pescodigo',
+        institutional: true,
+        notes:
+            'Remove a pessoa de todos os equipamentos ativos da instituição e apaga linhas em PESEquipamentoMapeamento desses equipamentos.',
     },
 ];
 
@@ -95,6 +104,12 @@ console.log(data);`,
 if (device) {
   await context.hardware.applyEquipmentConfiguration(eqpId, device, 'WEBHOOK');
 }`,
+    },
+    {
+        label: 'Excluir pessoa de todos os equipamentos (institucional)',
+        detail: 'Não usa eqpId; percorre equipamentos ativos e limpa mappings no fim.',
+        code: `const result = await context.hardware.deletePersonAcrossInstitution(pessoa.PESCodigo);
+console.log('deleted', result.deleted, 'failed', result.failed, 'mappings', result.mappingsRemoved);`,
     },
 ];
 
@@ -170,13 +185,16 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                     context.hardware — contrato do worker
                                 </h4>
                                 <p className="text-[11px] text-amber-950/80 dark:text-amber-100/80 leading-relaxed">
-                                    Cada método é invocado como{' '}
+                                    Na maioria dos casos, cada método é invocado como{' '}
                                     <code className="font-mono text-[10px] bg-white/70 dark:bg-black/30 px-1 rounded">
                                         await context.hardware.&lt;nome&gt;(eqpId, …)
                                     </code>
-                                    . O primeiro argumento é sempre o código do equipamento (
+                                    : o primeiro argumento é o código do equipamento (
                                     <code className="font-mono text-[10px]">EQPCodigo</code>
-                                    ) na instituição da rotina; o worker valida o tenant. Equipamentos com addon exigem relay (
+                                    ) na instituição da rotina; o worker valida o tenant. Métodos marcados como
+                                    institucionais na lista abaixo{' '}
+                                    <strong>não</strong> usam <code className="font-mono text-[10px]">eqpId</code> na
+                                    assinatura. Equipamentos com addon exigem relay (
                                     <code className="font-mono text-[10px]">WEBAPI_WS_URL</code>,{' '}
                                     <code className="font-mono text-[10px]">RELAY_INTERNAL_TOKEN</code>
                                     ) no processo do worker.
@@ -192,7 +210,9 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                             {row.method}
                                             <span className="text-gray-600 dark:text-gray-400 font-sans">
                                                 {' '}
-                                                (eqpId, {row.params})
+                                                {row.institutional
+                                                    ? `(${row.params})`
+                                                    : `(eqpId, ${row.params})`}
                                             </span>
                                         </div>
                                         {row.notes && (

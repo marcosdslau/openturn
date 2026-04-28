@@ -1,32 +1,43 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   CreateMatriculaDto,
+  ExportMatriculaQueryDto,
+  MatriculaExportFormat,
   QueryMatriculaDto,
   UpdateMatriculaDto,
 } from './dto/matricula.dto';
 import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
 import { resizeBase64Image } from '../common/utils/image.utils';
+import { format as formatDate } from 'date-fns';
+import {
+  buildCsvBuffer,
+  buildPdfBuffer,
+  buildXlsxBuffer,
+  type MatriculaExportRow,
+} from './matricula-export.builder';
+
+const MAX_EXPORT_ROWS = 50_000;
 
 @Injectable()
 export class MatriculaService {
   constructor(private prisma: PrismaService) {}
 
-  async create(instituicaoCodigo: number, dto: CreateMatriculaDto) {
-    return this.prisma.rls.mATMatricula.create({
-      data: { ...dto, INSInstituicaoCodigo: instituicaoCodigo },
-    });
-  }
-
-  async findAll(
+  private buildMatriculaWhere(
     instituicaoCodigo: number,
-    query: QueryMatriculaDto,
-  ): Promise<PaginatedResult<any>> {
-    const { page, limit, nome, numero, curso, serie, turma } = query;
-    const skip = (page - 1) * limit;
+    filters: Pick<
+      QueryMatriculaDto,
+      'nome' | 'numero' | 'curso' | 'serie' | 'turma'
+    >,
+  ): Prisma.MATMatriculaWhereInput {
+    const { nome, numero, curso, serie, turma } = filters;
 
-    const where: Prisma.MATMatriculaWhereInput = {
+    return {
       INSInstituicaoCodigo: instituicaoCodigo,
       pessoa: {
         deletedAt: null,
@@ -42,9 +53,23 @@ export class MatriculaService {
       ...(serie?.length && { MATSerie: { in: serie } }),
       ...(turma?.length && { MATTurma: { in: turma } }),
     };
+  }
 
-    // findMany e count em sequência para não competir por 2 ligações em paralelo no mesmo request
-    // (extensão RLS usa $transaction em cada operação, o que aperta o pool com muita concorrência)
+  async create(instituicaoCodigo: number, dto: CreateMatriculaDto) {
+    return this.prisma.rls.mATMatricula.create({
+      data: { ...dto, INSInstituicaoCodigo: instituicaoCodigo },
+    });
+  }
+
+  async findAll(
+    instituicaoCodigo: number,
+    query: QueryMatriculaDto,
+  ): Promise<PaginatedResult<any>> {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+
+    const where = this.buildMatriculaWhere(instituicaoCodigo, query);
+
     const data = await this.prisma.rls.mATMatricula.findMany({
       where,
       skip,
@@ -63,7 +88,6 @@ export class MatriculaService {
     });
     const total = await this.prisma.rls.mATMatricula.count({ where });
 
-    // Generate thumbnails for the person photos in the list
     const processedData = await Promise.all(
       data.map(async (m) => {
         if (m.pessoa?.PESFotoBase64) {
@@ -81,6 +105,66 @@ export class MatriculaService {
       data: processedData,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  async exportMatriculas(
+    instituicaoCodigo: number,
+    query: ExportMatriculaQueryDto,
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const { format: exportFormat, nome, numero, curso, serie, turma } = query;
+    const where = this.buildMatriculaWhere(instituicaoCodigo, {
+      nome,
+      numero,
+      curso,
+      serie,
+      turma,
+    });
+
+    const total = await this.prisma.rls.mATMatricula.count({ where });
+    if (total > MAX_EXPORT_ROWS) {
+      throw new PayloadTooLargeException(
+        `Exportação limitada a ${MAX_EXPORT_ROWS} linhas (${total} encontradas). Aplique filtros para reduzir o resultado.`,
+      );
+    }
+
+    const data = await this.prisma.rls.mATMatricula.findMany({
+      where,
+      include: {
+        pessoa: {
+          select: {
+            PESCodigo: true,
+            PESIdExterno: true,
+            PESNome: true,
+          },
+        },
+      },
+      orderBy: { MATCodigo: 'desc' },
+    });
+
+    const rows = data as MatriculaExportRow[];
+    const stamp = formatDate(new Date(), 'yyyyMMdd-HHmm');
+
+    let buffer: Buffer;
+    let contentType: string;
+
+    switch (exportFormat) {
+      case MatriculaExportFormat.csv:
+        buffer = buildCsvBuffer(rows);
+        contentType = 'text/csv; charset=utf-8';
+        break;
+      case MatriculaExportFormat.xlsx:
+        buffer = await buildXlsxBuffer(rows);
+        contentType =
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        break;
+      case MatriculaExportFormat.pdf:
+        buffer = await buildPdfBuffer(rows);
+        contentType = 'application/pdf';
+        break;
+    }
+
+    const filename = `matriculas-${stamp}.${exportFormat}`;
+    return { buffer, filename, contentType };
   }
 
   async findOpcoesFiltro(instituicaoCodigo: number): Promise<{

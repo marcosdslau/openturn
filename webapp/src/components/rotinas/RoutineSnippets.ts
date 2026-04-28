@@ -294,6 +294,13 @@ await context.hardware.modifyPerson(1, 101, "João Novo Nome", "456", "321.654.9
         code: `await context.hardware.deletePerson(101);`,
     },
     {
+        label: 'Hardware - Excluir pessoa em todos os equipamentos (institucional)',
+        detail:
+            'Sem eqpId: remove nos equipamentos ativos da instituição e apaga PESEquipamentoMapeamento desses equipamentos.',
+        code: `const out = await context.hardware.deletePersonAcrossInstitution(pessoa.PESCodigo);
+console.log(out.deleted, out.failed, out.mappingsRemoved);`,
+    },
+    {
         label: 'Hardware - Vincular Tag (Cartão)',
         detail: 'Adiciona uma tag/cartão ao usuário no hardware',
         code: `await context.hardware.setTag(101, "987654");`,
