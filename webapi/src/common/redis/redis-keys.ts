@@ -1,5 +1,6 @@
 import { getDeploymentPrefix } from '../deployment-prefix';
 
+/** Prefixo DEV|PRD: OPENTURN_DEPLOYMENT_PREFIX ou NODE_ENV (ex.: NODE_ENV=DEV → DEV). Isola Redis/Rabbit entre ambientes. */
 const p = () => getDeploymentPrefix();
 
 // ── Redis keys ──
@@ -53,6 +54,9 @@ export function channelFinished(exeId: string) {
 }
 export function channelInstituicaoRefresh() {
   return `${p()}:openturn:instituicao:queue:refresh`;
+}
+export function channelRotinaRefresh() {
+  return `${p()}:openturn:rotina:meta:refresh`;
 }
 
 // ── Socket.IO adapter key prefix ──

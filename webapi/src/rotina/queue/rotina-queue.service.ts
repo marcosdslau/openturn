@@ -104,6 +104,43 @@ export class RotinaQueueService {
     return { exeId, jobId: exeId };
   }
 
+  /**
+   * Republica um job na fila reutilizando um ROTExecucaoLog já existente
+   * (status/campos devem ter sido resetados antes pelo chamador).
+   */
+  async requeueExistingExecution(params: {
+    exeId: string;
+    rotinaCodigo: number;
+    instituicaoCodigo: number;
+    trigger: 'SCHEDULE' | 'WEBHOOK';
+    requestData?: any;
+  }): Promise<{ exeId: string; jobId: string }> {
+    const { exeId, rotinaCodigo, instituicaoCodigo, trigger, requestData } =
+      params;
+
+    const jobData: RotinaJobData = {
+      exeId,
+      rotinaCodigo,
+      instituicaoCodigo,
+      trigger,
+      requestEnvelope: requestData,
+      enqueuedAt: new Date().toISOString(),
+    };
+
+    await this.publishJob(jobData, exeId);
+    void this.setPendingMarker(exeId).catch((e) =>
+      this.logger.debug(
+        `rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`,
+      ),
+    );
+
+    this.logger.log(
+      `Job requeued: ${exeId} (rotina=${rotinaCodigo}, trigger=${trigger})`,
+    );
+
+    return { exeId, jobId: exeId };
+  }
+
   private pendingKey(exeId: string) {
     return redisPendingKey(exeId);
   }

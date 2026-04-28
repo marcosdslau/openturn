@@ -205,6 +205,50 @@ export class ExecutionService {
     return exeId;
   }
 
+  /**
+   * Reprocessamento manual: mesma linha ROTExecucaoLog (já resetada pelo chamador).
+   */
+  async reprocessManualWithExistingLog(
+    exeId: string,
+    execCodigo: number,
+    rotinaCodigo: number,
+    instituicaoCodigo: number,
+    requestData?: any,
+    options?: { skipActiveCheck?: boolean },
+  ): Promise<string> {
+    const rotina = await this.prisma.rOTRotina.findFirst({
+      where: {
+        ROTCodigo: rotinaCodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+      },
+    });
+
+    if (!rotina) throw new Error('Rotina não encontrada');
+    if (!rotina.ROTAtivo && !options?.skipActiveCheck)
+      throw new Error('Rotina inativa');
+    if (this.rotinaLocks.has(rotinaCodigo))
+      throw new Error('Rotina já possui uma execução em andamento');
+    if (this.processManager.getActiveCount() >= this.maxConcurrent) {
+      throw new Error(
+        `Limite de ${this.maxConcurrent} execuções simultâneas atingido`,
+      );
+    }
+
+    this.rotinaLocks.add(rotinaCodigo);
+
+    this.runInBackground(
+      exeId,
+      execCodigo,
+      rotinaCodigo,
+      instituicaoCodigo,
+      rotina.ROTCodigoJS,
+      rotina.ROTTimeoutSeconds,
+      requestData,
+    );
+
+    return exeId;
+  }
+
   private async runInBackground(
     exeId: string,
     exeCodigo: number,

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
+import { Modal } from "@/components/ui/modal";
 import { useAuth } from "@/context/AuthContext";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 
@@ -160,28 +161,39 @@ export default function ClientesPage() {
                 </p>
             </div>
 
-            {/* Modal */}
-            {showModal && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="w-full max-w-md rounded-2xl bg-white p-6 dark:bg-gray-900 space-y-4">
-                        <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-                            {editing ? "Editar Cliente" : "Novo Cliente"}
-                        </h3>
-                        <div className="space-y-3">
-                            <input placeholder="Nome *" value={form.CLINome} onChange={(e) => setForm({ ...form, CLINome: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                            <input placeholder="Documento (CNPJ/CPF)" value={form.CLIDocumento} onChange={(e) => setForm({ ...form, CLIDocumento: e.target.value })}
-                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white" />
-                        </div>
-                        <div className="flex gap-3 justify-end">
-                            <Button size="sm" onClick={() => setShowModal(false)}>Cancelar</Button>
-                            <Button size="sm" onClick={handleSave} disabled={saving || !form.CLINome}>
-                                {saving ? "Salvando..." : "Salvar"}
-                            </Button>
-                        </div>
+            <Modal
+                isOpen={showModal}
+                onClose={() => setShowModal(false)}
+                className="modal-scroll-minimal max-h-[calc(100vh-100px)] max-w-lg overflow-y-auto p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        {editing ? "Editar Cliente" : "Novo Cliente"}
+                    </h3>
+                    <div className="space-y-3">
+                        <input
+                            placeholder="Nome *"
+                            value={form.CLINome}
+                            onChange={(e) => setForm({ ...form, CLINome: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                        />
+                        <input
+                            placeholder="Documento (CNPJ/CPF)"
+                            value={form.CLIDocumento}
+                            onChange={(e) => setForm({ ...form, CLIDocumento: e.target.value })}
+                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                        />
+                    </div>
+                    <div className="flex gap-3 justify-end pt-3 border-t border-gray-100 dark:border-gray-800">
+                        <Button size="sm" variant="outline" onClick={() => setShowModal(false)}>
+                            Cancelar
+                        </Button>
+                        <Button size="sm" onClick={handleSave} disabled={saving || !form.CLINome}>
+                            {saving ? "Salvando..." : "Salvar"}
+                        </Button>
                     </div>
                 </div>
-            )}
+            </Modal>
         </div>
     );
 }

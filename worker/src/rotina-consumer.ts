@@ -23,8 +23,11 @@ import {
     channelCancel,
     channelFinished,
     channelInstituicaoRefresh,
+    channelRotinaRefresh,
     redisPendingKey,
     redisInflightZkey,
+    redisRotinaParalelismoCacheInstPrefix,
+    redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
 } from './redis-keys';
 
@@ -53,6 +56,12 @@ const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
+const SERIAL_BACKOFF_MS = 2000;
+const CAPACITY_DEFER_MS = Math.max(
+    0,
+    parseInt(process.env.ROTINA_CAPACITY_DEFER_MS ?? '0', 10),
+);
+const CAPACITY_DEFERRED_HEADER = 'x-capacity-deferred';
 /** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
 const INFLIGHT_LEASE_MS = Math.max(
     60_000,
@@ -175,6 +184,9 @@ class RabbitRotinaConsumer {
     private readonly redis = new Redis(this.redisOptions);
     private readonly redisSub = new Redis(this.redisOptions);
     private readonly tenantLimits = new Map<number, number>();
+    private readonly tenantStatus = new Map<number, { ativo: boolean; workerAtivo: boolean }>();
+    /** null = rotina inexistente no último fetch; chave = redisRotinaParalelismoCacheKey (prefixo DEV|PRD + inst:rot). */
+    private readonly rotinaParalelismoCache = new Map<string, boolean | null>();
     private readonly consumerTags = new Map<number, string>();
     private pollTimer: NodeJS.Timeout | null = null;
 
@@ -212,7 +224,11 @@ class RabbitRotinaConsumer {
             if (this.channel) await this.channel.cancel(tag);
             this.consumerTags.delete(inst);
         }
-        await this.redisSub.unsubscribe(channelInstituicaoRefresh(), channelCancel());
+        await this.redisSub.unsubscribe(
+            channelInstituicaoRefresh(),
+            channelRotinaRefresh(),
+            channelCancel(),
+        );
         await this.redisSub.quit();
         await this.redis.quit();
         if (this.retryChannel) await this.retryChannel.close();
@@ -249,6 +265,43 @@ class RabbitRotinaConsumer {
         try {
             data = JSON.parse(msg.content.toString()) as RotinaJobData;
         } catch {
+            ch.ack(msg);
+            return;
+        }
+
+        const isSerialDelay = msg.properties.headers?.['x-serial-delayed'] === true;
+        if (isSerialDelay) {
+            await sleep(SERIAL_BACKOFF_MS);
+            const headers = { ...(msg.properties.headers || {}) };
+            delete headers['x-serial-delayed'];
+            delete headers['x-serial-inst'];
+            const properties: Options.Publish = {
+                persistent: true,
+                headers,
+                messageId: msg.properties.messageId || data.exeId,
+                correlationId: msg.properties.correlationId || data.exeId,
+                contentType: msg.properties.contentType || 'application/json',
+                timestamp: Date.now(),
+            };
+            ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
+            ch.ack(msg);
+            return;
+        }
+
+        const isCapacityDeferred = msg.properties.headers?.[CAPACITY_DEFERRED_HEADER] === true;
+        if (isCapacityDeferred) {
+            await sleep(CAPACITY_DEFER_MS);
+            const headers = { ...(msg.properties.headers || {}) };
+            delete headers[CAPACITY_DEFERRED_HEADER];
+            const properties: Options.Publish = {
+                persistent: true,
+                headers,
+                messageId: msg.properties.messageId || data.exeId,
+                correlationId: msg.properties.correlationId || data.exeId,
+                contentType: msg.properties.contentType || 'application/json',
+                timestamp: Date.now(),
+            };
+            ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
             ch.ack(msg);
             return;
         }
@@ -294,13 +347,29 @@ class RabbitRotinaConsumer {
     }
 
     private async startRefreshListener() {
-        await this.redisSub.subscribe(channelInstituicaoRefresh());
+        await this.redisSub.subscribe(channelInstituicaoRefresh(), channelRotinaRefresh());
         this.redisSub.on('message', (channel, message) => {
+            if (channel === channelRotinaRefresh()) {
+                this.handleRotinaRefreshMessage(message);
+                return;
+            }
             if (channel !== channelInstituicaoRefresh()) return;
             this.handleRefreshMessage(message).catch((err) => {
                 console.error(workerLogLine('refresh handler error:'), err);
             });
         });
+    }
+
+    private handleRotinaRefreshMessage(message: string) {
+        try {
+            const parsed = JSON.parse(message) as { INSCodigo?: number; ROTCodigo?: number };
+            if (parsed?.INSCodigo == null || parsed?.ROTCodigo == null) return;
+            this.rotinaParalelismoCache.delete(
+                redisRotinaParalelismoCacheKey(parsed.INSCodigo, parsed.ROTCodigo),
+            );
+        } catch {
+            /* ignore */
+        }
     }
 
     private async handleRefreshMessage(message: string) {
@@ -317,6 +386,10 @@ class RabbitRotinaConsumer {
         const payload = parsed as InstituicaoAtiva;
         if (!payload?.INSCodigo) return;
         this.tenantLimits.set(payload.INSCodigo, payload.INSMaxExecucoesSimultaneas || 8);
+        this.tenantStatus.set(payload.INSCodigo, {
+            ativo: !!payload.INSAtivo,
+            workerAtivo: payload.INSWorkerAtivo !== false,
+        });
         const workerAtivo = payload.INSWorkerAtivo !== false;
         if (!payload.INSAtivo || !workerAtivo) {
             await this.stopConsumer(payload.INSCodigo);
@@ -343,6 +416,10 @@ class RabbitRotinaConsumer {
         for (const instituicao of instituicoes) {
             activeSet.add(instituicao.INSCodigo);
             this.tenantLimits.set(instituicao.INSCodigo, instituicao.INSMaxExecucoesSimultaneas || 8);
+            this.tenantStatus.set(instituicao.INSCodigo, {
+                ativo: !!instituicao.INSAtivo,
+                workerAtivo: instituicao.INSWorkerAtivo !== false,
+            });
             await this.ensureTenantTopology(instituicao);
             await this.ensureTenantConsumer(instituicao);
         }
@@ -388,6 +465,12 @@ class RabbitRotinaConsumer {
         if (tag) {
             await this.channel.cancel(tag);
             this.consumerTags.delete(instituicaoCodigo);
+        }
+        this.tenantLimits.delete(instituicaoCodigo);
+        this.tenantStatus.delete(instituicaoCodigo);
+        const instPrefix = redisRotinaParalelismoCacheInstPrefix(instituicaoCodigo);
+        for (const k of this.rotinaParalelismoCache.keys()) {
+            if (k.startsWith(instPrefix)) this.rotinaParalelismoCache.delete(k);
         }
     }
 
@@ -442,7 +525,10 @@ class RabbitRotinaConsumer {
             data.exeId,
         );
         if (!acquired) {
-            const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
+            const republished =
+                CAPACITY_DEFER_MS > 0
+                    ? this.republishWithCapacityDefer(channel, msg, data.instituicaoCodigo)
+                    : this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
             if (republished) {
                 channel.ack(msg);
             } else {
@@ -455,13 +541,10 @@ class RabbitRotinaConsumer {
         let serialAcquired = false;
         let jobSucceeded = false;
         try {
-            const rotinaMeta = await this.prisma.rOTRotina.findFirst({
-                where: {
-                    ROTCodigo: data.rotinaCodigo,
-                    INSInstituicaoCodigo: data.instituicaoCodigo,
-                },
-                select: { ROTPermiteParalelismo: true },
-            });
+            const rotinaMeta = await this.loadRotinaParalelismoMeta(
+                data.instituicaoCodigo,
+                data.rotinaCodigo,
+            );
 
             if (rotinaMeta && rotinaMeta.ROTPermiteParalelismo === false) {
                 const gotSerial = await this.tryAcquireRotinaSerialSlot(
@@ -470,14 +553,14 @@ class RabbitRotinaConsumer {
                     data.exeId,
                 );
                 if (!gotSerial) {
-                    const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
-                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                    tenantStillHeld = false;
-                    if (republished) {
-                        channel.ack(msg);
-                    } else {
-                        channel.nack(msg, false, true);
+                    try {
+                        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial backoff):`), releaseErr);
                     }
+                    tenantStillHeld = false;
+                    this.republishWithDelay(channel, msg, data.instituicaoCodigo);
+                    channel.ack(msg);
                     return;
                 }
                 serialAcquired = true;
@@ -493,10 +576,18 @@ class RabbitRotinaConsumer {
             );
         } finally {
             if (serialAcquired) {
-                await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                try {
+                    await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                } catch (releaseErr) {
+                    console.error(workerLogLine(`Failed to release serial slot for ${data.exeId}:`), releaseErr);
+                }
             }
             if (tenantStillHeld) {
-                await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                try {
+                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                } catch (releaseErr) {
+                    console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId}:`), releaseErr);
+                }
             }
         }
 
@@ -569,21 +660,67 @@ class RabbitRotinaConsumer {
     }
 
     private async isInstitutionWorkerConsuming(instituicaoCodigo: number): Promise<boolean> {
+        const cached = this.tenantStatus.get(instituicaoCodigo);
+        if (cached !== undefined) {
+            return cached.ativo && cached.workerAtivo;
+        }
         const inst = await this.prisma.iNSInstituicao.findUnique({
             where: { INSCodigo: instituicaoCodigo },
             select: { INSAtivo: true, INSWorkerAtivo: true },
         });
-        return !!(inst?.INSAtivo && inst.INSWorkerAtivo);
+        if (!inst) {
+            return false;
+        }
+        this.tenantStatus.set(instituicaoCodigo, {
+            ativo: !!inst.INSAtivo,
+            workerAtivo: inst.INSWorkerAtivo !== false,
+        });
+        return !!(inst.INSAtivo && inst.INSWorkerAtivo);
     }
 
     private async loadTenantLimit(instituicaoCodigo: number): Promise<number> {
         const tenant = await this.prisma.iNSInstituicao.findUnique({
             where: { INSCodigo: instituicaoCodigo },
-            select: { INSMaxExecucoesSimultaneas: true },
+            select: {
+                INSMaxExecucoesSimultaneas: true,
+                INSAtivo: true,
+                INSWorkerAtivo: true,
+            },
         });
         const limit = tenant?.INSMaxExecucoesSimultaneas || 8;
         this.tenantLimits.set(instituicaoCodigo, limit);
+        if (tenant) {
+            this.tenantStatus.set(instituicaoCodigo, {
+                ativo: !!tenant.INSAtivo,
+                workerAtivo: tenant.INSWorkerAtivo !== false,
+            });
+        }
         return limit;
+    }
+
+    private async loadRotinaParalelismoMeta(
+        instituicaoCodigo: number,
+        rotinaCodigo: number,
+    ): Promise<{ ROTPermiteParalelismo: boolean } | null> {
+        const key = redisRotinaParalelismoCacheKey(instituicaoCodigo, rotinaCodigo);
+        if (this.rotinaParalelismoCache.has(key)) {
+            const cached = this.rotinaParalelismoCache.get(key);
+            if (cached === null) return null;
+            if (typeof cached === 'boolean') {
+                return { ROTPermiteParalelismo: cached };
+            }
+        }
+        const row = await this.prisma.rOTRotina.findFirst({
+            where: { ROTCodigo: rotinaCodigo, INSInstituicaoCodigo: instituicaoCodigo },
+            select: { ROTPermiteParalelismo: true },
+        });
+        if (!row) {
+            this.rotinaParalelismoCache.set(key, null);
+            return null;
+        }
+        const permite = row.ROTPermiteParalelismo !== false;
+        this.rotinaParalelismoCache.set(key, permite);
+        return { ROTPermiteParalelismo: permite };
     }
 
     private async clearPendingMarker(exeId: string): Promise<void> {
@@ -687,6 +824,51 @@ class RabbitRotinaConsumer {
             timestamp: Date.now(),
         };
         return ch.publish(getJobsExchange(), String(instituicaoCodigo), msg.content, properties);
+    }
+
+    /**
+     * Republica via fila de retry global com delay, evitando hot-loop quando
+     * o slot serial (ROTPermiteParalelismo=false) está ocupado.
+     * O header `x-serial-delayed` sinaliza ao {@link onRetryQueueMessage} que
+     * não deve incrementar o retry count.
+     */
+    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): void {
+        const headers = {
+            ...(msg.properties.headers || {}),
+            'x-serial-delayed': true,
+            'x-serial-inst': instituicaoCodigo,
+        };
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: msg.properties.messageId,
+            correlationId: msg.properties.correlationId,
+            contentType: msg.properties.contentType || 'application/json',
+            timestamp: Date.now(),
+            expiration: String(SERIAL_BACKOFF_MS),
+        };
+        ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
+    }
+
+    /**
+     * Semáforo por instituição cheio: reenfileira na fila global de retry para
+     * {@link onRetryQueueMessage} aplicar {@link CAPACITY_DEFER_MS} sem incrementar {@link RETRY_HEADER}.
+     */
+    private republishWithCapacityDefer(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
+        const headers = {
+            ...(msg.properties.headers || {}),
+            [CAPACITY_DEFERRED_HEADER]: true,
+        };
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: msg.properties.messageId,
+            correlationId: msg.properties.correlationId,
+            contentType: msg.properties.contentType || 'application/json',
+            timestamp: Date.now(),
+            expiration: String(CAPACITY_DEFER_MS),
+        };
+        return ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
     }
 
     private getRetryCount(msg: ConsumeMessage): number {

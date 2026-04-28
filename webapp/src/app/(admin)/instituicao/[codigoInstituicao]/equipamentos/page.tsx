@@ -67,6 +67,7 @@ export default function EquipamentosPage() {
         EQPConfig?: any;
     }>({ EQPDescricao: "", EQPMarca: "", EQPModelo: "", EQPEnderecoIp: "", deviceId: "", EQPConfig: {} });
     const [saving, setSaving] = useState(false);
+    const [syncingAll, setSyncingAll] = useState(false);
     const [deleteTarget, setDeleteTarget] = useState<Equipamento | null>(null);
     const [showPassword, setShowPassword] = useState(false);
 
@@ -230,11 +231,14 @@ export default function EquipamentosPage() {
     };
 
     const handleSync = async () => {
+        setSyncingAll(true);
         try {
             await apiPost(`/instituicao/${codigoInstituicao}/hardware/sync`, {});
             showToast("success", "Sincronização iniciada", "O comando de sincronização foi enviado para todos os equipamentos.");
         } catch (error: any) {
             showToast("error", "Erro na sincronização", error.message || "Falha ao iniciar sincronização.");
+        } finally {
+            setSyncingAll(false);
         }
     };
 
@@ -245,9 +249,9 @@ export default function EquipamentosPage() {
                 {(maySyncHardware || mayCreateEquip) && (
                     <div className="flex gap-2">
                         {maySyncHardware && (
-                            <Button size="sm" variant="outline" onClick={handleSync}>
-                                <RefreshIcon className="w-4 h-4 mr-2" />
-                                Sincronizar Todos
+                            <Button size="sm" variant="outline" onClick={handleSync} disabled={syncingAll}>
+                                <RefreshIcon className={`w-4 h-4 mr-2 ${syncingAll ? "animate-spin" : ""}`} />
+                                {syncingAll ? "Sincronizando..." : "Sincronizar Todos"}
                             </Button>
                         )}
                         {mayCreateEquip && (
