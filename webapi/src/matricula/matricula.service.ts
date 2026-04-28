@@ -20,6 +20,7 @@ import {
   buildPdfBuffer,
   buildXlsxBuffer,
   type MatriculaExportRow,
+  type MatriculaPdfExportRow,
 } from './matricula-export.builder';
 
 const MAX_EXPORT_ROWS = 50_000;
@@ -131,17 +132,27 @@ export class MatriculaService {
       where,
       include: {
         pessoa: {
-          select: {
-            PESCodigo: true,
-            PESIdExterno: true,
-            PESNome: true,
-          },
+          select:
+            exportFormat === MatriculaExportFormat.pdf
+              ? {
+                  PESCodigo: true,
+                  PESIdExterno: true,
+                  PESNome: true,
+                  PESFotoBase64: true,
+                  PESFotoExtensao: true,
+                }
+              : {
+                  PESCodigo: true,
+                  PESIdExterno: true,
+                  PESNome: true,
+                },
         },
       },
       orderBy: { MATCodigo: 'desc' },
     });
 
     const rows = data as MatriculaExportRow[];
+
     const stamp = formatDate(new Date(), 'yyyyMMdd-HHmm');
 
     let buffer: Buffer;
@@ -157,10 +168,27 @@ export class MatriculaService {
         contentType =
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
         break;
-      case MatriculaExportFormat.pdf:
-        buffer = await buildPdfBuffer(rows);
+      case MatriculaExportFormat.pdf: {
+        const pdfRows = await Promise.all(
+          (data as MatriculaPdfExportRow[]).map(async (m) => {
+            if (m.pessoa?.PESFotoBase64) {
+              const resized = await resizeBase64Image(
+                m.pessoa.PESFotoBase64,
+                48,
+                48,
+              );
+              return {
+                ...m,
+                pessoa: { ...m.pessoa, PESFotoBase64: resized },
+              };
+            }
+            return m;
+          }),
+        );
+        buffer = await buildPdfBuffer(pdfRows);
         contentType = 'application/pdf';
         break;
+      }
     }
 
     const filename = `matriculas-${stamp}.${exportFormat}`;
