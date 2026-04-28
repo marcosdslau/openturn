@@ -66,8 +66,14 @@ function createDbProxy(models: string[]) {
 }
 
 function createHardwareProxy() {
+    const INSTITUTIONAL_METHODS = new Set(['deletePersonAcrossInstitution']);
+
     return new Proxy({}, {
         get: (_target: any, prop: string) => {
+            if (INSTITUTIONAL_METHODS.has(prop)) {
+                return (...args: any[]) =>
+                    sendRpc('hardware.institution.exec', { method: prop, args });
+            }
             return (equipmentId: number, ...args: any[]) => {
                 return sendRpc('hardware.exec', { equipmentId, method: prop, args });
             };

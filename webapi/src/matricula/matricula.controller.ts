@@ -10,10 +10,12 @@ import {
   Query,
   ParseIntPipe,
   UseGuards,
+  StreamableFile,
 } from '@nestjs/common';
 import { MatriculaService } from './matricula.service';
 import {
   CreateMatriculaDto,
+  ExportMatriculaQueryDto,
   QueryMatriculaDto,
   UpdateMatriculaDto,
 } from './dto/matricula.dto';
@@ -50,6 +52,20 @@ export class MatriculaController {
     @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
   ) {
     return this.service.findOpcoesFiltro(instituicaoCodigo);
+  }
+
+  @Get('export')
+  @RequirePermission('matricula', 'read')
+  async exportMatriculas(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Query() query: ExportMatriculaQueryDto,
+  ) {
+    const { buffer, filename, contentType } =
+      await this.service.exportMatriculas(instituicaoCodigo, query);
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Get(':id')

@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { usePermissions } from "@/hooks/usePermissions";
-import { apiGet, apiPost, apiPatch, apiDelete } from "@/lib/api";
+import { apiGet, apiPost, apiPatch, apiDelete, apiFetchBlob, triggerBlobDownload } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
@@ -14,7 +14,9 @@ import SearchableSelect from "@/components/form/SearchableSelect";
 import MatriculasFiltros, {
     MATRICULA_FILTROS_VAZIOS,
     buildMatriculaListQuery,
+    buildMatriculaExportQuery,
     type MatriculaFiltrosAplicados,
+    type MatriculaExportPdfOptions,
 } from "./components/MatriculasFiltros";
 
 interface Matricula {
@@ -40,6 +42,8 @@ interface Pessoa {
 
 interface Meta { total: number; page: number; limit: number; totalPages: number; }
 
+type MatriculaExportFormatUi = "csv" | "xlsx" | "pdf";
+
 export default function MatriculasPage() {
     const params = useParams();
     const codigoInstituicao = params?.codigoInstituicao;
@@ -63,6 +67,13 @@ export default function MatriculasPage() {
     // Modals
     const enrollmentModal = useModal();
     const deleteModal = useModal();
+    const exportModal = useModal();
+
+    const [exportFormat, setExportFormat] = useState<MatriculaExportFormatUi>("csv");
+    const [exporting, setExporting] = useState(false);
+    const [pdfOrientation, setPdfOrientation] = useState<"landscape" | "portrait">("landscape");
+    const [pdfColumns, setPdfColumns] = useState<1 | 2>(1);
+    const [pdfRowsPerPage, setPdfRowsPerPage] = useState(10);
 
     const [editing, setEditing] = useState<Matricula | null>(null);
     const [form, setForm] = useState({ MATNumero: "", PESCodigo: 0, MATCurso: "", MATSerie: "", MATTurma: "" });
@@ -197,6 +208,59 @@ export default function MatriculasPage() {
         } finally { setSaving(false); }
     };
 
+    const openExportModal = () => {
+        setExportFormat("csv");
+        setPdfOrientation("landscape");
+        setPdfColumns(1);
+        setPdfRowsPerPage(10);
+        exportModal.openModal();
+    };
+
+    const handleExportDownload = async () => {
+        if (!codigoInstituicao) return;
+        let pdfOptions: MatriculaExportPdfOptions | undefined;
+        if (exportFormat === "pdf") {
+            let r = Number(pdfRowsPerPage);
+            if (!Number.isFinite(r)) r = 10;
+            r = Math.round(r);
+            if (r < 3 || r > 60) {
+                showToast(
+                    "error",
+                    "PDF",
+                    "Informe entre 3 e 60 registros por coluna."
+                );
+                return;
+            }
+            pdfOptions = {
+                pdfOrientation,
+                pdfColumns,
+                pdfRowsPerPage: r,
+            };
+        }
+        setExporting(true);
+        try {
+            const qs = buildMatriculaExportQuery(
+                exportFormat,
+                filtrosAplicados,
+                pdfOptions
+            );
+            const { blob, suggestedFilename } = await apiFetchBlob(
+                `/instituicao/${codigoInstituicao}/matricula/export?${qs}`,
+                { timeoutMs: 120_000 }
+            );
+            const ext =
+                exportFormat === "csv" ? ".csv" : exportFormat === "xlsx" ? ".xlsx" : ".pdf";
+            triggerBlobDownload(blob, suggestedFilename ?? `matriculas${ext}`);
+            exportModal.closeModal();
+            showToast("success", "Exportação", "Download iniciado.");
+        } catch (error: unknown) {
+            const msg = error instanceof Error ? error.message : "Não foi possível exportar.";
+            showToast("error", "Erro ao exportar", msg);
+        } finally {
+            setExporting(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -219,6 +283,13 @@ export default function MatriculasPage() {
                     setFiltrosAplicados(MATRICULA_FILTROS_VAZIOS);
                     setPage(1);
                 }}
+                extraActions={
+                    can("matricula", "read") ? (
+                        <Button type="button" size="sm" variant="outline" onClick={openExportModal}>
+                            Exportar
+                        </Button>
+                    ) : null
+                }
             />
 
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
@@ -394,6 +465,157 @@ export default function MatriculasPage() {
                         <Button size="sm" variant="outline" onClick={deleteModal.closeModal}>Cancelar</Button>
                         <Button size="sm" className="bg-red-500 hover:bg-red-600 text-white border-transparent" onClick={confirmDelete} disabled={saving}>
                             {saving ? "Excluindo..." : "Sim, Excluir"}
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            <Modal
+                isOpen={exportModal.isOpen}
+                onClose={() => {
+                    if (!exporting) exportModal.closeModal();
+                }}
+                className="max-w-lg p-6 max-h-[90vh] overflow-y-auto"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        Exportar matrículas
+                    </h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                        O arquivo será gerado no servidor com base nos filtros já aplicados na lista.
+                    </p>
+                    <fieldset className="space-y-2.5 border-0 p-0 m-0">
+                        <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                            Formato
+                        </legend>
+                        <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                            <input
+                                type="radio"
+                                name="exportFmtMat"
+                                className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                checked={exportFormat === "csv"}
+                                onChange={() => setExportFormat("csv")}
+                                disabled={exporting}
+                            />
+                            CSV
+                        </label>
+                        <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                            <input
+                                type="radio"
+                                name="exportFmtMat"
+                                className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                checked={exportFormat === "xlsx"}
+                                onChange={() => setExportFormat("xlsx")}
+                                disabled={exporting}
+                            />
+                            Excel (.xlsx)
+                        </label>
+                        <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                            <input
+                                type="radio"
+                                name="exportFmtMat"
+                                className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                checked={exportFormat === "pdf"}
+                                onChange={() => setExportFormat("pdf")}
+                                disabled={exporting}
+                            />
+                            PDF
+                        </label>
+                    </fieldset>
+                    {exportFormat === "pdf" && (
+                        <div className="rounded-xl border border-gray-100 bg-gray-50/80 p-4 dark:border-gray-800 dark:bg-white/[0.04] space-y-4">
+                            <fieldset className="space-y-2.5 border-0 p-0 m-0">
+                                <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Orientação
+                                </legend>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfOrientMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfOrientation === "landscape"}
+                                        onChange={() => setPdfOrientation("landscape")}
+                                        disabled={exporting}
+                                    />
+                                    Paisagem
+                                </label>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfOrientMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfOrientation === "portrait"}
+                                        onChange={() => setPdfOrientation("portrait")}
+                                        disabled={exporting}
+                                    />
+                                    Retrato
+                                </label>
+                            </fieldset>
+                            <fieldset className="space-y-2.5 border-0 p-0 m-0">
+                                <legend className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                    Colunas na página
+                                </legend>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfColsMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfColumns === 1}
+                                        onChange={() => setPdfColumns(1)}
+                                        disabled={exporting}
+                                    />
+                                    1 coluna
+                                </label>
+                                <label className="flex items-center gap-2.5 cursor-pointer text-sm text-gray-800 dark:text-white/90">
+                                    <input
+                                        type="radio"
+                                        name="pdfColsMat"
+                                        className="h-4 w-4 shrink-0 border-gray-300 text-brand-600 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-800"
+                                        checked={pdfColumns === 2}
+                                        onChange={() => setPdfColumns(2)}
+                                        disabled={exporting}
+                                    />
+                                    2 colunas
+                                </label>
+                            </fieldset>
+                            <div>
+                                <label
+                                    htmlFor="pdf-rows-per-col-mat"
+                                    className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5"
+                                >
+                                    Registros por coluna
+                                </label>
+                                <input
+                                    id="pdf-rows-per-col-mat"
+                                    type="number"
+                                    min={3}
+                                    max={60}
+                                    step={1}
+                                    value={pdfRowsPerPage}
+                                    onChange={(e) => {
+                                        const n = parseInt(e.target.value, 10);
+                                        if (!Number.isNaN(n)) setPdfRowsPerPage(n);
+                                    }}
+                                    disabled={exporting}
+                                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
+                                />
+                                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                    Com 2 colunas, até o dobro de matrículas por página (padrão 10 por faixa).
+                                </p>
+                            </div>
+                        </div>
+                    )}
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={exportModal.closeModal}
+                            disabled={exporting}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button size="sm" onClick={handleExportDownload} disabled={exporting}>
+                            {exporting ? "Gerando..." : "Exportar"}
                         </Button>
                     </div>
                 </div>

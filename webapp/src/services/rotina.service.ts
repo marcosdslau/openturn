@@ -164,8 +164,11 @@ export const RotinaService = {
     bulkExecutionsAction: async (
         instituicaoCodigo: number,
         data: { action: "delete" | "reprocess" | "cancel"; ids: string[] }
-    ) => {
-        return apiPost(`/instituicao/${instituicaoCodigo}/execucoes/bulk`, data);
+    ): Promise<{ count?: number; processed?: number }> => {
+        return apiPost<{ count?: number; processed?: number }>(
+            `/instituicao/${instituicaoCodigo}/execucoes/bulk`,
+            data
+        );
     },
 
     getLogs: async (

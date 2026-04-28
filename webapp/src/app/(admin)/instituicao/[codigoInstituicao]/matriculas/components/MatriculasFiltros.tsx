@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Label from "@/components/form/Label";
 import InputField from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
@@ -57,6 +57,8 @@ interface MatriculasFiltrosProps {
     turmasDisponiveis: string[];
     onAplicar: (f: MatriculaFiltrosAplicados) => void;
     onLimpar: () => void;
+    /** Ações alinhadas à direita na mesma linha dos filtros (ex.: Exportar). */
+    extraActions?: ReactNode;
 }
 
 export function buildMatriculaListQuery(
@@ -78,6 +80,35 @@ export function buildMatriculaListQuery(
     return p.toString();
 }
 
+/** Opções de layout apenas para exportação em PDF (query string). */
+export type MatriculaExportPdfOptions = {
+    pdfOrientation: "portrait" | "landscape";
+    pdfColumns: 1 | 2;
+    pdfRowsPerPage: number;
+};
+
+/** Query string para GET /matricula/export (filtros já aplicados, sem paginação). */
+export function buildMatriculaExportQuery(
+    format: "csv" | "xlsx" | "pdf",
+    f: MatriculaFiltrosAplicados,
+    pdfOptions?: MatriculaExportPdfOptions
+): string {
+    const p = new URLSearchParams({ format });
+    const nome = f.nome.trim();
+    const numero = f.numero.trim();
+    if (nome) p.set("nome", nome);
+    if (numero) p.set("numero", numero);
+    for (const c of f.cursos) p.append("curso", c);
+    for (const s of f.series) p.append("serie", s);
+    for (const t of f.turmas) p.append("turma", t);
+    if (format === "pdf" && pdfOptions) {
+        p.set("pdfOrientation", pdfOptions.pdfOrientation);
+        p.set("pdfColumns", String(pdfOptions.pdfColumns));
+        p.set("pdfRowsPerPage", String(pdfOptions.pdfRowsPerPage));
+    }
+    return p.toString();
+}
+
 export { EMPTY as MATRICULA_FILTROS_VAZIOS };
 
 export default function MatriculasFiltros({
@@ -87,6 +118,7 @@ export default function MatriculasFiltros({
     turmasDisponiveis,
     onAplicar,
     onLimpar,
+    extraActions,
 }: MatriculasFiltrosProps) {
     const [draft, setDraft] = useState<Draft>(() => toDraft(aplicados));
     const [avancadoAberto, setAvancadoAberto] = useState(false);
@@ -216,13 +248,16 @@ export default function MatriculasFiltros({
                         </div>
                     )}
 
-                    <div className="flex flex-wrap gap-3 pt-1">
-                        <Button type="submit" size="sm">
-                            Aplicar filtros
-                        </Button>
-                        <Button type="button" size="sm" variant="outline" onClick={limpar}>
-                            Limpar
-                        </Button>
+                    <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                        <div className="flex flex-wrap gap-3">
+                            <Button type="submit" size="sm">
+                                Aplicar filtros
+                            </Button>
+                            <Button type="button" size="sm" variant="outline" onClick={limpar}>
+                                Limpar
+                            </Button>
+                        </div>
+                        {extraActions}
                     </div>
                 </form>
             </div>

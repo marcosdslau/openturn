@@ -27,7 +27,15 @@ export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
     limiar?: number,
     grupo?: string,
   ): Promise<void>;
+  /** `id` = identificador do usuário no equipamento (ex.: user id no Control iD), não o PESCodigo. */
   deletePerson(id: number): Promise<void>;
+
+  /**
+   * Remove todos os usuários cadastrados no equipamento (operação destrutiva).
+   * Implementações devem também remover linhas de `PESEquipamentoMapeamento`
+   * com `EQPCodigo` igual a `equipmentId` após o hardware ser limpo.
+   */
+  deleteAllUsers(equipmentId: number): Promise<void>;
 
   setTag(userId: number, tag: string): Promise<void>;
   removeTag(tag: string): Promise<void>;

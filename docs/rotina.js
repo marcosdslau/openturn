@@ -1,7 +1,8 @@
 /**
  * Rotina WEBHOOK: recebe { PESCodigo, PESNome } e, opcionalmente, PESIdExterno no body
- * (senão usa PESPessoa.PESIdExterno; fallback: PESCodigo). Replica em todos os equipamentos
- * ativos o fluxo de syncPerson via context.hardware.
+ * (senão usa PESPessoa.PESIdExterno no sync). Se a pessoa existir no banco e estiver inativa,
+ * remove nos equipamentos via deletePersonAcrossInstitution. Se estiver ativa (ou não houver
+ * registro no banco), replica syncPerson em todos os equipamentos ativos.
  */
 const body = context.request?.body ?? {};
 
@@ -24,10 +25,21 @@ console.log('Dados recebidos (webhook):', { PESCodigo, PESNome });
 let pessoa = null;
 try {
   pessoa = await context.db.PESPessoa.findFirst({
-    where: { PESCodigo, PESAtivo: true },
+    where: { PESCodigo },
   });
 } catch (e) {
   console.warn('Aviso: não foi possível carregar PESPessoa; segue só com nome do body', e);
+}
+
+/** Pessoa cadastrada mas inativa: apenas limpar dos equipamentos + mappings, sem sync. */
+if (pessoa && pessoa.PESAtivo === false) {
+  const result = await context.hardware.deletePersonAcrossInstitution(pessoa.PESCodigo);
+  console.log('Pessoa inativa — exclusão institucional:', result);
+  return {
+    message: 'Pessoa inativa: remoção nos equipamentos e mapeamentos concluída',
+    pessoa: { PESCodigo, PESNome, PESAtivo: false },
+    exclusao: result,
+  };
 }
 
 let fingers = [];
@@ -42,9 +54,9 @@ if (pessoa?.PESTemplates) {
  * `person.pescodigo` = PESCodigo (chave em PESEquipamentoMapeamento).
  * `person.id` = id do usuário no leitor (PESIdExterno numérico, ou PESCodigo se ausente).
  */
-function idNoEquipamentoLeitor(pesIdExternoBruto, fallbackPescodigo) {
+function idNoEquipamentoLeitor(pesIdExternoBruto) {
   if (pesIdExternoBruto == null || String(pesIdExternoBruto).trim() === '') {
-    return fallbackPescodigo;
+    throw new Error(`PESIdExterno inválido; usando PESCodigo como id no leitor: ${pesIdExternoBruto}`);
   }
   const s = String(pesIdExternoBruto).trim();
   const n = Number(s);
@@ -58,12 +70,11 @@ function idNoEquipamentoLeitor(pesIdExternoBruto, fallbackPescodigo) {
   console.warn('PESIdExterno inválido; usando PESCodigo como id no leitor', {
     PESIdExterno: pesIdExternoBruto,
   });
-  return fallbackPescodigo;
+  throw new Error(`PESIdExterno inválido; usando PESCodigo como id no leitor: ${pesIdExternoBruto}`);
 }
 
 const idHardware = idNoEquipamentoLeitor(
-  body.PESIdExterno ?? pessoa?.PESIdExterno,
-  PESCodigo,
+  body.PESIdExterno ?? pessoa?.PESIdExterno
 );
 
 const person = {

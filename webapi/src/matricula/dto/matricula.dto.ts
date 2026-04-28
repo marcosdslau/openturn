@@ -5,8 +5,12 @@ import {
   IsBoolean,
   IsArray,
   MaxLength,
+  IsEnum,
+  Min,
+  Max,
+  IsIn,
 } from 'class-validator';
-import { Transform } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
 
 function trimOrUndefined({ value }: { value: unknown }) {
@@ -105,4 +109,76 @@ export class QueryMatriculaDto extends PaginationDto {
   @IsString({ each: true })
   @MaxLength(200, { each: true })
   turma?: string[];
+}
+
+export enum MatriculaExportFormat {
+  csv = 'csv',
+  xlsx = 'xlsx',
+  pdf = 'pdf',
+}
+
+export enum MatriculaPdfOrientation {
+  portrait = 'portrait',
+  landscape = 'landscape',
+}
+
+function toPdfColumns({ value }: { value: unknown }): 1 | 2 {
+  if (value === undefined || value === null) return 1;
+  const n = typeof value === 'string' ? Number(value) : Number(value);
+  return n === 2 ? 2 : 1;
+}
+
+/** Filtros de listagem/export sem paginação */
+export class ExportMatriculaQueryDto {
+  @IsEnum(MatriculaExportFormat)
+  format: MatriculaExportFormat;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(200)
+  nome?: string;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsString()
+  @MaxLength(120)
+  numero?: string;
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  curso?: string[];
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  serie?: string[];
+
+  @IsOptional()
+  @Transform(toStringArray)
+  @IsArray()
+  @IsString({ each: true })
+  @MaxLength(200, { each: true })
+  turma?: string[];
+
+  @IsOptional()
+  @IsEnum(MatriculaPdfOrientation)
+  pdfOrientation?: MatriculaPdfOrientation;
+
+  @IsOptional()
+  @Transform(toPdfColumns)
+  @IsIn([1, 2])
+  pdfColumns?: 1 | 2;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(3)
+  @Max(60)
+  pdfRowsPerPage?: number;
 }

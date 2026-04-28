@@ -66,6 +66,7 @@ export default function PessoasPage() {
     const personModal = useModal();
     const deactivateModal = useModal();
     const mappingModal = useModal();
+    const deleteFromDevicesModal = useModal();
 
     const [form, setForm] = useState({
         PESNome: "",
@@ -83,6 +84,8 @@ export default function PessoasPage() {
     const [mappingTarget, setMappingTarget] = useState<Pessoa | null>(null);
     const [mappings, setMappings] = useState<Mapeamento[]>([]);
     const [loadingMappings, setLoadingMappings] = useState(false);
+    const [syncingPerson, setSyncingPerson] = useState(false);
+    const [deletingFromDevices, setDeletingFromDevices] = useState(false);
 
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -116,6 +119,28 @@ export default function PessoasPage() {
     useEffect(() => {
         loadGrupos();
     }, [loadGrupos]);
+
+    const loadMappings = useCallback(
+        async (pescodigo: number) => {
+            if (!codigoInstituicao) return;
+            setLoadingMappings(true);
+            try {
+                const data = await apiGet<Mapeamento[]>(
+                    `/instituicao/${codigoInstituicao}/pessoa/${pescodigo}/mappings`
+                );
+                setMappings(data);
+            } catch (error: any) {
+                showToast(
+                    "error",
+                    "Erro ao carregar mapeamentos",
+                    error.message || "Não foi possível carregar os IDs de hardware."
+                );
+            } finally {
+                setLoadingMappings(false);
+            }
+        },
+        [codigoInstituicao, showToast]
+    );
 
     const openNew = () => {
         setForm({
@@ -171,14 +196,103 @@ export default function PessoasPage() {
         setMappingTarget(p);
         setMappings([]);
         mappingModal.openModal();
-        setLoadingMappings(true);
+        await loadMappings(p.PESCodigo);
+    };
+
+    const handleSyncPersonHardware = async () => {
+        if (!codigoInstituicao || !mappingTarget) return;
+        setSyncingPerson(true);
         try {
-            const data = await apiGet<Mapeamento[]>(`/instituicao/${codigoInstituicao}/pessoa/${p.PESCodigo}/mappings`);
-            setMappings(data);
+            const res = await apiPost<{
+                synced: number;
+                failed: number;
+                results: Array<{ equipmentId: number; ok: boolean; error?: string }>;
+            }>(
+                `/instituicao/${codigoInstituicao}/hardware/person/${mappingTarget.PESCodigo}/sync`,
+                {}
+            );
+            if (res.failed > 0) {
+                showToast(
+                    "warning",
+                    "Sincronização parcial",
+                    `${res.synced} equipamento(s) OK, ${res.failed} com falha.`
+                );
+            } else {
+                showToast(
+                    "success",
+                    "Pessoa sincronizada",
+                    res.synced === 0
+                        ? "Nenhum equipamento ativo para sincronizar."
+                        : `${res.synced} equipamento(s) atualizado(s).`
+                );
+            }
+            await loadMappings(mappingTarget.PESCodigo);
         } catch (error: any) {
-            showToast("error", "Erro ao carregar mapeamentos", error.message || "Não foi possível carregar os IDs de hardware.");
+            showToast(
+                "error",
+                "Erro na sincronização",
+                error.message || "Não foi possível sincronizar a pessoa nos equipamentos."
+            );
         } finally {
-            setLoadingMappings(false);
+            setSyncingPerson(false);
+        }
+    };
+
+    /** Fecha o modal de mapeamento antes do de confirmação para o overlay aparecer corretamente. */
+    const openDeleteFromDevicesConfirm = () => {
+        mappingModal.closeModal();
+        deleteFromDevicesModal.openModal();
+    };
+
+    /** Ao cancelar confirmação, volta ao modal de mapeamento. */
+    const handleCloseDeleteFromDevicesModal = () => {
+        deleteFromDevicesModal.closeModal();
+        if (mappingTarget) {
+            mappingModal.openModal();
+        }
+    };
+
+    const confirmDeleteFromDevices = async () => {
+        if (!codigoInstituicao || !mappingTarget) return;
+        setDeletingFromDevices(true);
+        try {
+            const res = await apiPost<{
+                deleted: number;
+                failed: number;
+                mappingsRemoved: number;
+                results: Array<{ equipmentId: number; ok: boolean; error?: string }>;
+            }>(
+                `/instituicao/${codigoInstituicao}/hardware/person/${mappingTarget.PESCodigo}/delete-from-devices`,
+                {}
+            );
+            if (res.failed > 0) {
+                showToast(
+                    "warning",
+                    "Exclusão parcial",
+                    `${res.deleted} equipamento(s) OK, ${res.failed} com falha. ` +
+                        `${res.mappingsRemoved} mapeamento(s) removido(s) no sistema.`
+                );
+            } else {
+                showToast(
+                    "success",
+                    "Exclusão concluída",
+                    res.deleted === 0
+                        ? "Nenhum equipamento ativo. Mapeamentos locais limpos."
+                        : `Removido em ${res.deleted} equipamento(s). ` +
+                          `${res.mappingsRemoved} mapeamento(s) removido(s) no sistema.`
+                );
+            }
+            deleteFromDevicesModal.closeModal();
+            await loadMappings(mappingTarget.PESCodigo);
+            mappingModal.openModal();
+        } catch (error: any) {
+            showToast(
+                "error",
+                "Erro ao excluir nos equipamentos",
+                error.message || "Não foi possível remover a pessoa dos equipamentos."
+            );
+        } finally {
+            setDeletingFromDevices(false);
         }
     };
 
@@ -454,8 +568,88 @@ export default function PessoasPage() {
                         </table>
                     </div>
 
-                    <div className="flex justify-end pt-2">
-                        <Button size="sm" onClick={mappingModal.closeModal}>Fechar</Button>
+                    <div className="flex justify-end gap-3 pt-2 flex-wrap">
+                        {can("equipamento", "update") && mappingTarget && (
+                            <>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={handleSyncPersonHardware}
+                                    disabled={
+                                        syncingPerson ||
+                                        deletingFromDevices ||
+                                        loadingMappings
+                                    }
+                                >
+                                    {syncingPerson ? "Sincronizando..." : "Sincronizar Pessoa"}
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="text-red-600 border-red-200 hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20"
+                                    onClick={openDeleteFromDevicesConfirm}
+                                    disabled={
+                                        syncingPerson ||
+                                        deletingFromDevices ||
+                                        loadingMappings
+                                    }
+                                >
+                                    Excluir nos equipamentos
+                                </Button>
+                            </>
+                        )}
+                        <Button
+                            size="sm"
+                            onClick={mappingModal.closeModal}
+                            disabled={deletingFromDevices || syncingPerson}
+                        >
+                            Fechar
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Excluir dos equipamentos — confirmação (abre após fechar o modal de mapeamento; vem depois no DOM para ficar por cima) */}
+            <Modal
+                isOpen={deleteFromDevicesModal.isOpen}
+                onClose={handleCloseDeleteFromDevicesModal}
+                className="max-w-md p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        Excluir nos equipamentos
+                    </h3>
+                    <div className="flex items-start gap-4 p-4 rounded-xl bg-amber-50 dark:bg-amber-900/10">
+                        <div className="flex-shrink-0">
+                            <AlertIcon className="h-6 w-6 text-amber-500" />
+                        </div>
+                        <div>
+                            <h4 className="text-sm font-semibold text-amber-800 dark:text-amber-400">Atenção</h4>
+                            <p className="mt-1 text-sm text-amber-700 dark:text-amber-400/80">
+                                O cadastro de{" "}
+                                <strong>{mappingTarget?.PESNome}</strong> será removido de{" "}
+                                <strong>todos os equipamentos ativos</strong> desta instituição.
+                                Os vínculos de mapeamento no sistema também serão apagados.
+                            </p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3 justify-end pt-2">
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={handleCloseDeleteFromDevicesModal}
+                            disabled={deletingFromDevices}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button
+                            size="sm"
+                            className="bg-red-600 hover:bg-red-700 text-white border-transparent"
+                            onClick={confirmDeleteFromDevices}
+                            disabled={deletingFromDevices}
+                        >
+                            {deletingFromDevices ? "Excluindo..." : "Confirmar exclusão"}
+                        </Button>
                     </div>
                 </div>
             </Modal>

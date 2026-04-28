@@ -58,6 +58,12 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
     this.logger.log(`[Hikvision] Deleting person ${id}`);
   }
 
+  async deleteAllUsers(equipmentId: number): Promise<void> {
+    this.logger.log(
+      `[Hikvision] deleteAllUsers (stub) — equipmentId=${equipmentId} — implementação pendente`,
+    );
+  }
+
   async setTag(userId: number, tag: string): Promise<void> {
     this.logger.log(`[Hikvision] Setting tag ${tag} for user ${userId}`);
   }
