@@ -187,11 +187,31 @@ export class RotinaExecutionService {
   }
 
   async deleteExecutions(ids: string[], instituicaoCodigo: number) {
+    const candidatos = await this.prisma.rOTExecucaoLog.findMany({
+      where: {
+        EXEIdExterno: { in: ids },
+        INSInstituicaoCodigo: instituicaoCodigo,
+      },
+      select: { EXEIdExterno: true, EXEStatus: true },
+    });
+
+    for (const row of candidatos) {
+      if (row.EXEStatus === StatusExecucao.EM_EXECUCAO) {
+        try {
+          await this.rotinaQueueService.cancelJob(row.EXEIdExterno);
+          await this.rotinaQueueService.sendCancelSignal(row.EXEIdExterno);
+        } catch (e) {
+          this.logger.warn(
+            `Ao excluir execução ativa ${row.EXEIdExterno}: ${(e as Error).message}`,
+          );
+        }
+      }
+    }
+
     return this.prisma.rOTExecucaoLog.deleteMany({
       where: {
         EXEIdExterno: { in: ids },
         INSInstituicaoCodigo: instituicaoCodigo,
-        EXEStatus: { not: StatusExecucao.EM_EXECUCAO }, // Segurança: não deletar o que está rodando
       },
     });
   }

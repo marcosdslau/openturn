@@ -9,6 +9,7 @@ import {
   Query,
   Req,
 } from '@nestjs/common';
+import { BulkExecucoesDto } from './dto/bulk-execucoes.dto';
 import { RotinaExecutionService } from './rotina-execution.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -55,7 +56,7 @@ export class RotinaExecutionController {
   @Post('bulk')
   async bulkAction(
     @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-    @Body() data: { action: 'delete' | 'reprocess' | 'cancel'; ids: string[] },
+    @Body() data: BulkExecucoesDto,
     @Req() req: any,
   ) {
     const { action } = data;

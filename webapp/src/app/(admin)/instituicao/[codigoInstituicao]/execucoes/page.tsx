@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import Button from "@/components/ui/button/Button";
@@ -88,8 +89,8 @@ export default function ExecucoesPage() {
     const [detailType, setDetailType] = useState<"logs" | "result" | "webhook" | "error">("logs");
 
     // Action State
-    const [executingIds, setExecutingIds] = useState<Set<string>>(new Set());
     const [bulkAction, setBulkAction] = useState<"delete" | "reprocess" | "cancel" | null>(null);
+    const [actionOverlayBusy, setActionOverlayBusy] = useState(false);
 
     const loadExecutions = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -166,29 +167,28 @@ export default function ExecucoesPage() {
     };
 
     const handleReprocess = async (exeId: string) => {
-        setExecutingIds(prev => new Set(prev).add(exeId));
+        setActionOverlayBusy(true);
         try {
             await RotinaService.reprocessExecution(codigoInstituicao, exeId);
             showToast("success", "Sucesso", "Reprocessamento enfileirado com sucesso.");
-            loadExecutions();
+            await loadExecutions();
         } catch (error: any) {
             showToast("error", "Erro", error.message || "Falha ao reprocessar.");
         } finally {
-            setExecutingIds(prev => {
-                const next = new Set(prev);
-                next.delete(exeId);
-                return next;
-            });
+            setActionOverlayBusy(false);
         }
     };
 
     const handleCancel = async (exeId: string, rotinaCodigo: number) => {
+        setActionOverlayBusy(true);
         try {
             await RotinaService.cancelExecution(rotinaCodigo, exeId, codigoInstituicao);
             showToast("info", "Cancelado", "Solicitação de cancelamento enviada.");
-            loadExecutions();
+            await loadExecutions();
         } catch (error: any) {
             showToast("error", "Erro", error.message || "Falha ao cancelar.");
+        } finally {
+            setActionOverlayBusy(false);
         }
     };
 
@@ -200,18 +200,45 @@ export default function ExecucoesPage() {
 
     const confirmBulkAction = async () => {
         if (!bulkAction || selectedIds.length === 0) return;
-        
+
+        const actionToRun = bulkAction;
+        const idsPayload = [...selectedIds];
+
+        bulkModal.closeModal();
+        setActionOverlayBusy(true);
+
         try {
-            await RotinaService.bulkExecutionsAction(codigoInstituicao, {
-                action: bulkAction,
-                ids: selectedIds
+            const result = await RotinaService.bulkExecutionsAction(codigoInstituicao, {
+                action: actionToRun,
+                ids: idsPayload,
             });
-            showToast("success", "Sucesso", `Ação ${bulkAction} realizada com sucesso.`);
+
+            if (actionToRun === "delete") {
+                const count = typeof result.count === "number" ? result.count : 0;
+                if (count > 0) {
+                    showToast("success", "Sucesso", `${count} registro(s) excluído(s).`);
+                } else {
+                    showToast(
+                        "info",
+                        "Atenção",
+                        "Nenhum registro foi excluído."
+                    );
+                }
+            } else {
+                const processed =
+                    typeof result.processed === "number" ? result.processed : 0;
+                const msg =
+                    actionToRun === "reprocess"
+                        ? `${processed} reprocessamento(s) enfileirado(s).`
+                        : `${processed} solicitação(ões) de cancelamento enviada(s).`;
+                showToast("success", "Sucesso", msg);
+            }
             setSelectedIds([]);
-            bulkModal.closeModal();
-            loadExecutions();
+            await loadExecutions();
         } catch (error: any) {
             showToast("error", "Erro", error.message || "Falha na ação em lote.");
+        } finally {
+            setActionOverlayBusy(false);
         }
     };
 
@@ -382,17 +409,17 @@ export default function ExecucoesPage() {
                     </span>
                     <div className="flex gap-2">
                         {mayExecDelete && (
-                            <Button size="sm" variant="outline" className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => { setBulkAction("delete"); bulkModal.openModal(); }}>
+                            <Button size="sm" variant="outline" disabled={actionOverlayBusy} className="border-red-200 text-red-600 hover:bg-red-50" onClick={() => { setBulkAction("delete"); bulkModal.openModal(); }}>
                                 <TrashBinIcon className="mr-1 h-6 w-6" /> Excluir
                             </Button>
                         )}
                         {mayExecReprocess && (
-                            <Button size="sm" variant="outline" className="border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => { setBulkAction("reprocess"); bulkModal.openModal(); }}>
+                            <Button size="sm" variant="outline" disabled={actionOverlayBusy} className="border-blue-200 text-blue-600 hover:bg-blue-50" onClick={() => { setBulkAction("reprocess"); bulkModal.openModal(); }}>
                                 <RefreshIcon className="mr-1 h-6 w-6" /> Reprocessar
                             </Button>
                         )}
                         {mayExecCancel && (
-                            <Button size="sm" variant="outline" className="border-amber-200 text-amber-600 hover:bg-amber-50" onClick={() => { setBulkAction("cancel"); bulkModal.openModal(); }}>
+                            <Button size="sm" variant="outline" disabled={actionOverlayBusy} className="border-amber-200 text-amber-600 hover:bg-amber-50" onClick={() => { setBulkAction("cancel"); bulkModal.openModal(); }}>
                                 <CloseIcon className="mr-1 h-6 w-6" /> Cancelar
                             </Button>
                         )}
@@ -411,7 +438,8 @@ export default function ExecucoesPage() {
                                         type="checkbox" 
                                         checked={selectedIds.length === executions.length && executions.length > 0}
                                         onChange={handleSelectAll}
-                                        className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500" 
+                                        disabled={actionOverlayBusy}
+                                        className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500 disabled:opacity-50" 
                                     />
                                 </th>
                             )}
@@ -439,7 +467,8 @@ export default function ExecucoesPage() {
                                             type="checkbox" 
                                             checked={selectedIds.includes(ex.EXEIdExterno)}
                                             onChange={() => handleSelectOne(ex.EXEIdExterno)}
-                                            className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500"
+                                            disabled={actionOverlayBusy}
+                                            className="rounded border-gray-300 dark:border-gray-700 dark:bg-gray-800 text-brand-500 focus:ring-brand-500 disabled:opacity-50"
                                         />
                                     </td>
                                 )}
@@ -505,7 +534,7 @@ export default function ExecucoesPage() {
                                         {ex.EXEStatus === "EM_EXECUCAO" ? (
                                             mayExecCancel && (
                                                 <Tooltip content="Encerrar">
-                                                    <button type="button" onClick={() => handleCancel(ex.EXEIdExterno, ex.ROTCodigo)} className="p-1.5 rounded-md hover:bg-red-50 text-red-500">
+                                                    <button type="button" onClick={() => handleCancel(ex.EXEIdExterno, ex.ROTCodigo)} disabled={actionOverlayBusy} className="p-1.5 rounded-md hover:bg-red-50 text-red-500 disabled:opacity-50">
                                                         <CloseIcon className="w-6 h-6" />
                                                     </button>
                                                 </Tooltip>
@@ -516,17 +545,17 @@ export default function ExecucoesPage() {
                                                     <button 
                                                         type="button"
                                                         onClick={() => handleReprocess(ex.EXEIdExterno)} 
-                                                        disabled={executingIds.has(ex.EXEIdExterno)}
+                                                        disabled={actionOverlayBusy}
                                                         className="p-1.5 rounded-md hover:bg-blue-50 text-blue-500 disabled:opacity-50"
                                                     >
-                                                        <RefreshIcon className={`w-4 h-4 ${executingIds.has(ex.EXEIdExterno) ? 'animate-spin' : ''}`} />
+                                                        <RefreshIcon className="w-4 h-4" />
                                                     </button>
                                                 </Tooltip>
                                             )
                                         )}
                                         {mayExecDelete && (
                                             <Tooltip content="Excluir Registro">
-                                                <button type="button" onClick={() => handleDelete(ex.EXEIdExterno)} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500">
+                                                <button type="button" onClick={() => handleDelete(ex.EXEIdExterno)} disabled={actionOverlayBusy} className="p-1.5 rounded-md hover:bg-gray-100 text-gray-500 disabled:opacity-50">
                                                     <TrashBinIcon className="w-4 h-4" />
                                                 </button>
                                             </Tooltip>
@@ -556,6 +585,18 @@ export default function ExecucoesPage() {
                         <option value={20}>20</option>
                         <option value={50}>50</option>
                         <option value={100}>100</option>
+                        <option value={250}>250</option>
+                        <option value={500}>500</option>
+                        <option value={750}>750</option>
+                        <option value={1000}>1000</option>
+                        <option value={1500}>1500</option>
+                        <option value={2000}>2000</option>
+                        <option value={2500}>2500</option>
+                        <option value={3000}>3000</option>
+                        <option value={3500}>3500</option>
+                        <option value={4000}>4000</option>
+                        <option value={4500}>4500</option>
+                        <option value={5000}>5000</option>
                     </select>
                 </div>
 
@@ -666,8 +707,8 @@ export default function ExecucoesPage() {
                     </p>
 
                     <div className="flex items-center justify-center gap-3 mt-8">
-                        <Button variant="outline" onClick={bulkModal.closeModal} className="w-full sm:w-auto">Cancelar</Button>
-                        <Button onClick={confirmBulkAction} className={`w-full sm:w-auto ${
+                        <Button variant="outline" disabled={actionOverlayBusy} onClick={bulkModal.closeModal} className="w-full sm:w-auto">Cancelar</Button>
+                        <Button disabled={actionOverlayBusy} onClick={confirmBulkAction} className={`w-full sm:w-auto ${
                             bulkAction === 'delete' ? 'bg-red-600 hover:bg-red-700' :
                             bulkAction === 'reprocess' ? 'bg-blue-600 hover:bg-blue-700' :
                             'bg-amber-600 hover:bg-amber-700'
@@ -677,6 +718,23 @@ export default function ExecucoesPage() {
                     </div>
                 </div>
             </Modal>
+
+            {typeof document !== "undefined" &&
+                actionOverlayBusy &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-gray-900/40 backdrop-blur-[2px] dark:bg-black/55"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                    >
+                        <div className="flex flex-col items-center gap-4 rounded-2xl bg-white px-8 py-7 shadow-xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-white/10">
+                            <RefreshIcon className="h-10 w-10 animate-spin text-brand-500" aria-hidden />
+                            <p className="text-sm font-medium text-gray-800 dark:text-gray-100">Processando…</p>
+                        </div>
+                    </div>,
+                    document.body
+                )}
         </div>
     );
 }
