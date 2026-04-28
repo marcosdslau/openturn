@@ -53,6 +53,7 @@ const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
+const SERIAL_BACKOFF_MS = 2000;
 /** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
 const INFLIGHT_LEASE_MS = Math.max(
     60_000,
@@ -249,6 +250,25 @@ class RabbitRotinaConsumer {
         try {
             data = JSON.parse(msg.content.toString()) as RotinaJobData;
         } catch {
+            ch.ack(msg);
+            return;
+        }
+
+        const isSerialDelay = msg.properties.headers?.['x-serial-delayed'] === true;
+        if (isSerialDelay) {
+            await sleep(SERIAL_BACKOFF_MS);
+            const headers = { ...(msg.properties.headers || {}) };
+            delete headers['x-serial-delayed'];
+            delete headers['x-serial-inst'];
+            const properties: Options.Publish = {
+                persistent: true,
+                headers,
+                messageId: msg.properties.messageId || data.exeId,
+                correlationId: msg.properties.correlationId || data.exeId,
+                contentType: msg.properties.contentType || 'application/json',
+                timestamp: Date.now(),
+            };
+            ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
             ch.ack(msg);
             return;
         }
@@ -470,14 +490,14 @@ class RabbitRotinaConsumer {
                     data.exeId,
                 );
                 if (!gotSerial) {
-                    const republished = this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
-                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                    tenantStillHeld = false;
-                    if (republished) {
-                        channel.ack(msg);
-                    } else {
-                        channel.nack(msg, false, true);
+                    try {
+                        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial backoff):`), releaseErr);
                     }
+                    tenantStillHeld = false;
+                    this.republishWithDelay(channel, msg, data.instituicaoCodigo);
+                    channel.ack(msg);
                     return;
                 }
                 serialAcquired = true;
@@ -493,10 +513,18 @@ class RabbitRotinaConsumer {
             );
         } finally {
             if (serialAcquired) {
-                await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                try {
+                    await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                } catch (releaseErr) {
+                    console.error(workerLogLine(`Failed to release serial slot for ${data.exeId}:`), releaseErr);
+                }
             }
             if (tenantStillHeld) {
-                await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                try {
+                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                } catch (releaseErr) {
+                    console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId}:`), releaseErr);
+                }
             }
         }
 
@@ -687,6 +715,30 @@ class RabbitRotinaConsumer {
             timestamp: Date.now(),
         };
         return ch.publish(getJobsExchange(), String(instituicaoCodigo), msg.content, properties);
+    }
+
+    /**
+     * Republica via fila de retry global com delay, evitando hot-loop quando
+     * o slot serial (ROTPermiteParalelismo=false) está ocupado.
+     * O header `x-serial-delayed` sinaliza ao {@link onRetryQueueMessage} que
+     * não deve incrementar o retry count.
+     */
+    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): void {
+        const headers = {
+            ...(msg.properties.headers || {}),
+            'x-serial-delayed': true,
+            'x-serial-inst': instituicaoCodigo,
+        };
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: msg.properties.messageId,
+            correlationId: msg.properties.correlationId,
+            contentType: msg.properties.contentType || 'application/json',
+            timestamp: Date.now(),
+            expiration: String(SERIAL_BACKOFF_MS),
+        };
+        ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
     }
 
     private getRetryCount(msg: ConsumeMessage): number {

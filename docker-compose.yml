@@ -38,7 +38,8 @@ services:
     container_name: openturn-api
     restart: always
     environment:
-      DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public
+      # connection_limit evita P2037 com vários serviços no mesmo Postgres (pool default do Prisma é alto)
+      DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public&connection_limit=8
       JWT_SECRET: openturn_super_secret_key
       REDIS_URL: redis://redis:6379
       PORT: 3000
@@ -60,7 +61,8 @@ services:
     container_name: openturn-worker
     restart: always
     environment:
-      DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public
+      # connection_limit evita P2037 com vários serviços no mesmo Postgres (pool default do Prisma é alto)
+      DATABASE_URL: postgresql://openturn_user:openturn_password@db:5432/openturn_db?schema=public&connection_limit=8
       REDIS_URL: redis://redis:6379
       WORKER_CONCURRENCY: 5
     depends_on:

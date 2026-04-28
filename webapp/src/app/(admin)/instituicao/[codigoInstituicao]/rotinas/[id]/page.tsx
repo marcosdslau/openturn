@@ -12,6 +12,7 @@ import { RoutineDiffModal } from "@/components/rotinas/RoutineDiffModal";
 import { AiChatSidebar } from "@/components/rotinas/AiChatSidebar";
 import { ConsolePanel } from "@/components/rotinas/ConsolePanel";
 import Button from "@/components/ui/button/Button";
+import { Modal } from "@/components/ui/modal";
 import { useAuth } from "@/context/AuthContext";
 import { useTenant } from "@/context/TenantContext";
 import { useToast } from "@/context/ToastContext";
@@ -865,32 +866,31 @@ export default function RoutineEditorPage() {
                 }
             />
 
-            {/* Simple Settings Modal */}
-            {settingsOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-2xl p-6 relative">
-                        <button onClick={() => setSettingsOpen(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
-                            <CloseIcon className="w-5 h-5" />
-                        </button>
-                        <h2 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Configurações da Rotina</h2>
-
-                        <div className="space-y-4">
+            <Modal
+                isOpen={settingsOpen}
+                onClose={() => setSettingsOpen(false)}
+                className="modal-scroll-minimal max-h-[calc(100vh-100px)] max-w-2xl overflow-y-auto p-6"
+            >
+                <div className="space-y-4">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        Configurações da Rotina
+                    </h3>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome</label>
+                                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Nome</label>
                                 <input
-                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                     value={settingsForm.ROTNome || ''}
                                     onChange={e => setSettingsForm({ ...settingsForm, ROTNome: e.target.value })}
                                 />
                             </div>
 
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Timeout (segundos)</label>
+                                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Timeout (segundos)</label>
                                 <input
                                     type="number"
                                     min={1}
                                     max={ROTINA_TIMEOUT_SECONDS_MAX}
-                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                     value={settingsForm.ROTTimeoutSeconds ?? rotina.ROTTimeoutSeconds ?? 30}
                                     onChange={e =>
                                         setSettingsForm({
@@ -903,7 +903,7 @@ export default function RoutineEditorPage() {
 
                             {settingsForm.ROTTipo === 'SCHEDULE' && (
                                 <div>
-                                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Agendamento (Cron)</label>
+                                    <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Agendamento (Cron)</label>
                                     <CronBuilder
                                         value={settingsForm.ROTCronExpressao || ''}
                                         onChange={val => setSettingsForm({ ...settingsForm, ROTCronExpressao: val })}
@@ -914,13 +914,13 @@ export default function RoutineEditorPage() {
                             {settingsForm.ROTTipo === 'WEBHOOK' && (
                                 <div className="space-y-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Caminho do Webhook</label>
+                                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Caminho do Webhook</label>
                                         <div className="flex">
                                             <span className="px-3 py-2 bg-gray-100 dark:bg-gray-800 border border-r-0 border-gray-300 dark:border-gray-600 rounded-l-lg text-gray-500 text-sm flex items-center">
                                                 {`/api/instituicoes/${codigoInstituicao}/webhooks`}
                                             </span>
                                             <input
-                                                className="flex-1 px-3 py-2 border border-l-0 border-gray-300 dark:border-gray-600 rounded-r-lg dark:bg-gray-700 text-gray-900 dark:text-white"
+                                                className="flex-1 rounded-r-lg border border-l-0 border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                                 value={settingsForm.ROTWebhookPath || ''}
                                                 onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookPath: e.target.value })}
                                             />
@@ -928,7 +928,7 @@ export default function RoutineEditorPage() {
                                     </div>
 
                                     {/* Display Full Webhook URL */}
-                                    <div className="bg-gray-50 dark:bg-gray-900/50 p-3 rounded-lg border border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+                                    <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-800/50 flex items-center justify-between gap-3">
                                         <code className="text-xs text-gray-600 dark:text-gray-400 font-mono break-all">
                                             {process.env.NEXT_PUBLIC_API_URL}/instituicoes/{codigoInstituicao}/webhooks{settingsForm.ROTWebhookPath}
                                         </code>
@@ -948,9 +948,9 @@ export default function RoutineEditorPage() {
                                     </div>
 
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Método HTTP</label>
+                                        <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Método HTTP</label>
                                         <select
-                                            className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                             value={settingsForm.ROTWebhookMetodo || 'POST'}
                                             onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookMetodo: e.target.value as any })}
                                         >
@@ -990,9 +990,9 @@ export default function RoutineEditorPage() {
                                     {settingsForm.ROTWebhookSeguro && (
                                         <div className="space-y-3 pl-6 border-l-2 border-purple-100 dark:border-purple-900 ml-1">
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Fonte do Token</label>
+                                                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Fonte do Token</label>
                                                 <select
-                                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                                     value={settingsForm.ROTWebhookTokenSource || 'HEADER'}
                                                     onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookTokenSource: e.target.value as any })}
                                                 >
@@ -1002,11 +1002,11 @@ export default function RoutineEditorPage() {
                                             </div>
 
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                                                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">
                                                     Chave ({settingsForm.ROTWebhookTokenSource === 'QUERY' ? 'Nome do Parâmetro' : 'Nome do Header'})
                                                 </label>
                                                 <input
-                                                    className="w-full px-3 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600"
+                                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                                     placeholder={settingsForm.ROTWebhookTokenSource === 'QUERY' ? 'Ex: token' : 'Ex: x-webhook-token'}
                                                     value={settingsForm.ROTWebhookTokenKey || ''}
                                                     onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookTokenKey: e.target.value })}
@@ -1014,11 +1014,11 @@ export default function RoutineEditorPage() {
                                             </div>
 
                                             <div>
-                                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Valor do Token (Segredo)</label>
+                                                <label className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1 block">Valor do Token (Segredo)</label>
                                                 <div className="relative">
                                                     <input
                                                         type={showToken ? "text" : "password"}
-                                                        className="w-full pl-3 pr-20 py-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 font-mono"
+                                                        className="w-full rounded-lg border border-gray-300 py-2 pl-3 pr-20 font-mono text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:border-brand-500 focus:outline-none"
                                                         placeholder="Digite o token secreto..."
                                                         value={settingsForm.ROTWebhookToken || ''}
                                                         onChange={e => setSettingsForm({ ...settingsForm, ROTWebhookToken: e.target.value })}
@@ -1066,7 +1066,7 @@ export default function RoutineEditorPage() {
                                 </label>
                             </div>
 
-                            <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-700">
+                            <div className="flex items-center gap-2 pt-2 border-t border-gray-100 dark:border-gray-800">
                                 <input
                                     type="checkbox"
                                     id="rotAtivo"
@@ -1078,15 +1078,13 @@ export default function RoutineEditorPage() {
                                     Rotina Ativa
                                 </label>
                             </div>
-                        </div>
 
-                        <div className="flex justify-end gap-2 mt-6">
-                            <Button variant="outline" onClick={() => setSettingsOpen(false)}>Cancelar</Button>
-                            <Button onClick={handleSaveSettings}>Salvar Configurações</Button>
-                        </div>
+                    <div className="flex gap-3 justify-end pt-3 border-t border-gray-100 dark:border-gray-800">
+                        <Button size="sm" variant="outline" onClick={() => setSettingsOpen(false)}>Cancelar</Button>
+                        <Button size="sm" onClick={handleSaveSettings}>Salvar Configurações</Button>
                     </div>
                 </div>
-            )}
+            </Modal>
         </div>
     );
 }

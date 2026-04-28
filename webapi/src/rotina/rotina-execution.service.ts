@@ -2,7 +2,6 @@ import {
   Injectable,
   Logger,
   NotFoundException,
-  ConflictException,
 } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
@@ -128,36 +127,63 @@ export class RotinaExecutionService {
   async reprocess(exeId: string, instituicaoCodigo: number) {
     const original = await this.prisma.rOTExecucaoLog.findUnique({
       where: { EXEIdExterno: exeId },
-      include: { rotina: true },
     });
 
     if (!original || original.INSInstituicaoCodigo !== instituicaoCodigo) {
       throw new NotFoundException('Execução não encontrada');
     }
 
-    const trigger = original.EXETrigger as any;
+    const rotina = await this.prisma.rOTRotina.findFirst({
+      where: {
+        ROTCodigo: original.ROTCodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+      },
+    });
+    if (!rotina) {
+      throw new NotFoundException('Rotina não encontrada');
+    }
+
+    const trigger = original.EXETrigger as string;
     const requestData = {
       body: original.EXERequestBody,
       params: original.EXERequestParams,
       path: original.EXERequestPath,
     };
 
+    await this.prisma.rOTExecucaoLog.update({
+      where: { EXECodigo: original.EXECodigo },
+      data: {
+        EXEStatus: StatusExecucao.EM_EXECUCAO,
+        EXEInicio: new Date(),
+        EXEFim: null,
+        EXEDuracaoMs: null,
+        EXEErro: null,
+        EXEResultado: Prisma.JsonNull,
+        EXELogs: Prisma.JsonNull,
+      },
+    });
+
     if (trigger === 'MANUAL') {
-      return this.executionService.startExecution(
+      return this.executionService.reprocessManualWithExistingLog(
+        original.EXEIdExterno,
+        original.EXECodigo,
         original.ROTCodigo,
         instituicaoCodigo,
-        'MANUAL',
         { ...requestData, manual: true },
         { skipActiveCheck: true },
       );
-    } else {
-      return this.rotinaQueueService.enqueue(
-        original.ROTCodigo,
-        instituicaoCodigo,
-        trigger === 'SCHEDULE' ? 'SCHEDULE' : 'WEBHOOK',
-        requestData,
-      );
     }
+
+    const queueTrigger =
+      trigger === 'SCHEDULE' ? 'SCHEDULE' : 'WEBHOOK';
+
+    return this.rotinaQueueService.requeueExistingExecution({
+      exeId: original.EXEIdExterno,
+      rotinaCodigo: original.ROTCodigo,
+      instituicaoCodigo,
+      trigger: queueTrigger,
+      requestData,
+    });
   }
 
   async deleteExecutions(ids: string[], instituicaoCodigo: number) {
