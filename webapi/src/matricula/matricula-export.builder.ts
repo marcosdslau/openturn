@@ -112,8 +112,6 @@ export function buildPdfBuffer(rows: MatriculaPdfExportRow[]): Promise<Buffer> {
     doc.moveDown(0.6);
 
     const ml = doc.page.margins.left;
-    let y = doc.y;
-    const bottom = doc.page.height - doc.page.margins.bottom - 16;
 
     const usableW =
       doc.page.width - doc.page.margins.left - doc.page.margins.right;
@@ -122,6 +120,8 @@ export function buildPdfBuffer(rows: MatriculaPdfExportRow[]): Promise<Buffer> {
     const textColW =
       (usableW - fotoColW) / MATRICULA_EXPORT_HEADERS.length;
 
+    const getBottom = () => doc.page.height - doc.page.margins.bottom - 16;
+
     const drawDividerAt = (yLine: number) => {
       doc.save();
       doc.strokeColor(PDF_DIVIDER).lineWidth(0.4);
@@ -129,44 +129,49 @@ export function buildPdfBuffer(rows: MatriculaPdfExportRow[]): Promise<Buffer> {
       doc.restore();
     };
 
-    const ensureSpace = (need: number) => {
-      if (y + need > bottom) {
-        doc.addPage();
-        y = doc.page.margins.top;
+    /** Desenha Foto + colunas de dados e traço; devolve Y inicial da próxima linha de conteúdo. */
+    const paintColumnHeaders = (headerTop: number): number => {
+      doc.font('Helvetica-Bold').fontSize(6.5);
+      let xh = ml;
+      for (let hi = 0; hi < MATRICULA_EXPORT_HEADERS_PDF.length; hi++) {
+        const cw = hi === 0 ? fotoColW : textColW;
+        const label = MATRICULA_EXPORT_HEADERS_PDF[hi];
+        const textW = cw - 4;
+        const hStr = Math.min(
+          doc.heightOfString(label, {
+            width: textW,
+          }),
+          PDF_HEADER_ROW_H,
+        );
+        const ty = headerTop + (PDF_HEADER_ROW_H - hStr) / 2;
+        doc.text(label, xh + 2, ty, {
+          width: textW,
+          height: PDF_HEADER_ROW_H + 2,
+          ellipsis: true,
+        });
+        xh += cw;
       }
+      const lineY = headerTop + PDF_HEADER_ROW_H;
+      drawDividerAt(lineY);
+      return lineY + PDF_ROW_GAP;
     };
 
-    ensureSpace(PDF_HEADER_ROW_H + PDF_ROW_GAP + 4);
-
-    const headerTop = y;
-    doc.font('Helvetica-Bold').fontSize(6.5);
-    let xh = ml;
-    for (let hi = 0; hi < MATRICULA_EXPORT_HEADERS_PDF.length; hi++) {
-      const cw = hi === 0 ? fotoColW : textColW;
-      const label = MATRICULA_EXPORT_HEADERS_PDF[hi];
-      const textW = cw - 4;
-      const hStr = Math.min(
-        doc.heightOfString(label, {
-          width: textW,
-        }),
-        PDF_HEADER_ROW_H,
-      );
-      const ty = headerTop + (PDF_HEADER_ROW_H - hStr) / 2;
-      doc.text(label, xh + 2, ty, {
-        width: textW,
-        height: PDF_HEADER_ROW_H + 2,
-        ellipsis: true,
-      });
-      xh += cw;
+    let y = doc.y;
+    const bottomFirst = getBottom();
+    if (y + PDF_HEADER_ROW_H + PDF_ROW_GAP + 4 > bottomFirst) {
+      doc.addPage();
+      y = doc.page.margins.top;
     }
-
-    y = headerTop + PDF_HEADER_ROW_H;
-    drawDividerAt(y);
-    y += PDF_ROW_GAP;
+    y = paintColumnHeaders(y);
 
     for (const m of rows) {
-      ensureSpace(PDF_DATA_ROW_H + PDF_ROW_GAP + 4);
-
+      const bottom = getBottom();
+      const needHeight = PDF_DATA_ROW_H + PDF_ROW_GAP + 4;
+      if (y + needHeight > bottom) {
+        doc.addPage();
+        y = doc.page.margins.top;
+        y = paintColumnHeaders(y);
+      }
       const rowTop = y;
       let x = ml;
 
