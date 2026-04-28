@@ -62,6 +62,9 @@ const CAPACITY_DEFER_MS = Math.max(
     parseInt(process.env.ROTINA_CAPACITY_DEFER_MS ?? '0', 10),
 );
 const CAPACITY_DEFERRED_HEADER = 'x-capacity-deferred';
+/** Em conjunto com {@link SERIAL_INST_HEADER}: postergação serial não incrementa {@link RETRY_HEADER}. */
+const SERIAL_DEFERRED_HEADER = 'x-serial-delayed';
+const SERIAL_INST_HEADER = 'x-serial-inst';
 /** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
 const INFLIGHT_LEASE_MS = Math.max(
     60_000,
@@ -269,12 +272,12 @@ class RabbitRotinaConsumer {
             return;
         }
 
-        const isSerialDelay = msg.properties.headers?.['x-serial-delayed'] === true;
+        const isSerialDelay = this.deferMarkerTruthy(msg.properties.headers, SERIAL_DEFERRED_HEADER);
         if (isSerialDelay) {
             await sleep(SERIAL_BACKOFF_MS);
             const headers = { ...(msg.properties.headers || {}) };
-            delete headers['x-serial-delayed'];
-            delete headers['x-serial-inst'];
+            delete headers[SERIAL_DEFERRED_HEADER];
+            delete headers[SERIAL_INST_HEADER];
             const properties: Options.Publish = {
                 persistent: true,
                 headers,
@@ -288,7 +291,7 @@ class RabbitRotinaConsumer {
             return;
         }
 
-        const isCapacityDeferred = msg.properties.headers?.[CAPACITY_DEFERRED_HEADER] === true;
+        const isCapacityDeferred = this.deferMarkerTruthy(msg.properties.headers, CAPACITY_DEFERRED_HEADER);
         if (isCapacityDeferred) {
             await sleep(CAPACITY_DEFER_MS);
             const headers = { ...(msg.properties.headers || {}) };
@@ -306,6 +309,7 @@ class RabbitRotinaConsumer {
             return;
         }
 
+        // Novos defers só aguardam: tratar sempre acima, antes deste incremento a x-rotina-retry-count.
         const prev = Number(msg.properties.headers?.[RETRY_HEADER] ?? 0);
         const nextRetry = prev + 1;
         if (nextRetry > MAX_RETRIES) {
@@ -827,16 +831,20 @@ class RabbitRotinaConsumer {
     }
 
     /**
-     * Republica via fila de retry global com delay, evitando hot-loop quando
-     * o slot serial (ROTPermiteParalelismo=false) está ocupado.
-     * O header `x-serial-delayed` sinaliza ao {@link onRetryQueueMessage} que
-     * não deve incrementar o retry count.
+     * Publica na fila global (`jobs.retry`): {@link onRetryQueueMessage} reconhece `deferHeaderKey`
+     * e republica para a instituição **sem** incrementar {@link RETRY_HEADER} (defer, não falha).
      */
-    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): void {
-        const headers = {
+    private republishDeferredThroughGlobalRetry(
+        ch: amqp.Channel,
+        msg: ConsumeMessage,
+        deferHeaderKey: string,
+        expirationMs: number,
+        extraHeaders?: Record<string, unknown>,
+    ): boolean {
+        const headers: Record<string, unknown> = {
             ...(msg.properties.headers || {}),
-            'x-serial-delayed': true,
-            'x-serial-inst': instituicaoCodigo,
+            [deferHeaderKey]: true,
+            ...extraHeaders,
         };
         const properties: Options.Publish = {
             persistent: true,
@@ -845,9 +853,32 @@ class RabbitRotinaConsumer {
             correlationId: msg.properties.correlationId,
             contentType: msg.properties.contentType || 'application/json',
             timestamp: Date.now(),
-            expiration: String(SERIAL_BACKOFF_MS),
+            expiration: String(expirationMs),
         };
-        ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
+        return ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
+    }
+
+    /** Header boolean (AMQP) por vezes chega compatível como string/`1`. */
+    private deferMarkerTruthy(
+        headers: Record<string, unknown> | undefined,
+        deferHeaderKey: string,
+    ): boolean {
+        const v = headers?.[deferHeaderKey];
+        return v === true || v === 'true' || v === 1;
+    }
+
+    /**
+     * Slot serial indisponível ({@code ROTPermiteParalelismo=false}): mesmo contrato que
+     * {@link republishWithCapacityDefer} via {@link republishDeferredThroughGlobalRetry}.
+     */
+    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): void {
+        this.republishDeferredThroughGlobalRetry(
+            ch,
+            msg,
+            SERIAL_DEFERRED_HEADER,
+            SERIAL_BACKOFF_MS,
+            { [SERIAL_INST_HEADER]: instituicaoCodigo },
+        );
     }
 
     /**
@@ -855,20 +886,12 @@ class RabbitRotinaConsumer {
      * {@link onRetryQueueMessage} aplicar {@link CAPACITY_DEFER_MS} sem incrementar {@link RETRY_HEADER}.
      */
     private republishWithCapacityDefer(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
-        const headers = {
-            ...(msg.properties.headers || {}),
-            [CAPACITY_DEFERRED_HEADER]: true,
-        };
-        const properties: Options.Publish = {
-            persistent: true,
-            headers,
-            messageId: msg.properties.messageId,
-            correlationId: msg.properties.correlationId,
-            contentType: msg.properties.contentType || 'application/json',
-            timestamp: Date.now(),
-            expiration: String(CAPACITY_DEFER_MS),
-        };
-        return ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
+        return this.republishDeferredThroughGlobalRetry(
+            ch,
+            msg,
+            CAPACITY_DEFERRED_HEADER,
+            CAPACITY_DEFER_MS,
+        );
     }
 
     private getRetryCount(msg: ConsumeMessage): number {

@@ -71,34 +71,43 @@ export class HardwareService {
         const people = await this.prisma.pESPessoa.findMany({
           where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
         });
+        let enfileirados = 0;
         for (const person of people) {
-          const body = {
-            PESCodigo: person.PESCodigo,
-            PESNome: person.PESNome,
-          };
-          const query =
-            method === HttpMetodo.GET
-              ? {
-                  PESCodigo: String(person.PESCodigo),
-                  PESNome: person.PESNome,
-                }
-              : {};
-          await this.rotinaQueueService.enqueue(
-            rotina.ROTCodigo,
-            instituicaoId,
-            'WEBHOOK',
-            {
-              body,
-              query,
-              headers: {},
-              method,
-              path,
-              params: {},
-            },
-          );
+          try {
+            const body = {
+              PESCodigo: person.PESCodigo,
+              PESNome: person.PESNome,
+            };
+            const query =
+              method === HttpMetodo.GET
+                ? {
+                    PESCodigo: String(person.PESCodigo),
+                    PESNome: person.PESNome,
+                  }
+                : {};
+            await this.rotinaQueueService.enqueue(
+              rotina.ROTCodigo,
+              instituicaoId,
+              'WEBHOOK',
+              {
+                body,
+                query,
+                headers: {},
+                method,
+                path,
+                params: {},
+              },
+            );
+            enfileirados++;
+          } catch (e) {
+            this.logger.error(
+              `[${instituicaoId}] Falha ao enfileirar webhook sync pessoa PESCodigo=${person.PESCodigo}`,
+              e,
+            );
+          }
         }
         this.logger.log(
-          `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${people.length} job(s) enfileirado(s)`,
+          `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${enfileirados}/${people.length} job(s) enfileirado(s)`,
         );
         return;
       }
