@@ -216,6 +216,7 @@ export class ControlidMonitorController {
     this.logger.log(
       `[${codigoInstituicao}] [ControlID] Catra Event received: device=${body?.device_id} time=${body?.time}`,
     );
+
     await this.monitorService.persistControlidCatraEvent(
       codigoInstituicao,
       body,

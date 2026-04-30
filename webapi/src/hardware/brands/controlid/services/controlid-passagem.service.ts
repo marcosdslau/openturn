@@ -78,10 +78,13 @@ export class ControlidPassagemService {
     if (!deviceIdStr) return;
     const originTime = parseControlidBodyTimeToBigIntSeconds(body?.time);
     if (originTime === null) return;
+    const valuesOriginTime = parseControlidBodyTimeToBigIntSeconds(
+      body.object_changes?.[0]?.values?.time,
+    );
 
     const { catraRow, daoUserId, daoValuesEvent } =
       await this.tenantService.runWithTenant(instituicaoCodigo, async () => {
-        const cr = await this.prisma.rls.cTLControlidCatraEvent.findFirst({
+        let cr = await this.prisma.rls.cTLControlidCatraEvent.findFirst({
           where: {
             INSInstituicaoCodigo: instituicaoCodigo,
             deviceId: deviceIdStr,
@@ -90,11 +93,33 @@ export class ControlidPassagemService {
           },
           orderBy: { CTCCodigo: 'asc' },
         });
+        let matchedOriginTime = originTime;
+        if (
+          !cr &&
+          valuesOriginTime !== null &&
+          valuesOriginTime !== originTime
+        ) {
+          cr = await this.prisma.rls.cTLControlidCatraEvent.findFirst({
+            where: {
+              INSInstituicaoCodigo: instituicaoCodigo,
+              deviceId: deviceIdStr,
+              originTime: valuesOriginTime,
+              processed: false,
+            },
+            orderBy: { CTCCodigo: 'asc' },
+          });
+          if (cr) matchedOriginTime = valuesOriginTime;
+        }
+
+        const daoWhere =
+          matchedOriginTime === originTime
+            ? { originTime }
+            : { valuesTime: matchedOriginTime.toString() };
         const daoRow = await this.prisma.rls.cTLControlidDao.findFirst({
           where: {
             INSInstituicaoCodigo: instituicaoCodigo,
             deviceId: deviceIdStr,
-            originTime,
+            ...daoWhere,
             valuesUserId: { not: null },
           },
           orderBy: { CTDCodigo: 'desc' },
@@ -206,7 +231,7 @@ export class ControlidPassagemService {
     let valuesUserIdFromDao: string | null = null;
     if (!override && deviceIdStr !== '' && originTime !== null) {
       await this.tenantService.runWithTenant(instCodigo, async () => {
-        const row = await this.prisma.rls.cTLControlidDao.findFirst({
+        let row = await this.prisma.rls.cTLControlidDao.findFirst({
           where: {
             INSInstituicaoCodigo: instCodigo,
             deviceId: deviceIdStr,
@@ -215,6 +240,17 @@ export class ControlidPassagemService {
           },
           orderBy: { CTDCodigo: 'desc' },
         });
+        if (!row) {
+          row = await this.prisma.rls.cTLControlidDao.findFirst({
+            where: {
+              INSInstituicaoCodigo: instCodigo,
+              deviceId: deviceIdStr,
+              valuesTime: originTime.toString(),
+              valuesUserId: { not: null },
+            },
+            orderBy: { CTDCodigo: 'desc' },
+          });
+        }
         const vu = row?.valuesUserId?.trim();
         if (vu) valuesUserIdFromDao = vu;
       });
