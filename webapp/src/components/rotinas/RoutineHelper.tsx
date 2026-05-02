@@ -8,7 +8,11 @@ interface RoutineHelperProps {
     onInsertSnippet: (snippet: string) => void;
 }
 
-/** Referência alinhada a IHardwareProvider + métodos institucionais (worker + webapi). Em geral o 1º argumento é o EQPCodigo; exceções têm institutional: true. */
+/**
+ * Referência alinhada a IHardwareProvider + métodos institucionais (worker + webapi).
+ * Em rotinas, o proxy exige equipmentId (EQPCodigo) como 1º argumento em todo método
+ * de equipamento; exceções: institutional: true (sem eqpId na chamada).
+ */
 const HARDWARE_REFERENCE: {
     method: string;
     params: string;
@@ -40,9 +44,14 @@ const HARDWARE_REFERENCE: {
     {
         method: 'setGroups',
         params: 'userId, groupIds: (number|string)[]',
-        notes: 'Departamentos/grupos no equipamento.',
+        notes:
+            'Departamentos/grupos no equipamento. Na rotina: await context.hardware.setGroups(eqpId, userId, groupIds) — userId é o id no leitor, não o EQPCodigo.',
     },
-    { method: 'removeGroups', params: 'userId, groupIds: (number|string)[]' },
+    {
+        method: 'removeGroups',
+        params: 'userId, groupIds: (number|string)[]',
+        notes: 'Na rotina: await context.hardware.removeGroups(eqpId, userId, groupIds).',
+    },
     { method: 'executeAction', params: 'action, params?' },
     { method: 'enroll', params: "'face' | 'biometry', userId" },
     { method: 'customCommand', params: 'cmd, params?' },
@@ -111,6 +120,12 @@ if (device) {
         code: `const result = await context.hardware.deletePersonAcrossInstitution(pessoa.PESCodigo);
 console.log('deleted', result.deleted, 'failed', result.failed, 'mappings', result.mappingsRemoved);`,
     },
+    {
+        label: 'Definir grupos / departamentos no hardware',
+        detail: 'eqpId = EQPCodigo no OpenTurn; userId = id da pessoa no leitor (ex.: PESIdExterno).',
+        code: `// 1º argumento obrigatório: código do equipamento (EQPCodigo), não o id do usuário no leitor
+await context.hardware.setGroups(eqpId, userIdNoLeitor, [1, 2]);`,
+    },
 ];
 
 export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
@@ -166,7 +181,14 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.hardware</code>
-                                    <span className="text-gray-600 dark:text-gray-400">API do equipamento (pessoas, biometria, grupos/departamentos, config, comandos)</span>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                        API do equipamento (pessoas, biometria, grupos/departamentos, config, comandos). O
+                                        worker exige <code className="font-mono text-[10px]">equipmentId</code> (
+                                        <code className="font-mono text-[10px]">EQPCodigo</code>) como{' '}
+                                        <strong className="font-medium text-gray-700 dark:text-gray-300">primeiro</strong>{' '}
+                                        argumento em cada método, exceto os institucionais (ex.:{' '}
+                                        <code className="font-mono text-[10px]">deletePersonAcrossInstitution</code>).
+                                    </span>
                                 </li>
                                 <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
@@ -184,20 +206,33 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                 <h4 className="text-xs font-semibold text-amber-900 dark:text-amber-200 uppercase tracking-wider mb-1">
                                     context.hardware — contrato do worker
                                 </h4>
-                                <p className="text-[11px] text-amber-950/80 dark:text-amber-100/80 leading-relaxed">
-                                    Na maioria dos casos, cada método é invocado como{' '}
-                                    <code className="font-mono text-[10px] bg-white/70 dark:bg-black/30 px-1 rounded">
-                                        await context.hardware.&lt;nome&gt;(eqpId, …)
-                                    </code>
-                                    : o primeiro argumento é o código do equipamento (
-                                    <code className="font-mono text-[10px]">EQPCodigo</code>
-                                    ) na instituição da rotina; o worker valida o tenant. Métodos marcados como
-                                    institucionais na lista abaixo{' '}
-                                    <strong>não</strong> usam <code className="font-mono text-[10px]">eqpId</code> na
-                                    assinatura. Equipamentos com addon exigem relay (
-                                    <code className="font-mono text-[10px]">WEBAPI_WS_URL</code>,{' '}
-                                    <code className="font-mono text-[10px]">RELAY_INTERNAL_TOKEN</code>
-                                    ) no processo do worker.
+                                <p className="text-[11px] text-amber-950/80 dark:text-amber-100/80 leading-relaxed space-y-2">
+                                    <span className="block">
+                                        Cada método de equipamento (não institucional) é invocado como{' '}
+                                        <code className="font-mono text-[10px] bg-white/70 dark:bg-black/30 px-1 rounded">
+                                            await context.hardware.&lt;nome&gt;(equipmentId, …)
+                                        </code>
+                                        , onde <code className="font-mono text-[10px]">equipmentId</code> é obrigatório e
+                                        corresponde ao <code className="font-mono text-[10px]">EQPCodigo</code> do
+                                        cadastro de equipamento na instituição da rotina; o worker resolve o tenant e o
+                                        provider.
+                                    </span>
+                                    <span className="block mt-2">
+                                        <strong className="font-medium text-amber-950 dark:text-amber-50">Atenção:</strong>{' '}
+                                        não confunda com o id da pessoa no leitor (
+                                        <code className="font-mono text-[10px]">PESIdExterno</code>, mapeamento, etc.).
+                                        Esse valor entra <em>depois</em> do{' '}
+                                        <code className="font-mono text-[10px]">equipmentId</code> (ex.:{' '}
+                                        <code className="font-mono text-[10px]">setGroups(eqpId, userId, [1])</code>).
+                                    </span>
+                                    <span className="block mt-2">
+                                        Métodos institucionais na lista abaixo{' '}
+                                        <strong>não</strong> recebem <code className="font-mono text-[10px]">eqpId</code>{' '}
+                                        na chamada. Equipamentos com addon exigem relay (
+                                        <code className="font-mono text-[10px]">WEBAPI_WS_URL</code>,{' '}
+                                        <code className="font-mono text-[10px]">RELAY_INTERNAL_TOKEN</code>
+                                        ) no processo do worker.
+                                    </span>
                                 </p>
                             </div>
                             <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
