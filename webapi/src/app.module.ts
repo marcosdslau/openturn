@@ -19,6 +19,7 @@ import { RotinaModule } from './rotina/rotina.module';
 import { ConnectorModule } from './connector/connector.module';
 import { AiModule } from './modules/ai/ai.module';
 import { MonitorModule } from './monitor/monitor.module';
+import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { MonitorModule } from './monitor/monitor.module';
     ConnectorModule,
     AiModule,
     MonitorModule,
+    RegistroDiarioModule,
   ],
   controllers: [AppController],
   providers: [

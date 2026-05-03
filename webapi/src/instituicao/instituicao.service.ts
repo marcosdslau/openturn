@@ -13,7 +13,7 @@ import {
 import { PaginationDto, PaginatedResult } from '../common/dto/pagination.dto';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
-import { channelInstituicaoRefresh } from '../common/redis/redis-keys';
+import { channelInstituicaoRefresh, channelSyncSchedulerRefresh } from '../common/redis/redis-keys';
 
 @Injectable()
 export class InstituicaoService {
@@ -163,6 +163,9 @@ export class InstituicaoService {
       data: data as Prisma.INSInstituicaoUpdateInput,
     });
     await this.publishQueueRefresh(instituicao, 'updated');
+    if (dto.INSTempoSync !== undefined || dto.INSSyncRegistrosDiarios !== undefined) {
+      this.redisPub?.publish(channelSyncSchedulerRefresh(), JSON.stringify({ INSCodigo: id })).catch(() => null);
+    }
     return instituicao;
   }
 

@@ -65,6 +65,11 @@ export const getMainNavItems = (
             path: `${basePath}/passagens`,
         },
         {
+            icon: <TableIcon />,
+            name: "Registros",
+            path: `${basePath}/registros`,
+        },
+        {
             icon: <UserCircleIcon />,
             name: "Pessoas",
             path: `${basePath}/pessoas`,

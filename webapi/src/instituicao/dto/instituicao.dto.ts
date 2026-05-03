@@ -4,10 +4,14 @@ import {
   IsBoolean,
   IsInt,
   IsObject,
+  Matches,
   Min,
   Max,
   ValidateIf,
 } from 'class-validator';
+
+/** Cron 5 campos (padrão rotinas / CronBuilder) ou 6 campos (seg min hora dom mês dow, legado). */
+const CRON_5_OR_6_FIELDS = /^(\S+\s){4}\S+$|^(\S+\s){5}\S+$/;
 
 export class CreateInstituicaoDto {
   @IsInt()
@@ -82,6 +86,18 @@ export class CreateInstituicaoDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   INSRotinaPessoasCodigo?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CRON_5_OR_6_FIELDS, {
+    message:
+      'INSTempoSync: use cron de 5 campos (min hora dom mês dow, como nas rotinas) ou 6 campos (seg min hora …)',
+  })
+  INSTempoSync?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  INSSyncRegistrosDiarios?: boolean;
 }
 
 export class UpdateInstituicaoDto {
@@ -155,6 +171,18 @@ export class UpdateInstituicaoDto {
   @ValidateIf((_, v) => v !== null && v !== undefined)
   @IsInt()
   INSRotinaPessoasCodigo?: number | null;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CRON_5_OR_6_FIELDS, {
+    message:
+      'INSTempoSync: use cron de 5 campos (min hora dom mês dow, como nas rotinas) ou 6 campos (seg min hora …)',
+  })
+  INSTempoSync?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  INSSyncRegistrosDiarios?: boolean;
 }
 
 export class SetWorkerStatusBodyDto {
