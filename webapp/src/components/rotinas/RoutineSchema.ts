@@ -63,6 +63,7 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
             { name: "REGAcao", type: "Enum", description: "ENTRADA | SAIDA" },
             { name: "REGTimestamp", type: "BigInt", description: "Unix Timestamp" },
             { name: "REGDataHora", type: "DateTime", description: "Data/Hora legível" },
+            { name: "REGProcessado", type: "Boolean", description: "Já agregado em RegistroDiario" },
             { name: "createdAt", type: "DateTime", description: "Data Criação Login" },
         ]
     },
@@ -112,6 +113,22 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
             { name: "PESCodigo", type: "Int", pk: true, fk: "PESPessoa", description: "ID Pessoa" },
             { name: "EQPCodigo", type: "Int", pk: true, fk: "EQPEquipamento", description: "ID Equipamento" },
             { name: "PEQIdNoEquipamento", type: "String", description: "ID no Hardware (De-Para)" },
+        ]
+    },
+    {
+        name: "RPDRegistrosDiarios",
+        alias: "RegistroDiario",
+        description: "Registros diários de presença agregados por pessoa e data",
+        fields: [
+            { name: "RPDCodigo", type: "Int", pk: true, description: "ID Registro Diário" },
+            { name: "PESCodigo", type: "Int", fk: "PESPessoa", description: "ID Pessoa" },
+            { name: "RPDData", type: "DateTime", description: "Data do registro (sem hora)" },
+            { name: "RPDDataEntrada", type: "DateTime", description: "Menor horário entre passagens ENTRADA do dia" },
+            { name: "RPDDataSaida", type: "DateTime", description: "Maior horário entre passagens SAIDA do dia" },
+            { name: "RPDStatus", type: "Enum", description: "ENVIADO | ERRO | MANUAL | PENDENTE" },
+            { name: "RPDResult", type: "Json", description: "Retorno da integração ERP" },
+            { name: "createdAt", type: "DateTime", description: "Data Criação" },
+            { name: "updatedAt", type: "DateTime", description: "Data Atualização" },
         ]
     }
 ];

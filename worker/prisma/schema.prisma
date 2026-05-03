@@ -20,6 +20,13 @@ enum AcaoPassagem {
   SAIDA
 }
 
+enum RPDStatus {
+  ENVIADO
+  ERRO
+  MANUAL
+  PENDENTE
+}
+
 // === ADDON ON-PREMISE CONNECTOR ===
 
 enum ConnectorStatus {
@@ -56,17 +63,25 @@ model INSInstituicao {
   INSLogsDiasRetencao Int                   @default(90)
   INSMaxExecucoesSimultaneas Int            @default(8)
   INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
+  /// Offset UTC em horas (ex.: -3). Usado ao persistir ControlID notifyTime a partir de body.time bruto.
   INSFusoHorario      Int                   @default(-3)
   /// Tolerância em minutos (entrada) — janela em relação ao horário de referência.
   INSToleranciaEntradaMinutos Int         @default(15)
   /// Tolerância em minutos (saída) — janela em relação ao horário de referência.
   INSToleranciaSaidaMinutos   Int         @default(15)
+  /// Limiar facial padrão (0–1000) para reconhecimento quando não houver valor na pessoa.
+  INSTLimiarFacialDefault     Int         @default(680)
   INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
   INSControlidMonitorRotinaAtiva    Boolean @default(false)
   INSControlidMonitorRotinaCodigo   Int?
   controlidMonitorRotina            ROTRotina?            @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
+  /// Rotina WEBHOOK opcional: "Sincronizar todos" nos equipamentos enfileira uma execução por pessoa ativa em vez do sync físico.
   INSRotinaPessoasCodigo            Int?
   rotinaPessoasWebhook              ROTRotina?            @relation("InstituicaoRotinaPessoasWebhook", fields: [INSRotinaPessoasCodigo], references: [ROTCodigo], onDelete: SetNull)
+  /// Expressão cron (node-cron, 6 campos: sec min hour dom month dow) para agendamento da sincronização de registros diários.
+  INSTempoSync                      String  @default("0 0 9,15,22 * * *")
+  /// Indica se a sincronização automática de registros diários está ativa para esta instituição.
+  INSSyncRegistrosDiarios           Boolean @default(false)
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -74,6 +89,7 @@ model INSInstituicao {
   erpConfig           ERPConfiguracao[]
   acessos             USRAcesso[]
   passagens           REGRegistroPassagem[]
+  registrosDiarios    RPDRegistrosDiarios[]
   cmdcomandoFilas     CMDComandoFila[]
   rotrotinas          ROTRotina[]
   rotexecucaoLogs     ROTExecucaoLog[]
@@ -102,6 +118,8 @@ model PESPessoa {
   PESCartaoTag         String?
   PESTemplates         Json?
   PESAtivo             Boolean               @default(true)
+  PESLimiarFacial      Int                   @default(680)
+  PESGemeo             Boolean               @default(false)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime              @default(now())
@@ -109,6 +127,7 @@ model PESPessoa {
   deletedAt            DateTime?
   matriculas           MATMatricula[]
   passagens            REGRegistroPassagem[]
+  registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
 }
 
@@ -192,6 +211,18 @@ model USRUsuario {
   permissoesIa        AIPEPermissaoIa[]
   conversasIa         AICConversaIa[]
   creditosIa          AILCreditoLedger[]
+  senhaResetTokens    USRSenhaResetToken[]
+}
+
+model USRSenhaResetToken {
+  USRSTCodigo       Int        @id @default(autoincrement())
+  USRCodigo         Int
+  usuario           USRUsuario @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
+  USRTokenHash      String     @unique
+  USRTokenExpiresAt DateTime
+  createdAt         DateTime   @default(now())
+
+  @@index([USRCodigo])
 }
 
 model PESEquipamentoMapeamento {
@@ -231,9 +262,32 @@ model REGRegistroPassagem {
   equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
   REGTimestamp         BigInt
   REGDataHora          DateTime
+  /// Indica se este registro já foi processado e agrupado em RPDRegistrosDiarios.
+  REGProcessado        Boolean        @default(false)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, REGProcessado])
+}
+
+model RPDRegistrosDiarios {
+  RPDCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  /// Data do registro (sem hora — armazenado como meia-noite UTC; exibição usa INSFusoHorario).
+  RPDData              DateTime       @db.Date
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  RPDDataEntrada       DateTime?
+  RPDDataSaida         DateTime?
+  RPDStatus            RPDStatus      @default(PENDENTE)
+  RPDResult            Json?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([INSInstituicaoCodigo, PESCodigo, RPDData])
+  @@index([INSInstituicaoCodigo, RPDData])
 }
 
 enum StatusComando {
@@ -264,7 +318,9 @@ model CTLControlidDao {
   INSInstituicaoCodigo         Int
   instituicao                  INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
   deviceId                     String         @map("device_id")
+  /// Valor bruto de body.time do webhook (chave estável com instituição + deviceId).
   originTime                   BigInt         @map("origin_time")
+  /// Instantâneo ajustado pelo INSFusoHorario da instituição no momento do ingest.
   notifyTime                   BigInt         @map("time")
   ctlObject                    String         @map("object")
   changeType                   String         @map("type")

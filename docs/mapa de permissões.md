@@ -6,7 +6,11 @@ Operação:
         -> Não pode criar Passagens
         -> Pode editar Passagens
         -> Não ode excluir Passagens
+    -> Registros (presença diária / RPD):
+        -> Pode consultar a listagem paginada de registros diários
+        -> Não pode executar o fluxo "Administrar" (envio manual ao ERP Gennera)
     -> Menu Pessoas: 
+
         -> Não pode Criar
         -> Pode consultar 1 ou várias pessoas.
         -> Pode Editar uma pessoa.
@@ -47,6 +51,9 @@ Gestão:
         -> Não pode criar Passagens
         -> Não pode editar Passagens
         -> Não pode excluir Passagens
+    -> Registros:
+        -> Pode consultar a listagem
+        -> Pode executar "Administrar" (Gennera: lançamento de frequência manual com job assíncrono)
     -> Menu Pessoas: 
         -> Não pode Criar
         -> Pode consultar 1 ou várias pessoas.
@@ -86,6 +93,9 @@ Admin:
         -> pode criar Passagens
         -> pode editar Passagens
         -> pode excluir Passagens
+    -> Registros:
+        -> Pode consultar, criar, editar e excluir registros diários (recurso `registroDiario` na API)
+        -> Pode executar "Administrar" (Gennera)
     -> Menu Pessoas: 
         -> Pode Criar
         -> Pode consultar 1 ou várias pessoas.

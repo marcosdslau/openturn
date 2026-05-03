@@ -3,6 +3,7 @@ import {
   Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { Prisma, StatusExecucao } from '@prisma/client';
 import * as amqp from 'amqplib';
@@ -103,6 +104,24 @@ export class RotinaQueueService {
     );
 
     return { exeId, jobId: exeId };
+  }
+
+  /**
+   * Publica um job INTERNAL de sincronização de registros diários para a instituição.
+   * Não cria ROTExecucaoLog — o worker trata esse trigger por ramo próprio.
+   */
+  async publishRegistroDiarioSyncJob(instituicaoCodigo: number): Promise<string> {
+    const exeId = randomUUID();
+    const jobData: RotinaJobData = {
+      exeId,
+      rotinaCodigo: 0,
+      instituicaoCodigo,
+      trigger: 'INTERNAL',
+      enqueuedAt: new Date().toISOString(),
+    };
+    await this.publishJob(jobData, exeId);
+    this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})`);
+    return exeId;
   }
 
   /**

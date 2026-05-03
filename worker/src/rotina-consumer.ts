@@ -30,12 +30,13 @@ import {
     redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
 } from './redis-keys';
+import { buildPassagemDayGroups } from './registro-diario-aggregation.helpers';
 
 export interface RotinaJobData {
     exeId: string;
     rotinaCodigo: number;
     instituicaoCodigo: number;
-    trigger: 'SCHEDULE' | 'WEBHOOK';
+    trigger: 'SCHEDULE' | 'WEBHOOK' | 'INTERNAL';
     requestEnvelope?: any;
     enqueuedAt: string;
 }
@@ -74,6 +75,7 @@ const INFLIGHT_LEASE_MS = Math.max(
 const ALLOWED_MODELS = [
     'pESPessoa', 'mATMatricula', 'rEGRegistroPassagem',
     'eQPEquipamento', 'pESEquipamentoMapeamento', 'eRPConfiguracao', 'iNSInstituicao',
+    'rPDRegistrosDiarios',
 ];
 
 const SCHEMA_DEFINITION = {
@@ -120,6 +122,7 @@ const SCHEMA_DEFINITION = {
             { name: 'REGAcao', type: 'Enum' },
             { name: 'REGTimestamp', type: 'BigInt' },
             { name: 'REGDataHora', type: 'DateTime' },
+            { name: 'REGProcessado', type: 'Boolean' },
             { name: 'createdAt', type: 'DateTime' },
         ],
     },
@@ -160,6 +163,20 @@ const SCHEMA_DEFINITION = {
             { name: 'PESCodigo', type: 'Int', pk: true, fk: 'PESPessoa' },
             { name: 'EQPCodigo', type: 'Int', pk: true, fk: 'EQPEquipamento' },
             { name: 'PEQIdNoEquipamento', type: 'String' },
+        ],
+    },
+    RPDRegistrosDiarios: {
+        alias: 'RegistroDiario',
+        fields: [
+            { name: 'RPDCodigo', type: 'Int', pk: true },
+            { name: 'PESCodigo', type: 'Int', fk: 'PESPessoa' },
+            { name: 'RPDData', type: 'DateTime' },
+            { name: 'RPDDataEntrada', type: 'DateTime' },
+            { name: 'RPDDataSaida', type: 'DateTime' },
+            { name: 'RPDStatus', type: 'Enum' },
+            { name: 'RPDResult', type: 'Json' },
+            { name: 'createdAt', type: 'DateTime' },
+            { name: 'updatedAt', type: 'DateTime' },
         ],
     },
 };
@@ -315,7 +332,9 @@ class RabbitRotinaConsumer {
         if (nextRetry > MAX_RETRIES) {
             await this.sendToFinalDlq(msg, data, 'Máximo de tentativas atingido (retry global)');
             ch.ack(msg);
-            await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
+            if (data.trigger !== 'INTERNAL') {
+                await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
+            }
             return;
         }
 
@@ -509,7 +528,9 @@ class RabbitRotinaConsumer {
         if (retryCount >= MAX_RETRIES) {
             await this.sendToFinalDlq(msg, data, 'Max retries reached');
             channel.ack(msg);
-            await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
+            if (data.trigger !== 'INTERNAL') {
+                await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
+            }
             return;
         }
 
@@ -537,6 +558,29 @@ class RabbitRotinaConsumer {
                 channel.ack(msg);
             } else {
                 channel.nack(msg, false, true);
+            }
+            return;
+        }
+
+        // Jobs INTERNAL (ex.: agregação de registros diários) não usam ROTRotina nem ROTExecucaoLog.
+        if (data.trigger === 'INTERNAL') {
+            let internalOk = false;
+            try {
+                await this.processRegistroDiarioAggregation(data.instituicaoCodigo);
+                internalOk = true;
+            } catch (err: any) {
+                console.error(workerLogLine(`INTERNAL job ${data.exeId} error:`), err?.message ?? err);
+            } finally {
+                try {
+                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                } catch (releaseErr) {
+                    console.error(workerLogLine(`Failed to release tenant slot for INTERNAL ${data.exeId}:`), releaseErr);
+                }
+            }
+            if (internalOk) {
+                channel.ack(msg);
+            } else {
+                channel.nack(msg, false, false);
             }
             return;
         }
@@ -600,6 +644,94 @@ class RabbitRotinaConsumer {
         } else {
             channel.nack(msg, false, false);
         }
+    }
+
+    /**
+     * Agrega passagens não processadas (REGProcessado=false) em RPDRegistrosDiarios.
+     * RPDData = dia civil UTC de REGDataHora (gravado em UTC; não aplicar INSFusoHorario).
+     * RPDDataEntrada / RPDDataSaida: menor ENTRADA e maior SAIDA no grupo do dia.
+     */
+    private async processRegistroDiarioAggregation(instituicaoCodigo: number) {
+        console.log(workerLogLine(`[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo}`));
+
+        const passagens = await this.prisma.rEGRegistroPassagem.findMany({
+            where: { INSInstituicaoCodigo: instituicaoCodigo, REGProcessado: false },
+            select: { REGCodigo: true, PESCodigo: true, REGDataHora: true, REGAcao: true },
+        });
+
+        if (passagens.length === 0) {
+            console.log(workerLogLine(`[INTERNAL] Nenhuma passagem pendente para inst=${instituicaoCodigo}`));
+            return;
+        }
+
+        const groups = buildPassagemDayGroups(passagens);
+
+        let upserted = 0;
+        let errors = 0;
+        const allCodigos: number[] = [];
+
+        for (const group of groups.values()) {
+            try {
+                const existing = await this.prisma.rPDRegistrosDiarios.findUnique({
+                    where: {
+                        INSInstituicaoCodigo_PESCodigo_RPDData: {
+                            INSInstituicaoCodigo: instituicaoCodigo,
+                            PESCodigo: group.PESCodigo,
+                            RPDData: group.dataLocal,
+                        },
+                    },
+                    select: { RPDDataEntrada: true, RPDDataSaida: true },
+                });
+
+                const newEntrada =
+                    group.minEntrada && existing?.RPDDataEntrada
+                        ? group.minEntrada < existing.RPDDataEntrada
+                            ? group.minEntrada
+                            : existing.RPDDataEntrada
+                        : (group.minEntrada ?? existing?.RPDDataEntrada ?? null);
+                const newSaida =
+                    group.maxSaida && existing?.RPDDataSaida
+                        ? group.maxSaida > existing.RPDDataSaida
+                            ? group.maxSaida
+                            : existing.RPDDataSaida
+                        : (group.maxSaida ?? existing?.RPDDataSaida ?? null);
+
+                await this.prisma.rPDRegistrosDiarios.upsert({
+                    where: {
+                        INSInstituicaoCodigo_PESCodigo_RPDData: {
+                            INSInstituicaoCodigo: instituicaoCodigo,
+                            PESCodigo: group.PESCodigo,
+                            RPDData: group.dataLocal,
+                        },
+                    },
+                    create: {
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        PESCodigo: group.PESCodigo,
+                        RPDData: group.dataLocal,
+                        RPDDataEntrada: newEntrada,
+                        RPDDataSaida: newSaida,
+                    },
+                    update: {
+                        RPDDataEntrada: newEntrada,
+                        RPDDataSaida: newSaida,
+                    },
+                });
+                allCodigos.push(...group.codigos);
+                upserted++;
+            } catch (err: any) {
+                console.error(workerLogLine(`[INTERNAL] Erro ao upsert RPD para pes=${group.PESCodigo} data=${group.dataLocal.toISOString()}: ${err?.message ?? err}`));
+                errors++;
+            }
+        }
+
+        if (allCodigos.length > 0) {
+            await this.prisma.rEGRegistroPassagem.updateMany({
+                where: { REGCodigo: { in: allCodigos } },
+                data: { REGProcessado: true },
+            });
+        }
+
+        console.log(workerLogLine(`[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: upserted=${upserted} errors=${errors} passagens_marcadas=${allCodigos.length}`));
     }
 
     /** Um log EM_EXECUCAO + exeId único: redelivery Rabbit reusa a mesma linha até SUCESSO/ERRO/TIMEOUT/CANCELADO. */

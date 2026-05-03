@@ -55,6 +55,9 @@ export function channelFinished(exeId: string) {
 export function channelInstituicaoRefresh() {
   return `${p()}:openturn:instituicao:queue:refresh`;
 }
+export function channelSyncSchedulerRefresh() {
+  return `${p()}:openturn:sync:scheduler:refresh`;
+}
 export function channelRotinaRefresh() {
   return `${p()}:openturn:rotina:meta:refresh`;
 }

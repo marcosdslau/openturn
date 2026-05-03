@@ -12,6 +12,7 @@ import Button from "@/components/ui/button/Button";
 import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
+import { CronBuilder } from "@/components/rotinas/CronBuilder";
 
 interface ConnectorStatus {
     paired: boolean;
@@ -95,6 +96,10 @@ export default function InstitutionERPPage() {
     const [rotinaPessoasCodigo, setRotinaPessoasCodigo] = useState<number | null>(null);
     const [webhookRotinas, setWebhookRotinas] = useState<RotinaListItem[]>([]);
 
+    // Sincronização de registros diários
+    const [tempoSync, setTempoSync] = useState("0 9,15,22 * * *");
+    const [syncAtivo, setSyncAtivo] = useState(false);
+
     // Connector On-Premise
     const [connector, setConnector] = useState<ConnectorStatus | null>(null);
     const [pairName, setPairName] = useState("");
@@ -137,6 +142,8 @@ export default function InstitutionERPPage() {
                     ? instRes.INSRotinaPessoasCodigo
                     : null,
             );
+            setTempoSync((instRes as any).INSTempoSync || "0 9,15,22 * * *");
+            setSyncAtivo(!!(instRes as any).INSSyncRegistrosDiarios);
             setWebhookRotinas(
                 Array.isArray(rotinasRes)
                     ? rotinasRes.filter((r) => r.ROTTipo === "WEBHOOK")
@@ -225,6 +232,8 @@ export default function InstitutionERPPage() {
                 INSControlidMonitorRotinaAtiva: monitorRotinaAtiva,
                 INSControlidMonitorRotinaCodigo: monitorRotinaAtiva ? monitorRotinaCodigo : null,
                 INSRotinaPessoasCodigo: rotinaPessoasCodigo,
+                INSTempoSync: tempoSync,
+                INSSyncRegistrosDiarios: syncAtivo,
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -591,6 +600,42 @@ export default function InstitutionERPPage() {
                                     </div>
                                 ))}
                             </div>
+                        </div>
+                    </div>
+                </ComponentCard>
+
+                {/* Sincronização de Registros Diários */}
+                <ComponentCard
+                    title="Sincronização de Registros Diários"
+                    desc="Agendamento automático de processamento de passagens em registros de presença diários."
+                >
+                    <div className="space-y-4">
+                        <label className="flex cursor-pointer items-start gap-3">
+                            <input
+                                type="checkbox"
+                                checked={syncAtivo}
+                                onChange={(e) => setSyncAtivo(e.target.checked)}
+                                className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-500 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <span className="text-sm leading-snug text-gray-700 dark:text-gray-300">
+                                Ativar sincronização automática de registros diários
+                            </span>
+                        </label>
+                        <div className={!syncAtivo ? "opacity-50 pointer-events-none" : ""}>
+                            <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                                Agendamento (Cron)
+                            </label>
+                            <CronBuilder
+                                key={`inst-tempo-sync-${id}`}
+                                value={tempoSync}
+                                onChange={(val) => setTempoSync(val)}
+                            />
+                            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                Mesmo formato das rotinas do tipo agendamento:{" "}
+                                <span className="font-mono">min hora dia mês dia-semana</span>. Valores antigos com seis
+                                campos (<span className="font-mono">seg min hora …</span>) aparecem em &quot;Custom&quot;
+                                e continuam válidos.
+                            </p>
                         </div>
                     </div>
                 </ComponentCard>

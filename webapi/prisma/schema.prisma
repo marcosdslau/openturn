@@ -20,6 +20,13 @@ enum AcaoPassagem {
   SAIDA
 }
 
+enum RPDStatus {
+  ENVIADO
+  ERRO
+  MANUAL
+  PENDENTE
+}
+
 // === ADDON ON-PREMISE CONNECTOR ===
 
 enum ConnectorStatus {
@@ -71,6 +78,10 @@ model INSInstituicao {
   /// Rotina WEBHOOK opcional: "Sincronizar todos" nos equipamentos enfileira uma execução por pessoa ativa em vez do sync físico.
   INSRotinaPessoasCodigo            Int?
   rotinaPessoasWebhook              ROTRotina?            @relation("InstituicaoRotinaPessoasWebhook", fields: [INSRotinaPessoasCodigo], references: [ROTCodigo], onDelete: SetNull)
+  /// Expressão cron (node-cron, 6 campos: sec min hour dom month dow) para agendamento da sincronização de registros diários.
+  INSTempoSync                      String  @default("0 0 9,15,22 * * *")
+  /// Indica se a sincronização automática de registros diários está ativa para esta instituição.
+  INSSyncRegistrosDiarios           Boolean @default(false)
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -78,6 +89,7 @@ model INSInstituicao {
   erpConfig           ERPConfiguracao[]
   acessos             USRAcesso[]
   passagens           REGRegistroPassagem[]
+  registrosDiarios    RPDRegistrosDiarios[]
   cmdcomandoFilas     CMDComandoFila[]
   rotrotinas          ROTRotina[]
   rotexecucaoLogs     ROTExecucaoLog[]
@@ -115,6 +127,7 @@ model PESPessoa {
   deletedAt            DateTime?
   matriculas           MATMatricula[]
   passagens            REGRegistroPassagem[]
+  registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
 }
 
@@ -249,9 +262,32 @@ model REGRegistroPassagem {
   equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo])
   REGTimestamp         BigInt
   REGDataHora          DateTime
+  /// Indica se este registro já foi processado e agrupado em RPDRegistrosDiarios.
+  REGProcessado        Boolean        @default(false)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+
+  @@index([INSInstituicaoCodigo, REGProcessado])
+}
+
+model RPDRegistrosDiarios {
+  RPDCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  /// Data do registro (sem hora — armazenado como meia-noite UTC; exibição usa INSFusoHorario).
+  RPDData              DateTime       @db.Date
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  RPDDataEntrada       DateTime?
+  RPDDataSaida         DateTime?
+  RPDStatus            RPDStatus      @default(PENDENTE)
+  RPDResult            Json?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@unique([INSInstituicaoCodigo, PESCodigo, RPDData])
+  @@index([INSInstituicaoCodigo, RPDData])
 }
 
 enum StatusComando {

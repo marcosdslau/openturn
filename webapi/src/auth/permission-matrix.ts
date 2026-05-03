@@ -9,7 +9,8 @@ export type PermissionResource =
   | 'equipamento'
   | 'usuario_instituicao'
   | 'rotina'
-  | 'execucao';
+  | 'execucao'
+  | 'registroDiario';
 
 export type PermissionAction =
   | 'read'
@@ -37,6 +38,7 @@ const RULES: Record<
     usuario_instituicao: A(['read']),
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
+    registroDiario: A(['read']),
   },
   [GrupoAcesso.GESTOR]: {
     dashboard: A(['read']),
@@ -47,6 +49,7 @@ const RULES: Record<
     usuario_instituicao: A(['read', 'create', 'update', 'delete']),
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
+    registroDiario: A(['read', 'execute']),
   },
   [GrupoAcesso.ADMIN]: {
     dashboard: A(['read']),
@@ -55,6 +58,7 @@ const RULES: Record<
     matricula: A(['read', 'create', 'update', 'delete']),
     equipamento: A(['read', 'create', 'update', 'delete', 'proxy_http']),
     usuario_instituicao: A(['read', 'create', 'update', 'delete']),
+    registroDiario: A(['read', 'create', 'update', 'delete', 'execute']),
     rotina: A([
       'read',
       'create',
