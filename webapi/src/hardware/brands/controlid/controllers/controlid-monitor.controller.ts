@@ -18,6 +18,7 @@ import { RequirePermission } from '../../../../auth/permissions.decorator';
 import { ControlidResolverService } from '../services/controlid-resolver.service';
 import { ControlidMonitorService } from '../services/controlid-monitor.service';
 import { ControlidCommandQueueService } from '../services/controlid-command-queue.service';
+import { ControlidInspectLoggerService } from '../utils/controlid-inspect-logger.service';
 
 /**
  * ControlID sob o prefixo instituicao/:codigoInstituicao/monitor/controlid/*
@@ -32,6 +33,7 @@ export class ControlidMonitorController {
     private readonly resolverService: ControlidResolverService,
     private readonly monitorService: ControlidMonitorService,
     private readonly commandQueue: ControlidCommandQueueService,
+    private readonly inspectLogger: ControlidInspectLoggerService,
   ) {}
 
   private async deviceInstituicaoConfere(
@@ -201,6 +203,7 @@ export class ControlidMonitorController {
       await this.resolverService.resolveInstituicaoCodigoFromControlidDeviceId(
         body?.device_id,
       );
+    this.inspectLogger.logWebhook(codigoInstituicao, 'catra_event', body);
     if (instEquip == null) {
       this.logger.warn(
         `[${codigoInstituicao}] [ControlID] catra_event: equipamento device_id=${body?.device_id} não encontrado; ignorando`,
@@ -234,6 +237,7 @@ export class ControlidMonitorController {
       await this.resolverService.resolveInstituicaoCodigoFromControlidDeviceId(
         body?.device_id,
       );
+    this.inspectLogger.logWebhook(codigoInstituicao, 'dao', body);
     if (instEquip == null) {
       this.logger.warn(
         `[${codigoInstituicao}] [ControlID] DAO: equipamento device_id=${body?.device_id} não encontrado; ignorando`,
