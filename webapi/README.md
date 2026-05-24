@@ -21,7 +21,7 @@ cd webapi
 npm install
 
 # 3. Configure o banco de dados (Docker Compose deve estar rodando)
-# Aplica o schema no banco de dados
+# Aplica o schema no banco de dados APENAS PARA DESENVOLVIMENTO
 npx prisma db push
 
 # 4. Popula dados de teste (Seed)
@@ -31,6 +31,13 @@ npx prisma db seed
 npm run start:dev
 ```
 
+
+## Em Produção, para sincronizar o banco execute:
+
+```bash
+# Em produção, aplique:
+npx prisma migrate deploy
+```
 ---
 
 ## 🔐 Testando Autenticação

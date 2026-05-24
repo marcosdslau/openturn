@@ -30,13 +30,24 @@ import {
     redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
 } from './redis-keys';
-import { buildPassagemDayGroups } from './registro-diario-aggregation.helpers';
+import {
+    aggregateEntradaSaida,
+    aggregateTempoPermanencia,
+    aggregateTempoPermanenciaPeriodo,
+    extractAffectedDayKeys,
+    groupJanelasByPersonDay,
+    type DiaAfetado,
+    type JanelaAgregada,
+    type PeriodoConfig,
+} from './registro-diario-aggregation.helpers';
+import { ErpFrequencySyncOrchestrator } from './erp-frequency/erp-frequency-sync.orchestrator';
 
 export interface RotinaJobData {
     exeId: string;
     rotinaCodigo: number;
     instituicaoCodigo: number;
     trigger: 'SCHEDULE' | 'WEBHOOK' | 'INTERNAL';
+    internalKind?: 'RPD_AGGREGATION' | 'FREQ_ERP_SYNC';
     requestEnvelope?: any;
     enqueuedAt: string;
 }
@@ -209,13 +220,16 @@ class RabbitRotinaConsumer {
     private readonly rotinaParalelismoCache = new Map<string, boolean | null>();
     private readonly consumerTags = new Map<number, string>();
     private pollTimer: NodeJS.Timeout | null = null;
+    private readonly erpFrequencySync: ErpFrequencySyncOrchestrator;
 
     constructor(
         private readonly prisma: PrismaClient,
         private readonly processManager: WorkerProcessManager,
         private readonly redisOptions: RedisOptions,
         private readonly hardwareFactory: HardwareFactory,
-    ) { }
+    ) {
+        this.erpFrequencySync = new ErpFrequencySyncOrchestrator(prisma);
+    }
 
     async start() {
         this.connection = await amqp.connect(getRabbitUrl());
@@ -562,14 +576,24 @@ class RabbitRotinaConsumer {
             return;
         }
 
-        // Jobs INTERNAL (ex.: agregação de registros diários) não usam ROTRotina nem ROTExecucaoLog.
+        // Jobs INTERNAL (ex.: agregação de registros diários, sync freq ERP) não usam ROTRotina nem ROTExecucaoLog.
         if (data.trigger === 'INTERNAL') {
+            const kind = data.internalKind ?? 'RPD_AGGREGATION';
             let internalOk = false;
             try {
-                await this.processRegistroDiarioAggregation(data.instituicaoCodigo);
+                switch (kind) {
+                    case 'RPD_AGGREGATION':
+                        await this.processRegistroDiarioAggregation(data.instituicaoCodigo);
+                        break;
+                    case 'FREQ_ERP_SYNC':
+                        await this.erpFrequencySync.run(data.instituicaoCodigo);
+                        break;
+                    default:
+                        console.warn(workerLogLine(`INTERNAL kind desconhecido: ${kind}`));
+                }
                 internalOk = true;
             } catch (err: any) {
-                console.error(workerLogLine(`INTERNAL job ${data.exeId} error:`), err?.message ?? err);
+                console.error(workerLogLine(`INTERNAL job ${data.exeId} (kind=${kind}) error:`), err?.message ?? err);
             } finally {
                 try {
                     await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
@@ -648,90 +672,170 @@ class RabbitRotinaConsumer {
 
     /**
      * Agrega passagens não processadas (REGProcessado=false) em RPDRegistrosDiarios.
-     * RPDData = dia civil UTC de REGDataHora (gravado em UTC; não aplicar INSFusoHorario).
-     * RPDDataEntrada / RPDDataSaida: menor ENTRADA e maior SAIDA no grupo do dia.
+     * Lê INSAglutinacaoRegistros e aplica a estratégia correspondente.
+     * Para cada (PESCodigo, dia) com pendentes, recomputa o dia inteiro (delete + insert).
      */
     private async processRegistroDiarioAggregation(instituicaoCodigo: number) {
         console.log(workerLogLine(`[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo}`));
 
-        const passagens = await this.prisma.rEGRegistroPassagem.findMany({
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instituicaoCodigo },
+            select: { INSAglutinacaoRegistros: true, INSFusoHorario: true },
+        });
+        const modo = inst?.INSAglutinacaoRegistros ?? 'entrada_saida';
+        const fusoHorario = inst?.INSFusoHorario ?? -3;
+
+        const pendentes = await this.prisma.rEGRegistroPassagem.findMany({
             where: { INSInstituicaoCodigo: instituicaoCodigo, REGProcessado: false },
             select: { REGCodigo: true, PESCodigo: true, REGDataHora: true, REGAcao: true },
+            orderBy: { REGDataHora: 'asc' },
         });
 
-        if (passagens.length === 0) {
+        if (pendentes.length === 0) {
             console.log(workerLogLine(`[INTERNAL] Nenhuma passagem pendente para inst=${instituicaoCodigo}`));
             return;
         }
 
-        const groups = buildPassagemDayGroups(passagens);
+        const diasAfetados = extractAffectedDayKeys(pendentes);
 
-        let upserted = 0;
+        const allPassagens = await this.loadPassagensForDayKeys(instituicaoCodigo, diasAfetados);
+
+        let periodos: PeriodoConfig[] = [];
+        if (modo === 'tempo_permanencia_periodo') {
+            periodos = await this.prisma.pERPeriodosConfig.findMany({
+                where: { INSInstituicaoCodigo: instituicaoCodigo },
+                orderBy: { PERHorarioInicio: 'asc' },
+                select: {
+                    PERCodigo: true,
+                    PERHorarioInicio: true,
+                    PERHorarioFim: true,
+                    PERToleranciaEntradaMinutos: true,
+                    PERToleranciaSaidaMinutos: true,
+                },
+            });
+            if (periodos.length === 0) {
+                console.warn(workerLogLine(`[INTERNAL] inst=${instituicaoCodigo} modo periodo sem PERPeriodosConfig cadastrados — job ignorado`));
+                return;
+            }
+        }
+
+        let janelas: JanelaAgregada[];
+        switch (modo) {
+            case 'tempo_permanencia':
+                janelas = aggregateTempoPermanencia(allPassagens);
+                break;
+            case 'tempo_permanencia_periodo':
+                janelas = aggregateTempoPermanenciaPeriodo(allPassagens, periodos, fusoHorario);
+                break;
+            case 'entrada_saida':
+            default:
+                janelas = aggregateEntradaSaida(allPassagens);
+                break;
+        }
+
+        const { daysRebuilt, totalJanelas, errors } = await this.persistJanelas(
+            instituicaoCodigo,
+            janelas,
+            diasAfetados,
+        );
+
+        console.log(
+            workerLogLine(
+                `[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: modo=${modo} days_rebuilt=${daysRebuilt} janelas=${totalJanelas} errors=${errors}`,
+            ),
+        );
+    }
+
+    /**
+     * Carrega todas as passagens (processadas ou não) dos dias afetados.
+     * Garante que o reprocessamento do dia inteiro inclua passagens já processadas.
+     */
+    private async loadPassagensForDayKeys(
+        instituicaoCodigo: number,
+        diasAfetados: DiaAfetado[],
+    ) {
+        if (diasAfetados.length === 0) return [];
+        return this.prisma.rEGRegistroPassagem.findMany({
+            where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                OR: diasAfetados.map((d) => ({
+                    PESCodigo: d.PESCodigo,
+                    REGDataHora: { gte: d.inicio, lt: d.fim },
+                })),
+            },
+            select: { REGCodigo: true, PESCodigo: true, REGDataHora: true, REGAcao: true },
+            orderBy: { REGDataHora: 'asc' },
+        });
+    }
+
+    /**
+     * Persiste janelas calculadas substituindo os RPDs existentes do (pessoa, dia).
+     * Por transação: deleteMany → create N janelas → marcar todas as passagens do dia como processadas.
+     */
+    private async persistJanelas(
+        instituicaoCodigo: number,
+        janelas: JanelaAgregada[],
+        diasAfetados: DiaAfetado[],
+    ): Promise<{ daysRebuilt: number; totalJanelas: number; errors: number }> {
+        const byPersonDay = groupJanelasByPersonDay(janelas);
+        let daysRebuilt = 0;
+        let totalJanelas = 0;
         let errors = 0;
-        const allCodigos: number[] = [];
 
-        for (const group of groups.values()) {
+        for (const dia of diasAfetados) {
+            const key = `${dia.PESCodigo}|${dia.dataLocal.getUTCFullYear()}-${String(dia.dataLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(dia.dataLocal.getUTCDate()).padStart(2, '0')}`;
+            const dayJanelas = (byPersonDay.get(key) ?? []).sort(
+                (a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice,
+            );
+
             try {
-                const existing = await this.prisma.rPDRegistrosDiarios.findUnique({
-                    where: {
-                        INSInstituicaoCodigo_PESCodigo_RPDData: {
+                await this.prisma.$transaction(async (tx) => {
+                    await tx.rPDRegistrosDiarios.deleteMany({
+                        where: {
                             INSInstituicaoCodigo: instituicaoCodigo,
-                            PESCodigo: group.PESCodigo,
-                            RPDData: group.dataLocal,
+                            PESCodigo: dia.PESCodigo,
+                            RPDData: dia.dataLocal,
                         },
-                    },
-                    select: { RPDDataEntrada: true, RPDDataSaida: true },
+                    });
+
+                    for (const j of dayJanelas) {
+                        await tx.rPDRegistrosDiarios.create({
+                            data: {
+                                INSInstituicaoCodigo: instituicaoCodigo,
+                                PESCodigo: j.PESCodigo,
+                                RPDData: j.dataLocal,
+                                RPDJanelaIndice: j.RPDJanelaIndice,
+                                RPDDataEntrada: j.RPDDataEntrada,
+                                RPDDataSaida: j.RPDDataSaida,
+                                PERCodigo: j.PERCodigo ?? null,
+                            },
+                        });
+                    }
+
+                    // Marcar todas as passagens do dia como processadas (não só as da janela)
+                    await tx.rEGRegistroPassagem.updateMany({
+                        where: {
+                            INSInstituicaoCodigo: instituicaoCodigo,
+                            PESCodigo: dia.PESCodigo,
+                            REGDataHora: { gte: dia.inicio, lt: dia.fim },
+                        },
+                        data: { REGProcessado: true },
+                    });
                 });
 
-                const newEntrada =
-                    group.minEntrada && existing?.RPDDataEntrada
-                        ? group.minEntrada < existing.RPDDataEntrada
-                            ? group.minEntrada
-                            : existing.RPDDataEntrada
-                        : (group.minEntrada ?? existing?.RPDDataEntrada ?? null);
-                const newSaida =
-                    group.maxSaida && existing?.RPDDataSaida
-                        ? group.maxSaida > existing.RPDDataSaida
-                            ? group.maxSaida
-                            : existing.RPDDataSaida
-                        : (group.maxSaida ?? existing?.RPDDataSaida ?? null);
-
-                await this.prisma.rPDRegistrosDiarios.upsert({
-                    where: {
-                        INSInstituicaoCodigo_PESCodigo_RPDData: {
-                            INSInstituicaoCodigo: instituicaoCodigo,
-                            PESCodigo: group.PESCodigo,
-                            RPDData: group.dataLocal,
-                        },
-                    },
-                    create: {
-                        INSInstituicaoCodigo: instituicaoCodigo,
-                        PESCodigo: group.PESCodigo,
-                        RPDData: group.dataLocal,
-                        RPDDataEntrada: newEntrada,
-                        RPDDataSaida: newSaida,
-                    },
-                    update: {
-                        RPDDataEntrada: newEntrada,
-                        RPDDataSaida: newSaida,
-                    },
-                });
-                allCodigos.push(...group.codigos);
-                upserted++;
+                daysRebuilt++;
+                totalJanelas += dayJanelas.length;
             } catch (err: any) {
-                console.error(workerLogLine(`[INTERNAL] Erro ao upsert RPD para pes=${group.PESCodigo} data=${group.dataLocal.toISOString()}: ${err?.message ?? err}`));
+                console.error(
+                    workerLogLine(
+                        `[INTERNAL] Erro ao persistir RPD pes=${dia.PESCodigo} data=${dia.dataLocal.toISOString()}: ${err?.message ?? err}`,
+                    ),
+                );
                 errors++;
             }
         }
 
-        if (allCodigos.length > 0) {
-            await this.prisma.rEGRegistroPassagem.updateMany({
-                where: { REGCodigo: { in: allCodigos } },
-                data: { REGProcessado: true },
-            });
-        }
-
-        console.log(workerLogLine(`[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: upserted=${upserted} errors=${errors} passagens_marcadas=${allCodigos.length}`));
+        return { daysRebuilt, totalJanelas, errors };
     }
 
     /** Um log EM_EXECUCAO + exeId único: redelivery Rabbit reusa a mesma linha até SUCESSO/ERRO/TIMEOUT/CANCELADO. */

@@ -19,6 +19,7 @@ import { ControlidResolverService } from '../services/controlid-resolver.service
 import { ControlidMonitorService } from '../services/controlid-monitor.service';
 import { ControlidCommandQueueService } from '../services/controlid-command-queue.service';
 import { ControlidInspectLoggerService } from '../utils/controlid-inspect-logger.service';
+import { extractControlidCatraRotationCode } from '../utils/controlid-catra-event.util';
 
 /**
  * ControlID sob o prefixo instituicao/:codigoInstituicao/monitor/controlid/*
@@ -199,6 +200,11 @@ export class ControlidMonitorController {
     @Param('codigoInstituicao', ParseIntPipe) codigoInstituicao: number,
     @Body() body: any,
   ) {
+    const rotation = extractControlidCatraRotationCode(body);
+    if (rotation !== 7 && rotation !== 8) {
+      return {};
+    }
+
     const instEquip =
       await this.resolverService.resolveInstituicaoCodigoFromControlidDeviceId(
         body?.device_id,

@@ -4,11 +4,13 @@ import {
   IsBoolean,
   IsInt,
   IsObject,
+  IsEnum,
   Matches,
   Min,
   Max,
   ValidateIf,
 } from 'class-validator';
+import { TipoAglutinacaoRegistro } from '@prisma/client';
 
 /** Cron 5 campos (padrão rotinas / CronBuilder) ou 6 campos (seg min hora dom mês dow, legado). */
 const CRON_5_OR_6_FIELDS = /^(\S+\s){4}\S+$|^(\S+\s){5}\S+$/;
@@ -98,6 +100,22 @@ export class CreateInstituicaoDto {
   @IsOptional()
   @IsBoolean()
   INSSyncRegistrosDiarios?: boolean;
+
+  @IsOptional()
+  @IsEnum(TipoAglutinacaoRegistro)
+  INSAglutinacaoRegistros?: TipoAglutinacaoRegistro;
+
+  @IsOptional()
+  @IsBoolean()
+  INSSyncFreqEducacional?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CRON_5_OR_6_FIELDS, {
+    message:
+      'INSTempoFreqEducacional: use cron de 5 campos (min hora dom mês dow) ou 6 campos',
+  })
+  INSTempoFreqEducacional?: string;
 }
 
 export class UpdateInstituicaoDto {
@@ -183,6 +201,22 @@ export class UpdateInstituicaoDto {
   @IsOptional()
   @IsBoolean()
   INSSyncRegistrosDiarios?: boolean;
+
+  @IsOptional()
+  @IsEnum(TipoAglutinacaoRegistro)
+  INSAglutinacaoRegistros?: TipoAglutinacaoRegistro;
+
+  @IsOptional()
+  @IsBoolean()
+  INSSyncFreqEducacional?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @Matches(CRON_5_OR_6_FIELDS, {
+    message:
+      'INSTempoFreqEducacional: use cron de 5 campos (min hora dom mês dow) ou 6 campos',
+  })
+  INSTempoFreqEducacional?: string;
 }
 
 export class SetWorkerStatusBodyDto {

@@ -64,6 +64,11 @@ ALTER TABLE "RPDRegistrosDiarios" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_rpd ON "RPDRegistrosDiarios"
   USING ("INSInstituicaoCodigo" = current_tenant());
 
+-- Política para PERPeriodosConfig
+ALTER TABLE "PERPeriodosConfig" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_per ON "PERPeriodosConfig"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
 -- Bypass RLS para o usuário da aplicação (usado pelo Prisma via SET app.current_tenant)
 -- O Prisma seta o tenant manualmente via $extends, então o owner do schema precisa fazer bypass
 -- Nota: Executar APENAS se o user do banco for diferente do owner das tabelas

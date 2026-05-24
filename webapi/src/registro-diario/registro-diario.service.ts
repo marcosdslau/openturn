@@ -26,9 +26,9 @@ export class RegistroDiarioService {
       INSInstituicaoCodigo: instituicaoCodigo,
       MATAtivo: true,
     };
-    if (MATCurso) matriculaWhere.MATCurso = { contains: MATCurso, mode: 'insensitive' };
-    if (MATSerie) matriculaWhere.MATSerie = { contains: MATSerie, mode: 'insensitive' };
-    if (MATTurma) matriculaWhere.MATTurma = { contains: MATTurma, mode: 'insensitive' };
+    if (MATCurso?.length) matriculaWhere.MATCurso = { in: MATCurso };
+    if (MATSerie?.length) matriculaWhere.MATSerie = { in: MATSerie };
+    if (MATTurma?.length) matriculaWhere.MATTurma = { in: MATTurma };
 
     const where: Prisma.RPDRegistrosDiariosWhereInput = {
       INSInstituicaoCodigo: instituicaoCodigo,
@@ -43,7 +43,7 @@ export class RegistroDiarioService {
     }
 
     const hasPessoaFilter = nome || documento || grupo;
-    const hasMatriculaFilter = MATCurso || MATSerie || MATTurma;
+    const hasMatriculaFilter = MATCurso?.length || MATSerie?.length || MATTurma?.length;
 
     if (hasPessoaFilter || hasMatriculaFilter) {
       where.pessoa = { ...pessoaWhere };
@@ -76,6 +76,8 @@ export class RegistroDiarioService {
               },
             },
           },
+          usuarioCriacao: { select: { USRCodigo: true, USRNome: true } },
+          usuarioAlteracao: { select: { USRCodigo: true, USRNome: true } },
         },
       }),
       this.prisma.rls.rPDRegistrosDiarios.count({ where }),

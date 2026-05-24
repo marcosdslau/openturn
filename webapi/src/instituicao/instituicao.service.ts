@@ -163,7 +163,12 @@ export class InstituicaoService {
       data: data as Prisma.INSInstituicaoUpdateInput,
     });
     await this.publishQueueRefresh(instituicao, 'updated');
-    if (dto.INSTempoSync !== undefined || dto.INSSyncRegistrosDiarios !== undefined) {
+    if (
+      dto.INSTempoSync !== undefined ||
+      dto.INSSyncRegistrosDiarios !== undefined ||
+      dto.INSSyncFreqEducacional !== undefined ||
+      dto.INSTempoFreqEducacional !== undefined
+    ) {
       this.redisPub?.publish(channelSyncSchedulerRefresh(), JSON.stringify({ INSCodigo: id })).catch(() => null);
     }
     return instituicao;
