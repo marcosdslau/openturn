@@ -13,6 +13,8 @@ import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
+import AglutinacaoRegistrosCard from "@/components/registro-diario/AglutinacaoRegistrosCard";
+import type { TipoAglutinacaoRegistro, PeriodoRegistro } from "@/components/registro-diario/aglutinacao-types";
 
 interface ConnectorStatus {
     paired: boolean;
@@ -34,6 +36,9 @@ interface Instituicao {
     INSControlidMonitorRotinaAtiva?: boolean;
     INSControlidMonitorRotinaCodigo?: number | null;
     INSRotinaPessoasCodigo?: number | null;
+    INSAglutinacaoRegistros?: string;
+    INSSyncFreqEducacional?: boolean;
+    INSTempoFreqEducacional?: string;
 }
 
 interface RotinaListItem {
@@ -100,6 +105,14 @@ export default function InstitutionERPPage() {
     const [tempoSync, setTempoSync] = useState("0 9,15,22 * * *");
     const [syncAtivo, setSyncAtivo] = useState(false);
 
+    // Sincronização de frequências ao ERP
+    const [syncFreqEducacional, setSyncFreqEducacional] = useState(false);
+    const [tempoFreqEducacional, setTempoFreqEducacional] = useState("58 23 * * *");
+
+    // Aglutinação de registros diários
+    const [aglutinacaoTipo, setAglutinacaoTipo] = useState<TipoAglutinacaoRegistro>("entrada_saida");
+    const [periodos, setPeriodos] = useState<PeriodoRegistro[]>([]);
+
     // Connector On-Premise
     const [connector, setConnector] = useState<ConnectorStatus | null>(null);
     const [pairName, setPairName] = useState("");
@@ -109,13 +122,14 @@ export default function InstitutionERPPage() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [instRes, configRes, connStatus, rotinasRes] = await Promise.all([
+            const [instRes, configRes, connStatus, rotinasRes, periodosRes] = await Promise.all([
                 apiGet<
                     Instituicao & { INSLogsAutoExcluir: boolean; INSLogsDiasRetencao: number }
                 >(`/instituicoes/${id}`),
                 apiGet<ERPConfig | null>(`/instituicoes/${id}/erp-config`),
                 apiGet<ConnectorStatus>(`/instituicao/${id}/connector/status`).catch(() => ({ paired: false })),
                 apiGet<RotinaListItem[]>(`/instituicao/${id}/rotina`).catch(() => []),
+                apiGet<PeriodoRegistro[]>(`/instituicao/${id}/periodos-registro`).catch(() => []),
             ]);
             setConnector(connStatus);
 
@@ -144,6 +158,10 @@ export default function InstitutionERPPage() {
             );
             setTempoSync((instRes as any).INSTempoSync || "0 9,15,22 * * *");
             setSyncAtivo(!!(instRes as any).INSSyncRegistrosDiarios);
+            setSyncFreqEducacional(!!(instRes as any).INSSyncFreqEducacional);
+            setTempoFreqEducacional((instRes as any).INSTempoFreqEducacional ?? "58 23 * * *");
+            setAglutinacaoTipo(((instRes as any).INSAglutinacaoRegistros as TipoAglutinacaoRegistro) ?? "entrada_saida");
+            setPeriodos(Array.isArray(periodosRes) ? periodosRes : []);
             setWebhookRotinas(
                 Array.isArray(rotinasRes)
                     ? rotinasRes.filter((r) => r.ROTTipo === "WEBHOOK")
@@ -234,6 +252,9 @@ export default function InstitutionERPPage() {
                 INSRotinaPessoasCodigo: rotinaPessoasCodigo,
                 INSTempoSync: tempoSync,
                 INSSyncRegistrosDiarios: syncAtivo,
+                INSSyncFreqEducacional: syncFreqEducacional,
+                INSTempoFreqEducacional: tempoFreqEducacional,
+                INSAglutinacaoRegistros: aglutinacaoTipo,
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -639,6 +660,50 @@ export default function InstitutionERPPage() {
                         </div>
                     </div>
                 </ComponentCard>
+
+                {/* Sincronização de Frequências ao ERP */}
+                <ComponentCard
+                    title="Sincronização de Frequências ao ERP"
+                    desc="Agendamento automático de envio de registros diários (RPD) ao sistema de gestão educacional."
+                >
+                    <div className="space-y-4">
+                        <label className="flex cursor-pointer items-start gap-3">
+                            <input
+                                type="checkbox"
+                                checked={syncFreqEducacional}
+                                onChange={(e) => setSyncFreqEducacional(e.target.checked)}
+                                className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-500 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <span className="text-sm leading-snug text-gray-700 dark:text-gray-300">
+                                Ativar sincronização automática de frequências ao ERP
+                            </span>
+                        </label>
+                        <div className={!syncFreqEducacional ? "opacity-50 pointer-events-none" : ""}>
+                            <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-400">
+                                Agendamento (Cron)
+                            </label>
+                            <CronBuilder
+                                key={`inst-tempo-freq-erp-${id}`}
+                                value={tempoFreqEducacional}
+                                onChange={(val) => setTempoFreqEducacional(val)}
+                            />
+                            <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                                Mesmo formato das rotinas do tipo agendamento:{" "}
+                                <span className="font-mono">min hora dia mês dia-semana</span>. Default:{" "}
+                                <span className="font-mono">58 23 * * *</span> (23:58 todo dia).
+                            </p>
+                        </div>
+                    </div>
+                </ComponentCard>
+
+                {/* Aglutinação de Registros Diários */}
+                <AglutinacaoRegistrosCard
+                    instituicaoId={String(id)}
+                    tipo={aglutinacaoTipo}
+                    periodos={periodos}
+                    onTipoChange={setAglutinacaoTipo}
+                    onPeriodosChange={setPeriodos}
+                />
 
                 {/* Log Retention Settings */}
                 <ComponentCard

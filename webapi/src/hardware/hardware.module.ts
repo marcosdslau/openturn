@@ -16,6 +16,7 @@ import { ControlidMonitorService } from './brands/controlid/services/controlid-m
 import { ControlidCommandQueueService } from './brands/controlid/services/controlid-command-queue.service';
 import { ControlidPassagemService } from './brands/controlid/services/controlid-passagem.service';
 import { ControlidSyncService } from './brands/controlid/services/controlid-sync.service';
+import { ControlidInspectLoggerService } from './brands/controlid/utils/controlid-inspect-logger.service';
 
 @Module({
   imports: [AuthModule, PrismaModule, ConnectorModule, RotinaModule],
@@ -32,6 +33,7 @@ import { ControlidSyncService } from './brands/controlid/services/controlid-sync
     ControlidCommandQueueService,
     ControlidPassagemService,
     ControlidSyncService,
+    ControlidInspectLoggerService,
   ],
   exports: [HardwareService],
 })

@@ -32,6 +32,26 @@ function nativeControlidAcao(rotation: number | null): AcaoPassagem {
 }
 
 /**
+ * Determina ENTRADA/SAÍDA pelo sentido físico configurado em `entry_direction`.
+ * - `clockwise`         → sentido horário  (TURN RIGHT, type 8) = ENTRADA
+ * - `counter_clockwise` → sentido anti-horário (TURN LEFT, type 7) = ENTRADA
+ * - não definido        → fallback para lógica nativa (type 7 = ENTRADA, type 8 = SAÍDA)
+ *
+ * Usado quando `entry_direction_applied_by_equipment = false`.
+ */
+function acaoFromEntryDirection(
+  rotation: number | null,
+  entryDirection: 'clockwise' | 'counter_clockwise' | undefined,
+): AcaoPassagem {
+  if (!entryDirection) return nativeControlidAcao(rotation);
+  if (entryDirection === 'clockwise') {
+    return rotation === 8 ? AcaoPassagem.ENTRADA : AcaoPassagem.SAIDA;
+  }
+  // counter_clockwise: type 7 (TURN LEFT) = ENTRADA
+  return rotation === 8 ? AcaoPassagem.SAIDA : AcaoPassagem.ENTRADA;
+}
+
+/**
  * Determina ENTRADA/SAIDA pelo IP da perna que disparou o evento, identificada
  * via `body.device_id` casando com `EQPConfig.deviceId_entry`/`deviceId_exit`.
  * `rotation` (7 ou 8) é apenas validação de tipo de evento válido — não dita direção.
@@ -199,7 +219,7 @@ export function resolveControlidCatraAcaoPassagem(params: {
   const applied = params.config.entry_direction_applied_by_equipment === true;
 
   if (!applied) {
-    return nativeControlidAcao(rotation);
+    return acaoFromEntryDirection(rotation, params.config.entry_direction);
   }
 
   const fromIp = acaoFromEquipmentEventIp(params.config, params.body, rotation);

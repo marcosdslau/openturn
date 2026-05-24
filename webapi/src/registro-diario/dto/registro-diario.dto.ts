@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, IsDateString, IsString, IsArray, IsBoolean, Min, Max } from 'class-validator';
+import { IsOptional, IsInt, IsDateString, IsString, IsArray, IsBoolean, Min, Max, Matches } from 'class-validator';
 import { Type } from 'class-transformer';
 
 /** Paginação própria: limite até 1000 (lista administrativa de registros). */
@@ -34,16 +34,19 @@ export class QueryRegistroDiarioDto {
   grupo?: string;
 
   @IsOptional()
-  @IsString()
-  MATCurso?: string;
+  @IsArray()
+  @IsString({ each: true })
+  MATCurso?: string[];
 
   @IsOptional()
-  @IsString()
-  MATSerie?: string;
+  @IsArray()
+  @IsString({ each: true })
+  MATSerie?: string[];
 
   @IsOptional()
-  @IsString()
-  MATTurma?: string;
+  @IsArray()
+  @IsString({ each: true })
+  MATTurma?: string[];
 
   @IsOptional()
   @IsDateString()
@@ -61,6 +64,21 @@ export class IniciarLancamentoGenneraDto {
   @IsInt({ each: true })
   pessoasCodigos?: number[];
 
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  cursos?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  series?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  turmas?: string[];
+
   @IsDateString()
   dataInicio: string;
 
@@ -74,4 +92,21 @@ export class IniciarLancamentoGenneraDto {
   @IsOptional()
   @IsBoolean()
   lancaPresenca?: boolean;
+
+  /** Somente quando considerarHorarioPassagens = false: enviar intervalo de horário fixo */
+  @IsOptional()
+  @IsBoolean()
+  usarIntervaloHorario?: boolean;
+
+  /** HH:mm no fuso da instituição — obrigatório se usarIntervaloHorario = true */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'horaEntradaIntervalo deve estar no formato HH:mm' })
+  horaEntradaIntervalo?: string;
+
+  /** HH:mm no fuso da instituição — obrigatório se usarIntervaloHorario = true */
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{2}:\d{2}$/, { message: 'horaSaidaIntervalo deve estar no formato HH:mm' })
+  horaSaidaIntervalo?: string;
 }

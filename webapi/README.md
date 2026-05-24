@@ -21,36 +21,74 @@ cd webapi
 npm install
 
 # 3. Configure o banco de dados (Docker Compose deve estar rodando)
-# Aplica o schema no banco de dados
+# Aplica o schema no banco de dados APENAS PARA DESENVOLVIMENTO
 npx prisma db push
 
-# 4. Popula dados de teste (Seed)
-npx prisma db seed
+# 4. Popula dados de teste (Seed) — veja seção abaixo
+npm run db:seed
 
 # 5. Inicie o servidor em modo de desenvolvimento
 npm run start:dev
 ```
 
+## 🌱 Seed (dados iniciais)
+
+O seed popula o banco com as **bases iniciais** do sistema — em desenvolvimento e no **primeiro deploy de produção**.
+
+**Pré-requisitos:**
+- Arquivo `.env` configurado (conexão com PostgreSQL)
+- Schema aplicado no banco (`npx prisma db push` / `migrate dev` em dev, ou `migrate deploy` em produção)
+
+**Como executar:**
+
+```bash
+cd webapi
+
+# Opção recomendada (script npm)
+npm run db:seed
+
+# Equivalente direto via Prisma
+npx prisma db seed
+```
+
+**O que é criado:**
+- Cliente (Grupo SchoolGuard)
+- Instituições: *Colégio SchoolGuard* e *Colégio SchoolGuard - Samples*
+- Usuário SUPER_ROOT: `marcosdslau@gmail.com` (senha vazia — use **Esqueci minha senha** no primeiro acesso)
+- Pessoas de exemplo na instituição Samples
+- Provedor e modelos de IA (OpenAI)
+
+O script é **idempotente**: registros já existentes são ignorados; pode rodar novamente sem duplicar dados.
+
+---
+
+## Em Produção, para sincronizar o banco execute:
+
+```bash
+cd webapi
+npx prisma migrate deploy   # aplica migrations pendentes
+npm run db:seed             # bases iniciais (primeiro deploy ou quando necessário)
+```
 ---
 
 ## 🔐 Testando Autenticação
 
-Para realizar o login e obter o token JWT:
+Após rodar o seed, defina a senha do usuário SUPER_ROOT via **Esqueci minha senha** na webapp (o seed cria o usuário sem senha).
+
+Para obter o token JWT:
 
 **Endpoint:** `POST http://localhost:3000/auth/login`
 
 **Payload:**
 ```json
 {
-  "email": "root@openturn.com",
-  "senha": "123456"
+  "email": "marcosdslau@gmail.com",
+  "senha": "<sua-senha-definida>"
 }
 ```
 
-### Credenciais de Teste (Seed):
-- **Super Root:** `root@openturn.com` / `123456`
-- **Gestor Alpha:** `gestor@openturn.com` / `123456`
-- **Operador Alpha:** `operador@openturn.com` / `123456`
+### Usuário criado pelo Seed:
+- **Super Root:** `marcosdslau@gmail.com` — senha definida no primeiro acesso
 
 ---
 

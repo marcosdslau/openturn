@@ -1,18 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Label from "@/components/form/Label";
 import InputField from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
 import { ChevronDownIcon } from "@/icons";
+import SearchableMultiSelect from "@/components/form/SearchableMultiSelect";
 
 export type RegistrosFiltrosAplicados = {
     nome: string;
     documento: string;
     grupo: string;
-    MATCurso: string;
-    MATSerie: string;
-    MATTurma: string;
+    MATCurso: string[];
+    MATSerie: string[];
+    MATTurma: string[];
     dataInicio: string;
     dataFim: string;
 };
@@ -21,9 +22,9 @@ export const REGISTROS_FILTROS_VAZIOS: RegistrosFiltrosAplicados = {
     nome: "",
     documento: "",
     grupo: "",
-    MATCurso: "",
-    MATSerie: "",
-    MATTurma: "",
+    MATCurso: [],
+    MATSerie: [],
+    MATTurma: [],
     dataInicio: "",
     dataFim: "",
 };
@@ -33,9 +34,9 @@ export function buildRegistrosQuery(page: number, limit: number, f: RegistrosFil
     if (f.nome.trim()) p.set("nome", f.nome.trim());
     if (f.documento.trim()) p.set("documento", f.documento.trim());
     if (f.grupo.trim()) p.set("grupo", f.grupo.trim());
-    if (f.MATCurso.trim()) p.set("MATCurso", f.MATCurso.trim());
-    if (f.MATSerie.trim()) p.set("MATSerie", f.MATSerie.trim());
-    if (f.MATTurma.trim()) p.set("MATTurma", f.MATTurma.trim());
+    for (const c of f.MATCurso) p.append("MATCurso", c);
+    for (const s of f.MATSerie) p.append("MATSerie", s);
+    for (const t of f.MATTurma) p.append("MATTurma", t);
     if (f.dataInicio) p.set("dataInicio", f.dataInicio);
     if (f.dataFim) p.set("dataFim", f.dataFim);
     return p.toString();
@@ -45,19 +46,56 @@ interface Props {
     aplicados: RegistrosFiltrosAplicados;
     onAplicar: (f: RegistrosFiltrosAplicados) => void;
     onLimpar: () => void;
+    cursosDisponiveis?: string[];
+    seriesDisponiveis?: string[];
+    turmasDisponiveis?: string[];
 }
 
-export default function RegistrosFiltros({ aplicados, onAplicar, onLimpar }: Props) {
+export default function RegistrosFiltros({
+    aplicados,
+    onAplicar,
+    onLimpar,
+    cursosDisponiveis = [],
+    seriesDisponiveis = [],
+    turmasDisponiveis = [],
+}: Props) {
     const [draft, setDraft] = useState<RegistrosFiltrosAplicados>(aplicados);
     const [aberto, setAberto] = useState(false);
 
-    const temFiltros = Object.values(aplicados).some((v) => !!v);
+    useEffect(() => {
+        setDraft(aplicados);
+    }, [aplicados]);
 
-    const set = (key: keyof RegistrosFiltrosAplicados, val: string) =>
+    const temFiltros =
+        !!aplicados.nome ||
+        !!aplicados.documento ||
+        !!aplicados.grupo ||
+        aplicados.MATCurso.length > 0 ||
+        aplicados.MATSerie.length > 0 ||
+        aplicados.MATTurma.length > 0 ||
+        !!aplicados.dataInicio ||
+        !!aplicados.dataFim;
+
+    const filtrosAtivosCount = [
+        aplicados.nome,
+        aplicados.documento,
+        aplicados.grupo,
+        aplicados.MATCurso.length > 0 ? "x" : "",
+        aplicados.MATSerie.length > 0 ? "x" : "",
+        aplicados.MATTurma.length > 0 ? "x" : "",
+        aplicados.dataInicio,
+        aplicados.dataFim,
+    ].filter(Boolean).length;
+
+    const set = (key: "nome" | "documento" | "grupo" | "dataInicio" | "dataFim", val: string) =>
         setDraft((prev) => ({ ...prev, [key]: val }));
 
     const aplicar = () => { onAplicar(draft); setAberto(false); };
-    const limpar = () => { const z = REGISTROS_FILTROS_VAZIOS; setDraft(z); onLimpar(); setAberto(false); };
+    const limpar = () => { setDraft(REGISTROS_FILTROS_VAZIOS); onLimpar(); setAberto(false); };
+
+    const cursoOptions = cursosDisponiveis.map((c) => ({ value: c, label: c }));
+    const serieOptions = seriesDisponiveis.map((s) => ({ value: s, label: s }));
+    const turmaOptions = turmasDisponiveis.map((t) => ({ value: t, label: t }));
 
     return (
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
@@ -70,7 +108,7 @@ export default function RegistrosFiltros({ aplicados, onAplicar, onLimpar }: Pro
                     Filtros
                     {temFiltros && (
                         <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-500 text-xs font-bold text-white">
-                            {Object.values(aplicados).filter(Boolean).length}
+                            {filtrosAtivosCount}
                         </span>
                     )}
                 </span>
@@ -93,18 +131,6 @@ export default function RegistrosFiltros({ aplicados, onAplicar, onLimpar }: Pro
                             <InputField placeholder="Ex: Aluno" value={draft.grupo} onChange={(e) => set("grupo", e.target.value)} />
                         </div>
                         <div>
-                            <Label>Curso</Label>
-                            <InputField placeholder="Ex: Administração" value={draft.MATCurso} onChange={(e) => set("MATCurso", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Série / Período</Label>
-                            <InputField placeholder="Ex: 3º Ano" value={draft.MATSerie} onChange={(e) => set("MATSerie", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Turma</Label>
-                            <InputField placeholder="Ex: A" value={draft.MATTurma} onChange={(e) => set("MATTurma", e.target.value)} />
-                        </div>
-                        <div>
                             <Label>Data Início</Label>
                             <InputField type="date" value={draft.dataInicio} onChange={(e) => set("dataInicio", e.target.value)} />
                         </div>
@@ -113,6 +139,31 @@ export default function RegistrosFiltros({ aplicados, onAplicar, onLimpar }: Pro
                             <InputField type="date" value={draft.dataFim} onChange={(e) => set("dataFim", e.target.value)} />
                         </div>
                     </div>
+
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <SearchableMultiSelect
+                            label="Curso"
+                            placeholder="Selecione um ou mais cursos"
+                            options={cursoOptions}
+                            value={draft.MATCurso}
+                            onChange={(MATCurso) => setDraft((d) => ({ ...d, MATCurso }))}
+                        />
+                        <SearchableMultiSelect
+                            label="Módulo / Série"
+                            placeholder="Selecione um ou mais módulos/séries"
+                            options={serieOptions}
+                            value={draft.MATSerie}
+                            onChange={(MATSerie) => setDraft((d) => ({ ...d, MATSerie }))}
+                        />
+                        <SearchableMultiSelect
+                            label="Turma"
+                            placeholder="Selecione uma ou mais turmas"
+                            options={turmaOptions}
+                            value={draft.MATTurma}
+                            onChange={(MATTurma) => setDraft((d) => ({ ...d, MATTurma }))}
+                        />
+                    </div>
+
                     <div className="flex gap-3 pt-2">
                         <Button size="sm" onClick={aplicar}>Aplicar Filtros</Button>
                         {temFiltros && (

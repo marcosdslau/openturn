@@ -117,10 +117,26 @@ export class RotinaQueueService {
       rotinaCodigo: 0,
       instituicaoCodigo,
       trigger: 'INTERNAL',
+      internalKind: 'RPD_AGGREGATION',
       enqueuedAt: new Date().toISOString(),
     };
     await this.publishJob(jobData, exeId);
     this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})`);
+    return exeId;
+  }
+
+  async publishFreqEducacionalSyncJob(instituicaoCodigo: number): Promise<string> {
+    const exeId = randomUUID();
+    const jobData: RotinaJobData = {
+      exeId,
+      rotinaCodigo: 0,
+      instituicaoCodigo,
+      trigger: 'INTERNAL',
+      internalKind: 'FREQ_ERP_SYNC',
+      enqueuedAt: new Date().toISOString(),
+    };
+    await this.publishJob(jobData, exeId);
+    this.logger.log(`INTERNAL freq-erp-sync job published: ${exeId} (inst=${instituicaoCodigo})`);
     return exeId;
   }
 

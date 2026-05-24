@@ -27,6 +27,12 @@ enum RPDStatus {
   PENDENTE
 }
 
+enum TipoAglutinacaoRegistro {
+  tempo_permanencia
+  tempo_permanencia_periodo
+  entrada_saida
+}
+
 // === ADDON ON-PREMISE CONNECTOR ===
 
 enum ConnectorStatus {
@@ -82,6 +88,12 @@ model INSInstituicao {
   INSTempoSync                      String  @default("0 0 9,15,22 * * *")
   /// Indica se a sincronização automática de registros diários está ativa para esta instituição.
   INSSyncRegistrosDiarios           Boolean @default(false)
+  /// Modo de agregação de passagens em registros diários (RPD).
+  INSAglutinacaoRegistros           TipoAglutinacaoRegistro @default(entrada_saida)
+  /// Indica se a sincronização agendada de frequências ao ERP educacional está ativa.
+  INSSyncFreqEducacional            Boolean @default(false)
+  /// Expressão cron (5 campos: min hora dom mês dow) para sincronização de frequências ao ERP.
+  INSTempoFreqEducacional           String  @default("58 23 * * *")
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -101,6 +113,7 @@ model INSInstituicao {
   creditosIa          AILCreditoLedger[]
   ctlControlidDaos    CTLControlidDao[]
   ctlControlidCatraEvents CTLControlidCatraEvent[]
+  periodosRegistro        PERPeriodosConfig[]
 }
 
 model PESPessoa {
@@ -212,6 +225,8 @@ model USRUsuario {
   conversasIa         AICConversaIa[]
   creditosIa          AILCreditoLedger[]
   senhaResetTokens    USRSenhaResetToken[]
+  rpdCriados          RPDRegistrosDiarios[] @relation("RpdCriacao")
+  rpdAlterados        RPDRegistrosDiarios[] @relation("RpdAlteracao")
 }
 
 model USRSenhaResetToken {
@@ -271,22 +286,56 @@ model REGRegistroPassagem {
   @@index([INSInstituicaoCodigo, REGProcessado])
 }
 
+model PERPeriodosConfig {
+  PERCodigo                   Int                   @id @default(autoincrement())
+  PERNome                     String
+  /// Horário local da instituição, formato "HH:mm" (24h).
+  PERHorarioInicio            String
+  PERHorarioFim               String
+  /// Minutos antes do início em que entradas entram no período.
+  PERToleranciaEntradaMinutos Int                   @default(0)
+  /// Minutos após o fim em que saídas entram no período.
+  PERToleranciaSaidaMinutos   Int                   @default(0)
+  INSInstituicaoCodigo        Int
+  instituicao                 INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  createdAt                   DateTime              @default(now())
+  updatedAt                   DateTime              @updatedAt
+  registrosDiarios            RPDRegistrosDiarios[]
+
+  @@unique([INSInstituicaoCodigo, PERNome])
+  @@index([INSInstituicaoCodigo])
+}
+
 model RPDRegistrosDiarios {
-  RPDCodigo            Int            @id @default(autoincrement())
+  RPDCodigo            Int                @id @default(autoincrement())
   INSInstituicaoCodigo Int
-  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  instituicao          INSInstituicao     @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   /// Data do registro (sem hora — armazenado como meia-noite UTC; exibição usa INSFusoHorario).
-  RPDData              DateTime       @db.Date
+  RPDData              DateTime           @db.Date
   PESCodigo            Int
-  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  pessoa               PESPessoa          @relation(fields: [PESCodigo], references: [PESCodigo])
+  /// Índice da janela no dia (1..N). Modo entrada_saida usa sempre 1.
+  RPDJanelaIndice      Int                @default(1)
+  /// Período de origem (modo tempo_permanencia_periodo). Null = janela extra ou modo sem período.
+  PERCodigo            Int?
+  periodo              PERPeriodosConfig? @relation(fields: [PERCodigo], references: [PERCodigo], onDelete: SetNull)
   RPDDataEntrada       DateTime?
   RPDDataSaida         DateTime?
-  RPDStatus            RPDStatus      @default(PENDENTE)
+  RPDStatus            RPDStatus          @default(PENDENTE)
   RPDResult            Json?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  /// Resposta da API Gennera em caso de falha (null em sucesso).
+  RPDResponseRequest   Json?
+  /// Usuário responsável pela criação manual (null = gerado pelo worker).
+  USRCodigoCriacao     Int?
+  usuarioCriacao       USRUsuario?        @relation("RpdCriacao", fields: [USRCodigoCriacao], references: [USRCodigo], onDelete: SetNull)
+  /// Usuário que realizou a última alteração manual.
+  USRCodigoAlteracao   Int?
+  usuarioAlteracao     USRUsuario?        @relation("RpdAlteracao", fields: [USRCodigoAlteracao], references: [USRCodigo], onDelete: SetNull)
+  RPDAlteradoEm        DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
 
-  @@unique([INSInstituicaoCodigo, PESCodigo, RPDData])
+  @@unique([INSInstituicaoCodigo, PESCodigo, RPDData, RPDJanelaIndice])
   @@index([INSInstituicaoCodigo, RPDData])
 }
 
