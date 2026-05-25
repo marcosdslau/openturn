@@ -148,3 +148,4 @@ webapp/ecosystem.config.cjs
 /webapi/daemon
 /webapp/daemon
 /worker/daemon
+/working

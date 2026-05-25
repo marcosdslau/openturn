@@ -11,10 +11,12 @@ import type { Options } from 'amqplib';
 import Redis from 'ioredis';
 import {
   getJobsExchange,
+  getJobsRetryExchange,
   getRabbitUrl,
   getMainQueueName,
   getGlobalRetryQueue,
   getJobsDlxQueue,
+  RETRY_DLX_ROUTING_KEY,
 } from '../../common/rabbit/rabbit-connection';
 import {
   redisPendingKey,
@@ -24,6 +26,8 @@ import {
   redisInflightRegex,
   channelCancel,
 } from '../../common/redis/redis-keys';
+import { getRedisConnectionOptions } from '../../common/redis/redis-connection';
+import { RotinaJobData } from './rotina-job.dto';
 
 const ROTINA_RETRY_HEADER = 'x-rotina-retry-count';
 
@@ -32,8 +36,241 @@ export interface ReprocessDeadLetterResult {
   skippedInvalid: number;
   errors: string[];
 }
-import { getRedisConnectionOptions } from '../../common/redis/redis-connection';
-import { RotinaJobData } from './rotina-job.dto';
+
+interface BatchDbPayload {
+  EXEIdExterno: string;
+  ROTCodigo: number;
+  INSInstituicaoCodigo: number;
+  EXEStatus: StatusExecucao;
+  EXEInicio: Date;
+  EXETrigger: string;
+  EXERequestBody?: any;
+  EXERequestParams?: any;
+  EXERequestPath?: string;
+}
+
+interface PendingItem {
+  jobData: RotinaJobData;
+  exeId: string;
+  dbPayload: BatchDbPayload;
+  resolve: (value: { exeId: string; jobId: string }) => void;
+  reject: (reason: Error) => void;
+}
+
+/**
+ * Acumula publicações no RabbitMQ e faz um único waitForConfirms() por lote.
+ *
+ * Ordem dentro do flush:
+ * 1. Garantir topologia (assertQueue + bindQueue idempotente por instituição), para
+ *    que mensagens não sejam descartadas silenciosamente pelo exchange direct.
+ * 2. createMany() no banco — assim o worker já encontra o registro ao consumir.
+ * 3. publish() de cada item com `mandatory: true` para detectar destinos não-roteáveis.
+ * 4. waitForConfirms() do lote inteiro (broker ack).
+ *
+ * Mensagens que voltam via evento `return` (não-roteáveis) marcam o respectivo log
+ * como ERRO e rejeitam o caller. Throughput: ~5000-10000 msgs/s no mesmo canal.
+ */
+class BatchConfirmPublisher {
+  private buffer: PendingItem[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushing = false;
+  /** Filas asseguradas no canal atual; limpo quando o canal cai. */
+  private topologyAsserted = new Set<number>();
+  /** ExeIds devolvidos pelo broker (unroutable) durante o flush em andamento. */
+  private returnedExeIds = new Set<string>();
+  private currentChannel: amqp.ConfirmChannel | null = null;
+
+  constructor(
+    private readonly getConfirmChannel: () => Promise<amqp.ConfirmChannel>,
+    private readonly resetConfirmChannel: () => void,
+    private readonly prisma: PrismaService,
+    private readonly logger: Logger,
+    private readonly batchSize: number,
+    private readonly flushIntervalMs: number,
+  ) {}
+
+  submit(item: Omit<PendingItem, 'resolve' | 'reject'>): Promise<{ exeId: string; jobId: string }> {
+    return new Promise((resolve, reject) => {
+      this.buffer.push({ ...item, resolve, reject });
+      if (this.buffer.length >= this.batchSize) {
+        void this.flush();
+      } else if (!this.flushTimer) {
+        this.flushTimer = setTimeout(() => { void this.flush(); }, this.flushIntervalMs);
+      }
+    });
+  }
+
+  private async ensureTopology(channel: amqp.ConfirmChannel, instituicaoCodigo: number) {
+    if (this.topologyAsserted.has(instituicaoCodigo)) return;
+    const queue = getMainQueueName(instituicaoCodigo);
+    await channel.assertQueue(queue, {
+      durable: true,
+      arguments: {
+        'x-dead-letter-exchange': getJobsRetryExchange(),
+        'x-dead-letter-routing-key': RETRY_DLX_ROUTING_KEY,
+      },
+    });
+    await channel.bindQueue(queue, getJobsExchange(), String(instituicaoCodigo));
+    this.topologyAsserted.add(instituicaoCodigo);
+  }
+
+  private attachChannelHandlers(channel: amqp.ConfirmChannel) {
+    if (this.currentChannel === channel) return;
+    this.currentChannel = channel;
+    this.topologyAsserted.clear();
+    channel.on('return', (msg) => {
+      const exeId = msg.properties.messageId as string | undefined;
+      if (exeId) {
+        this.returnedExeIds.add(exeId);
+        this.logger.warn(
+          `RabbitMQ retornou mensagem não-roteável (exeId=${exeId}, routingKey=${msg.fields.routingKey})`,
+        );
+      }
+    });
+    const clear = () => {
+      if (this.currentChannel === channel) {
+        this.currentChannel = null;
+        this.topologyAsserted.clear();
+      }
+    };
+    channel.on('close', clear);
+    channel.on('error', clear);
+  }
+
+  private async flush(): Promise<void> {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    if (this.buffer.length === 0 || this.flushing) return;
+
+    this.flushing = true;
+    const batch = this.buffer.splice(0, this.batchSize);
+    let dbInserted = false;
+    let publishedCount = 0;
+
+    try {
+      const channel = await this.getConfirmChannel();
+      this.attachChannelHandlers(channel);
+
+      // 1. Garantir topologia para todas as instituições do lote.
+      const institutions = new Set(batch.map((i) => i.jobData.instituicaoCodigo));
+      for (const inst of institutions) {
+        await this.ensureTopology(channel, inst);
+      }
+
+      // 2. Banco em bulk — registros ficam disponíveis antes do worker consumir.
+      await this.prisma.rOTExecucaoLog.createMany({
+        data: batch.map((item) => item.dbPayload),
+      });
+      dbInserted = true;
+
+      // 3. Publicar todos os itens.
+      for (const item of batch) {
+        const payload = Buffer.from(JSON.stringify(item.jobData));
+        const ok = channel.publish(
+          getJobsExchange(),
+          String(item.jobData.instituicaoCodigo),
+          payload,
+          {
+            persistent: true,
+            mandatory: true,
+            messageId: item.exeId,
+            correlationId: item.exeId,
+            contentType: 'application/json',
+            timestamp: Date.now(),
+            headers: { [ROTINA_RETRY_HEADER]: 0 },
+          },
+        );
+        publishedCount++;
+        if (!ok) {
+          // Backpressure: aguardar drain antes de continuar publicando.
+          await new Promise<void>((res) => channel.once('drain', res));
+        }
+      }
+
+      // 4. Aguardar confirmação do broker para TODOS os publishes do lote.
+      await channel.waitForConfirms();
+
+      // 5. Drenar eventos `return` pendentes do event loop.
+      await new Promise((res) => setImmediate(res));
+
+      // 6. Itens devolvidos (não-roteáveis) viram ERRO; restante resolve normalmente.
+      const returned: PendingItem[] = [];
+      const succeeded: PendingItem[] = [];
+      for (const item of batch) {
+        if (this.returnedExeIds.has(item.exeId)) {
+          this.returnedExeIds.delete(item.exeId);
+          returned.push(item);
+        } else {
+          succeeded.push(item);
+        }
+      }
+
+      if (returned.length > 0) {
+        try {
+          await this.prisma.rOTExecucaoLog.updateMany({
+            where: { EXEIdExterno: { in: returned.map((i) => i.exeId) } },
+            data: {
+              EXEStatus: StatusExecucao.ERRO,
+              EXEFim: new Date(),
+              EXEErro: 'Mensagem não-roteável no RabbitMQ (sem fila/binding correspondente)',
+            },
+          });
+        } catch (dbErr) {
+          this.logger.warn(
+            'Falha ao marcar mensagens não-roteáveis como ERRO:',
+            (dbErr as Error)?.message,
+          );
+        }
+        const routeErr = new Error('Mensagem não roteada pelo RabbitMQ');
+        for (const item of returned) item.reject(routeErr);
+      }
+
+      for (const item of succeeded) {
+        item.resolve({ exeId: item.exeId, jobId: item.exeId });
+      }
+    } catch (err) {
+      this.logger.error(
+        `BatchConfirmPublisher: flush falhou (dbInserted=${dbInserted}, published=${publishedCount}/${batch.length}):`,
+        (err as Error)?.message ?? err,
+      );
+      this.resetConfirmChannel();
+      this.currentChannel = null;
+      this.topologyAsserted.clear();
+
+      if (dbInserted) {
+        // Registros existem no banco mas a publicação falhou no meio. Marcar como ERRO
+        // para evitar órfãos em EM_EXECUCAO. O caller deve retentar via reprocessamento.
+        try {
+          await this.prisma.rOTExecucaoLog.updateMany({
+            where: { EXEIdExterno: { in: batch.map((i) => i.exeId) } },
+            data: {
+              EXEStatus: StatusExecucao.ERRO,
+              EXEFim: new Date(),
+              EXEErro: `Falha ao publicar no RabbitMQ: ${(err as Error)?.message ?? String(err)}`,
+            },
+          });
+        } catch (dbErr) {
+          this.logger.warn(
+            'Falha ao marcar lote como ERRO após erro de publicação:',
+            (dbErr as Error)?.message,
+          );
+        }
+      }
+
+      const error = err instanceof Error ? err : new Error(String(err));
+      for (const item of batch) {
+        item.reject(error);
+      }
+    } finally {
+      this.flushing = false;
+      if (this.buffer.length > 0) {
+        void this.flush();
+      }
+    }
+  }
+}
 
 @Injectable()
 export class RotinaQueueService {
@@ -42,6 +279,7 @@ export class RotinaQueueService {
   private channelPromise: Promise<amqp.Channel> | null = null;
   private confirmChannelPromise: Promise<amqp.ConfirmChannel> | null = null;
   private redis: Redis | null = null;
+  private readonly batcher: BatchConfirmPublisher;
 
   constructor(private readonly prisma: PrismaService) {
     try {
@@ -60,20 +298,48 @@ export class RotinaQueueService {
     } catch {
       this.redis = null;
     }
+
+    this.batcher = new BatchConfirmPublisher(
+      () => this.getConfirmChannel(),
+      () => { this.confirmChannelPromise = null; },
+      this.prisma,
+      this.logger,
+      Math.max(1, parseInt(process.env.ROTINA_BATCH_SIZE || '200', 10)),
+      Math.max(1, parseInt(process.env.ROTINA_FLUSH_INTERVAL_MS || '50', 10)),
+    );
   }
 
+  /**
+   * Enfileira um job de rotina com garantia de entrega:
+   * 1. Publica no RabbitMQ via ConfirmChannel em micro-batch (broker ack obrigatório).
+   * 2. Somente após confirmação do broker, grava o ROTExecucaoLog no banco.
+   * Garante que toda linha no banco tem mensagem correspondente no Rabbit.
+   */
   async enqueue(
     rotinaCodigo: number,
     instituicaoCodigo: number,
     trigger: 'SCHEDULE' | 'WEBHOOK',
     requestData?: any,
   ): Promise<{ exeId: string; jobId: string }> {
-    const execLog = await this.prisma.rOTExecucaoLog.create({
-      data: {
+    const exeId = randomUUID();
+    const now = new Date();
+
+    const result = await this.batcher.submit({
+      jobData: {
+        exeId,
+        rotinaCodigo,
+        instituicaoCodigo,
+        trigger,
+        requestEnvelope: requestData,
+        enqueuedAt: now.toISOString(),
+      },
+      exeId,
+      dbPayload: {
+        EXEIdExterno: exeId,
         ROTCodigo: rotinaCodigo,
         INSInstituicaoCodigo: instituicaoCodigo,
         EXEStatus: StatusExecucao.EM_EXECUCAO,
-        EXEInicio: new Date(),
+        EXEInicio: now,
         EXETrigger: trigger,
         EXERequestBody: requestData?.body,
         EXERequestParams: requestData?.params,
@@ -81,18 +347,6 @@ export class RotinaQueueService {
       },
     });
 
-    const exeId = execLog.EXEIdExterno;
-
-    const jobData: RotinaJobData = {
-      exeId,
-      rotinaCodigo,
-      instituicaoCodigo,
-      trigger,
-      requestEnvelope: requestData,
-      enqueuedAt: new Date().toISOString(),
-    };
-
-    await this.publishJob(jobData, exeId);
     void this.setPendingMarker(exeId).catch((e) =>
       this.logger.debug(
         `rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`,
@@ -103,7 +357,7 @@ export class RotinaQueueService {
       `Job enqueued: ${exeId} (rotina=${rotinaCodigo}, trigger=${trigger})`,
     );
 
-    return { exeId, jobId: exeId };
+    return result;
   }
 
   /**
@@ -120,7 +374,7 @@ export class RotinaQueueService {
       internalKind: 'RPD_AGGREGATION',
       enqueuedAt: new Date().toISOString(),
     };
-    await this.publishJob(jobData, exeId);
+    await this.publishJobWithConfirm(jobData, exeId);
     this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})`);
     return exeId;
   }
@@ -135,7 +389,7 @@ export class RotinaQueueService {
       internalKind: 'FREQ_ERP_SYNC',
       enqueuedAt: new Date().toISOString(),
     };
-    await this.publishJob(jobData, exeId);
+    await this.publishJobWithConfirm(jobData, exeId);
     this.logger.log(`INTERNAL freq-erp-sync job published: ${exeId} (inst=${instituicaoCodigo})`);
     return exeId;
   }
@@ -163,7 +417,7 @@ export class RotinaQueueService {
       enqueuedAt: new Date().toISOString(),
     };
 
-    await this.publishJob(jobData, exeId);
+    await this.publishJobWithConfirm(jobData, exeId);
     void this.setPendingMarker(exeId).catch((e) =>
       this.logger.debug(
         `rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`,
@@ -583,6 +837,8 @@ export class RotinaQueueService {
         await channel.assertExchange(getJobsExchange(), 'direct', {
           durable: true,
         });
+        channel.on('error', () => { this.channelPromise = null; });
+        channel.on('close', () => { this.channelPromise = null; });
         return channel;
       });
     }
@@ -596,6 +852,13 @@ export class RotinaQueueService {
         await channel.assertExchange(getJobsExchange(), 'direct', {
           durable: true,
         });
+        channel.on('error', (err) => {
+          this.logger.warn('ConfirmChannel error, será recriado:', (err as Error)?.message);
+          this.confirmChannelPromise = null;
+        });
+        channel.on('close', () => {
+          this.confirmChannelPromise = null;
+        });
         return channel;
       });
     }
@@ -604,7 +867,20 @@ export class RotinaQueueService {
 
   private async getConnection(): Promise<amqp.ChannelModel> {
     if (!this.connectionPromise) {
-      this.connectionPromise = amqp.connect(getRabbitUrl());
+      this.connectionPromise = amqp.connect(getRabbitUrl()).then((conn) => {
+        conn.on('error', (err) => {
+          this.logger.warn('RabbitMQ connection error, será reconectado:', (err as Error)?.message);
+          this.connectionPromise = null;
+          this.channelPromise = null;
+          this.confirmChannelPromise = null;
+        });
+        conn.on('close', () => {
+          this.connectionPromise = null;
+          this.channelPromise = null;
+          this.confirmChannelPromise = null;
+        });
+        return conn;
+      });
     }
     return this.connectionPromise;
   }
