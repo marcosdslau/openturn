@@ -29,6 +29,7 @@ import {
     redisRotinaParalelismoCacheInstPrefix,
     redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
+    redisSerialInflightPattern,
 } from './redis-keys';
 import {
     aggregateEntradaSaida,
@@ -68,10 +69,21 @@ const RETRY_TTL_MS = 5000;
 const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
-const SERIAL_BACKOFF_MS = 2000;
+const SERIAL_BACKOFF_MS = 5000;
 const CAPACITY_DEFER_MS = Math.max(
     0,
     parseInt(process.env.ROTINA_CAPACITY_DEFER_MS ?? '0', 10),
+);
+/**
+ * Prefetch do canal dedicado à fila global de retry. Controla quantas mensagens
+ * o consumer pega para `unacked` por vez. Valor baixo (ex.: 20) limita a vazão
+ * de re-publish para a main queue, reduzindo a pressão sobre o tenant slot e
+ * espaçando naturalmente as tentativas de rotinas serial em fila longa.
+ * Mínimo 1.
+ */
+const RETRY_PREFETCH = Math.max(
+    1,
+    parseInt(process.env.ROTINA_RETRY_PREFETCH ?? '20', 10),
 );
 const CAPACITY_DEFERRED_HEADER = 'x-capacity-deferred';
 /** Em conjunto com {@link SERIAL_INST_HEADER}: postergação serial não incrementa {@link RETRY_HEADER}. */
@@ -220,6 +232,8 @@ class RabbitRotinaConsumer {
     private readonly rotinaParalelismoCache = new Map<string, boolean | null>();
     private readonly consumerTags = new Map<number, string>();
     private pollTimer: NodeJS.Timeout | null = null;
+    /** Limpa semáforos Redis de inflight uma vez por processo (worker reiniciado = slots órfãos). */
+    private coldStartInflightPurgeDone = false;
     private readonly erpFrequencySync: ErpFrequencySyncOrchestrator;
 
     constructor(
@@ -237,19 +251,32 @@ class RabbitRotinaConsumer {
         await this.channel.prefetch(MIN_PREFETCH, true);
 
         this.retryChannel = await this.connection.createChannel();
-        await this.retryChannel.prefetch(50, false);
+        // Configurável via ROTINA_RETRY_PREFETCH (default 20). Como `republishDeferredThroughGlobalRetry`
+        // não usa mais `expiration`, mensagens que ficam na fila aguardando o consumer NÃO são
+        // descartadas pelo broker — só esperam sua vez. Prefetch baixo espaça as tentativas.
+        await this.retryChannel.prefetch(RETRY_PREFETCH, false);
+        // Mensagens publicadas com `mandatory: true` que o broker não conseguir rotear
+        // (fila da instituição inexistente / não bound) voltam pelo evento 'return'.
+        // Repostamos na retry queue para nova tentativa após reconcileInstitutions().
+        this.retryChannel.on('return', (returned) => {
+            this.handleReturnedRetryPublish(returned);
+        });
 
         await this.setupGlobalTopology();
-        await this.startGlobalRetryConsumer();
         await this.startCancelListener();
         await this.startRefreshListener();
+        // IMPORTANTE: criar/bindar as filas das instituições ANTES de iniciar o retry consumer.
+        // O retry consumer re-publica mensagens em `getJobsExchange` com routing key = inst;
+        // se a fila da instituição não estiver bound, o broker descarta silenciosamente
+        // (mesmo com `mandatory: true`, perderíamos a oportunidade de roteamento direto).
         await this.reconcileInstitutions();
+        await this.startGlobalRetryConsumer();
         this.pollTimer = setInterval(() => {
             this.reconcileInstitutions().catch((err) => {
                 console.error(workerLogLine('reconcile error:'), err);
             });
         }, POLL_INTERVAL_MS);
-        console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH})`));
+        console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH}, retry prefetch=${RETRY_PREFETCH})`));
     }
 
     async close() {
@@ -303,6 +330,15 @@ class RabbitRotinaConsumer {
             return;
         }
 
+        const hdrs = msg.properties.headers || {};
+        const hasSerial = this.deferMarkerTruthy(hdrs, SERIAL_DEFERRED_HEADER);
+        const hasCapacity = this.deferMarkerTruthy(hdrs, CAPACITY_DEFERRED_HEADER);
+        const retryHdr = Number(hdrs[RETRY_HEADER] ?? 0);
+        console.log(workerLogLine(
+            `Retry consumer recebeu exeId=${data.exeId} inst=${data.instituicaoCodigo} ` +
+            `serial=${hasSerial} capacity=${hasCapacity} retryCount=${retryHdr}`,
+        ));
+
         const isSerialDelay = this.deferMarkerTruthy(msg.properties.headers, SERIAL_DEFERRED_HEADER);
         if (isSerialDelay) {
             await sleep(SERIAL_BACKOFF_MS);
@@ -316,9 +352,19 @@ class RabbitRotinaConsumer {
                 correlationId: msg.properties.correlationId || data.exeId,
                 contentType: msg.properties.contentType || 'application/json',
                 timestamp: Date.now(),
+                mandatory: true,
             };
-            ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
-            ch.ack(msg);
+            const ok = ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
+            console.log(workerLogLine(
+                `Retry[serial] exeId=${data.exeId} inst=${data.instituicaoCodigo} -> publish=${ok ? 'ok' : 'BUFFER_FULL'}`,
+            ));
+            if (ok) {
+                ch.ack(msg);
+            } else {
+                // Channel buffer cheio: devolve para a retry queue para tentar de novo
+                // sem perda. Não incrementa contador.
+                ch.nack(msg, false, true);
+            }
             return;
         }
 
@@ -334,13 +380,19 @@ class RabbitRotinaConsumer {
                 correlationId: msg.properties.correlationId || data.exeId,
                 contentType: msg.properties.contentType || 'application/json',
                 timestamp: Date.now(),
+                mandatory: true,
             };
-            ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
-            ch.ack(msg);
+            const ok = ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
+            console.log(workerLogLine(
+                `Retry[capacity] exeId=${data.exeId} inst=${data.instituicaoCodigo} -> publish=${ok ? 'ok' : 'BUFFER_FULL'}`,
+            ));
+            if (ok) {
+                ch.ack(msg);
+            } else {
+                ch.nack(msg, false, true);
+            }
             return;
         }
-
-        // Novos defers só aguardam: tratar sempre acima, antes deste incremento a x-rotina-retry-count.
         const prev = Number(msg.properties.headers?.[RETRY_HEADER] ?? 0);
         const nextRetry = prev + 1;
         if (nextRetry > MAX_RETRIES) {
@@ -365,10 +417,64 @@ class RabbitRotinaConsumer {
             correlationId: msg.properties.correlationId || data.exeId,
             contentType: msg.properties.contentType || 'application/json',
             timestamp: Date.now(),
+            mandatory: true,
         };
 
-        ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
-        ch.ack(msg);
+        const ok = ch.publish(getJobsExchange(), String(data.instituicaoCodigo), msg.content, properties);
+        if (ok) {
+            ch.ack(msg);
+        } else {
+            ch.nack(msg, false, true);
+        }
+    }
+
+    /**
+     * Disparado quando o broker devolve uma mensagem publicada com `mandatory: true`
+     * por não haver fila bound para a routing key (ex.: instituição ainda não reconciliada).
+     * Reposta na própria retry queue mantendo `SERIAL_DEFERRED_HEADER` (se presente)
+     * para nova tentativa após `reconcileInstitutions` rodar.
+     */
+    private handleReturnedRetryPublish(returned: ConsumeMessage) {
+        if (!this.retryChannel) return;
+        let exeId = 'unknown';
+        let instituicaoCodigo: number | undefined;
+        try {
+            const data = JSON.parse(returned.content.toString()) as RotinaJobData;
+            exeId = data.exeId;
+            instituicaoCodigo = data.instituicaoCodigo;
+        } catch {
+            // ignore parse error
+        }
+        console.warn(workerLogLine(
+            `Retry publish devolvido (instituicao=${instituicaoCodigo ?? '?'}, exeId=${exeId}, routingKey=${returned.fields.routingKey}) — repostando na retry queue.`,
+        ));
+        const prevHeaders = returned.properties.headers || {};
+        const headers: Record<string, unknown> = { ...prevHeaders };
+        if (this.deferMarkerTruthy(prevHeaders, CAPACITY_DEFERRED_HEADER)) {
+            headers[CAPACITY_DEFERRED_HEADER] = true;
+        } else {
+            headers[SERIAL_DEFERRED_HEADER] = true;
+            if (instituicaoCodigo != null) headers[SERIAL_INST_HEADER] = instituicaoCodigo;
+        }
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: returned.properties.messageId,
+            correlationId: returned.properties.correlationId,
+            contentType: returned.properties.contentType || 'application/json',
+            timestamp: Date.now(),
+        };
+        const ok = this.retryChannel.publish(
+            getJobsRetryExchange(),
+            RETRY_DLX_ROUTING_KEY,
+            returned.content,
+            properties,
+        );
+        if (!ok) {
+            console.error(workerLogLine(
+                `Falha ao repostar mensagem devolvida (exeId=${exeId}) — channel buffer cheio.`,
+            ));
+        }
     }
 
     private async startCancelListener() {
@@ -448,6 +554,16 @@ class RabbitRotinaConsumer {
                 INSWorkerAtivo: true,
             },
         });
+        console.log(workerLogLine(
+            `Reconcile instituições: ativas=${instituicoes.length} (${instituicoes.map((i) => i.INSCodigo).sort((a, b) => a - b).join(',')})`,
+        ));
+
+        if (!this.coldStartInflightPurgeDone) {
+            for (const inst of instituicoes) {
+                await this.purgeInstitutionInflightOnColdStart(inst.INSCodigo);
+            }
+            this.coldStartInflightPurgeDone = true;
+        }
 
         const activeSet = new Set<number>();
         for (const instituicao of instituicoes) {
@@ -538,8 +654,34 @@ class RabbitRotinaConsumer {
             return;
         }
 
+        // Rotinas serial (ROTPermiteParalelismo=false) NUNCA podem ser descartadas por
+        // esgotamento de tentativas: precisam ficar girando até processar com sucesso ou
+        // serem canceladas explicitamente. INTERNAL não tem rotina, então é tratado depois.
+        const rotinaMeta =
+            data.trigger !== 'INTERNAL'
+                ? await this.loadRotinaParalelismoMeta(
+                      data.instituicaoCodigo,
+                      data.rotinaCodigo,
+                  )
+                : null;
+        const isSerialRotina = rotinaMeta?.ROTPermiteParalelismo === false;
+
         const retryCount = this.getRetryCount(msg);
         if (retryCount >= MAX_RETRIES) {
+            if (isSerialRotina) {
+                // Rotina serial atingiu MAX_RETRIES devido a falhas reais de processJob
+                // (ex.: equipamento offline). Resetar contador e re-deferir em loop.
+                console.warn(workerLogLine(
+                    `Job ${data.exeId} (rotina serial=${data.rotinaCodigo}) atingiu MAX_RETRIES — resetando e re-deferindo.`,
+                ));
+                const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
+                if (republished) {
+                    channel.ack(msg);
+                } else {
+                    channel.nack(msg, false, true);
+                }
+                return;
+            }
             await this.sendToFinalDlq(msg, data, 'Max retries reached');
             channel.ack(msg);
             if (data.trigger !== 'INTERNAL') {
@@ -552,7 +694,17 @@ class RabbitRotinaConsumer {
             where: { EXEIdExterno: data.exeId },
             select: { EXEStatus: true },
         });
-        if (exec?.EXEStatus === StatusExecucao.CANCELADO) {
+        if (!exec) {
+            // Com createMany antes da publicação isso não deveria acontecer; ainda assim,
+            // se houver lag de réplica/transação não comitada, joga para a DLX para retry
+            // com backoff. Após MAX_RETRIES o consumer da retry envia para DLQ final.
+            console.warn(workerLogLine(
+                `Job ${data.exeId} sem ROTExecucaoLog — devolvendo para retry (DLX).`,
+            ));
+            channel.nack(msg, false, false);
+            return;
+        }
+        if (exec.EXEStatus === StatusExecucao.CANCELADO) {
             channel.ack(msg);
             return;
         }
@@ -613,12 +765,7 @@ class RabbitRotinaConsumer {
         let serialAcquired = false;
         let jobSucceeded = false;
         try {
-            const rotinaMeta = await this.loadRotinaParalelismoMeta(
-                data.instituicaoCodigo,
-                data.rotinaCodigo,
-            );
-
-            if (rotinaMeta && rotinaMeta.ROTPermiteParalelismo === false) {
+            if (isSerialRotina) {
                 const gotSerial = await this.tryAcquireRotinaSerialSlot(
                     data.instituicaoCodigo,
                     data.rotinaCodigo,
@@ -631,8 +778,14 @@ class RabbitRotinaConsumer {
                         console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial backoff):`), releaseErr);
                     }
                     tenantStillHeld = false;
-                    this.republishWithDelay(channel, msg, data.instituicaoCodigo);
-                    channel.ack(msg);
+                    const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
+                    if (republished) {
+                        channel.ack(msg);
+                    } else {
+                        // Channel write buffer cheio / publish rejeitado: devolve com requeue
+                        // para que outro consumer (ou este mesmo) tente de novo, sem perda.
+                        channel.nack(msg, false, true);
+                    }
                     return;
                 }
                 serialAcquired = true;
@@ -665,6 +818,15 @@ class RabbitRotinaConsumer {
 
         if (jobSucceeded) {
             channel.ack(msg);
+        } else if (isSerialRotina) {
+            // Rotina serial não pode ser descartada por MAX_RETRIES. Republica como
+            // serial defer (que não incrementa RETRY_HEADER) para nova tentativa.
+            const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
+            if (republished) {
+                channel.ack(msg);
+            } else {
+                channel.nack(msg, false, true);
+            }
         } else {
             channel.nack(msg, false, false);
         }
@@ -972,6 +1134,25 @@ class RabbitRotinaConsumer {
     }
 
     /** Limite por instituição via ZSET: membros expirados liberam vaga sem DECR manual. */
+    private async purgeInstitutionInflightOnColdStart(instituicaoCodigo: number) {
+        const tenantZkey = redisInflightZkey(instituicaoCodigo);
+        const tenantMembers = await this.redis.zcard(tenantZkey);
+        const serialPattern = redisSerialInflightPattern(instituicaoCodigo);
+        const serialKeys = await this.redis.keys(serialPattern);
+        if (tenantMembers > 0) {
+            await this.redis.del(tenantZkey);
+        }
+        if (serialKeys.length > 0) {
+            await this.redis.del(...serialKeys);
+        }
+        if (tenantMembers > 0 || serialKeys.length > 0) {
+            console.warn(workerLogLine(
+                `Cold start: inflight Redis limpo inst=${instituicaoCodigo} ` +
+                `(tenant=${tenantMembers}, serialZsets=${serialKeys.length})`,
+            ));
+        }
+    }
+
     private async tryAcquireTenantSlot(
         instituicaoCodigo: number,
         limit: number,
@@ -1053,6 +1234,18 @@ class RabbitRotinaConsumer {
      * Recoloca o job no exchange principal (fim da fila da instituição) sem DLX.
      * Preserva headers, em especial {@link RETRY_HEADER} — não conta como nova tentativa de falha.
      */
+    /**
+     * Reseta {@link RETRY_HEADER} no objeto de headers fornecido. Usado para rotinas
+     * com {@code ROTPermiteParalelismo=false}: o contador de tentativas é descartado
+     * para que a mensagem possa girar indefinidamente até processar com sucesso ou
+     * ser cancelada explicitamente.
+     */
+    private stripRetryHeader(headers: Record<string, unknown>): Record<string, unknown> {
+        const next = { ...headers };
+        delete next[RETRY_HEADER];
+        return next;
+    }
+
     private republishToTenantMainQueue(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
         const headers = { ...(msg.properties.headers || {}) };
         const properties: Options.Publish = {
@@ -1074,14 +1267,19 @@ class RabbitRotinaConsumer {
         ch: amqp.Channel,
         msg: ConsumeMessage,
         deferHeaderKey: string,
-        expirationMs: number,
+        _expirationMs: number,
         extraHeaders?: Record<string, unknown>,
+        baseHeaders?: Record<string, unknown>,
     ): boolean {
         const headers: Record<string, unknown> = {
-            ...(msg.properties.headers || {}),
+            ...(baseHeaders ?? msg.properties.headers ?? {}),
             [deferHeaderKey]: true,
             ...extraHeaders,
         };
+        // ATENÇÃO: NÃO definir `expiration` aqui. A fila global de retry não tem
+        // x-dead-letter-exchange (ver setupGlobalTopology), então qualquer mensagem
+        // que expirar é descartada silenciosamente pelo broker. O delay correto é
+        // aplicado por `sleep(...)` no `onRetryQueueMessage`, não por TTL.
         const properties: Options.Publish = {
             persistent: true,
             headers,
@@ -1089,7 +1287,6 @@ class RabbitRotinaConsumer {
             correlationId: msg.properties.correlationId,
             contentType: msg.properties.contentType || 'application/json',
             timestamp: Date.now(),
-            expiration: String(expirationMs),
         };
         return ch.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, msg.content, properties);
     }
@@ -1106,14 +1303,18 @@ class RabbitRotinaConsumer {
     /**
      * Slot serial indisponível ({@code ROTPermiteParalelismo=false}): mesmo contrato que
      * {@link republishWithCapacityDefer} via {@link republishDeferredThroughGlobalRetry}.
+     * Garante limpeza do {@link RETRY_HEADER} para que rotinas serial nunca esgotem
+     * tentativas em loop de defer.
      */
-    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): void {
-        this.republishDeferredThroughGlobalRetry(
+    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
+        const baseHeaders = this.stripRetryHeader(msg.properties.headers || {});
+        return this.republishDeferredThroughGlobalRetry(
             ch,
             msg,
             SERIAL_DEFERRED_HEADER,
             SERIAL_BACKOFF_MS,
             { [SERIAL_INST_HEADER]: instituicaoCodigo },
+            baseHeaders,
         );
     }
 

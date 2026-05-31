@@ -10,6 +10,9 @@ export function redisInflightZkey(instCodigo: number)   { return `${p()}:rotina:
 export function redisSerialInflightZkey(instCodigo: number, rotinaCodigo: number) {
     return `${p()}:rotina:serial:inflight:z:${instCodigo}:${rotinaCodigo}`;
 }
+export function redisSerialInflightPattern(instCodigo: number) {
+    return `${p()}:rotina:serial:inflight:z:${instCodigo}:*`;
+}
 export function redisInflightPattern()                  { return `${p()}:rotina:inflight:z:*`; }
 export function redisInflightRegex()                    { return new RegExp(`^${p()}:rotina:inflight:z:(\\d+)$`); }
 
