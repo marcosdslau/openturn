@@ -97,3 +97,13 @@ Para mais detalhes sobre a arquitetura e o planejamento, consulte a pasta `/docs
 - `ARCHITECTURE.md`: Detalhes técnicos e diagrama.
 - `SPRINTS.md`: Planejamento de desenvolvimento.
 - `MODELAGEM-DADOS.dbml`: Esquema do banco de dados.
+
+## Backup Base
+
+````
+pg_dump --host localhost --port 5432 --username postgres --format tar --file /var/lib/postgresql/data/bkp_prd_schoolguard_db_31052026.backup prd_schoolguard_db
+
+
+pg_restore --host localhost --port 5432 --username postgres --dbname dev_schoolguard_db --clean --verbose /var/lib/postgresql/data/bkp_prd_schoolguard_db_31052026.backup
+
+```

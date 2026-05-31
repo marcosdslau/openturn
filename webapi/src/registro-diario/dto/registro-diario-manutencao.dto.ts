@@ -144,6 +144,12 @@ export class AlterarRegistrosDiariosDto {
   @IsDateString()
   novaEntrada?: string;
 
+  /** Hora local (HH:mm) da nova entrada; combinada com a data de cada registro selecionado. */
+  @IsOptional()
+  @IsString()
+  @Matches(HHMM_REGEX, { message: 'novaEntradaHora deve estar no formato HH:mm' })
+  novaEntradaHora?: string;
+
   @IsOptional()
   @IsBoolean()
   @Type(() => Boolean)
@@ -153,6 +159,12 @@ export class AlterarRegistrosDiariosDto {
   @IsOptional()
   @IsDateString()
   novaSaida?: string;
+
+  /** Hora local (HH:mm) da nova saída; combinada com a data de cada registro selecionado. */
+  @IsOptional()
+  @IsString()
+  @Matches(HHMM_REGEX, { message: 'novaSaidaHora deve estar no formato HH:mm' })
+  novaSaidaHora?: string;
 }
 
 // ---------------------------------------------------------------------------

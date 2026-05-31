@@ -728,11 +728,13 @@ class RabbitRotinaConsumer {
             return;
         }
 
-        // Jobs INTERNAL (ex.: agregação de registros diários, sync freq ERP) não usam ROTRotina nem ROTExecucaoLog.
         if (data.trigger === 'INTERNAL') {
             const kind = data.internalKind ?? 'RPD_AGGREGATION';
             let internalOk = false;
+            let internalError: string | undefined;
+            const startedAt = Date.now();
             try {
+                await this.clearPendingMarker(data.exeId);
                 switch (kind) {
                     case 'RPD_AGGREGATION':
                         await this.processRegistroDiarioAggregation(data.instituicaoCodigo);
@@ -745,8 +747,22 @@ class RabbitRotinaConsumer {
                 }
                 internalOk = true;
             } catch (err: any) {
-                console.error(workerLogLine(`INTERNAL job ${data.exeId} (kind=${kind}) error:`), err?.message ?? err);
+                internalError = err?.message ?? String(err);
+                console.error(workerLogLine(`INTERNAL job ${data.exeId} (kind=${kind}) error:`), internalError);
             } finally {
+                try {
+                    await this.prisma.rOTExecucaoLog.updateMany({
+                        where: { EXEIdExterno: data.exeId },
+                        data: {
+                            EXEStatus: internalOk ? StatusExecucao.SUCESSO : StatusExecucao.ERRO,
+                            EXEFim: new Date(),
+                            EXEDuracaoMs: Date.now() - startedAt,
+                            EXEErro: internalOk ? null : internalError,
+                        },
+                    });
+                } catch (updateErr) {
+                    console.error(workerLogLine(`Failed to update execution log for INTERNAL ${data.exeId}:`), updateErr);
+                }
                 try {
                     await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
                 } catch (releaseErr) {

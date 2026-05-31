@@ -39,9 +39,9 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                 {
                     rpdCodigos,
                     alterarEntrada,
-                    novaEntrada: alterarEntrada && novaEntrada ? new Date(novaEntrada).toISOString() : undefined,
+                    novaEntradaHora: alterarEntrada && novaEntrada ? novaEntrada : undefined,
                     alterarSaida,
-                    novaSaida: alterarSaida && novaSaida ? new Date(novaSaida).toISOString() : undefined,
+                    novaSaidaHora: alterarSaida && novaSaida ? novaSaida : undefined,
                 },
             );
             setConfirmOpen(false);
@@ -90,7 +90,7 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                             <div className="ml-7">
                                 <Label>Nova entrada</Label>
                                 <InputField
-                                    type="datetime-local"
+                                    type="time"
                                     value={novaEntrada}
                                     onChange={(e) => setNovaEntrada(e.target.value)}
                                 />
@@ -110,7 +110,7 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                             <div className="ml-7">
                                 <Label>Nova saída</Label>
                                 <InputField
-                                    type="datetime-local"
+                                    type="time"
                                     value={novaSaida}
                                     onChange={(e) => setNovaSaida(e.target.value)}
                                 />

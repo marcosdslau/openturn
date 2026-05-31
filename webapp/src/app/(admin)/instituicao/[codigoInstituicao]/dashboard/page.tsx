@@ -72,8 +72,27 @@ interface Passagem {
     REGCodigo: number;
     REGAcao: string;
     REGDataHora: string;
-    pessoa: { PESNome: string; PESDocumento: string | null };
+    pessoa: {
+        PESNome: string;
+        PESDocumento: string | null;
+        PESFotoExtensao?: string | null;
+        PESFotoThumbnailBase64?: string | null;
+    };
     equipamento: { EQPDescricao: string | null };
+}
+
+function fotoDataUrl(p: Passagem["pessoa"]): string | null {
+    if (!p?.PESFotoThumbnailBase64) return null;
+    const ext = (p.PESFotoExtensao || "jpg").toLowerCase();
+    const mime =
+        ext === "png"
+            ? "image/png"
+            : ext === "webp"
+              ? "image/webp"
+              : ext === "gif"
+                ? "image/gif"
+                : "image/jpeg";
+    return `data:${mime};base64,${p.PESFotoThumbnailBase64}`;
 }
 
 export default function DashboardPage() {
@@ -90,6 +109,7 @@ export default function DashboardPage() {
 
     const [recentes, setRecentes] = useState<Passagem[]>([]);
     const [passagensLoading, setPassagensLoading] = useState(true);
+    const [passagensInicializadas, setPassagensInicializadas] = useState(false);
 
     const loadDashboard = useCallback(async () => {
         try {
@@ -122,19 +142,20 @@ export default function DashboardPage() {
     }, [loadDashboard]);
 
     const loadPassagens = useCallback(async () => {
-        setPassagensLoading(true);
+        const mostrarLoading = !passagensInicializadas;
+        if (mostrarLoading) setPassagensLoading(true);
         try {
-            const today = new Date().toISOString().split("T")[0];
             const res = await apiGet<{ data: Passagem[]; meta: { total: number } }>(
-                `/instituicao/${codigoInstituicao}/passagem?limit=50&dataInicio=${today}`,
+                `/instituicao/${codigoInstituicao}/passagem?page=1&limit=5`,
             );
-            setRecentes((res.data || []).slice(0, 10));
+            setRecentes(res.data || []);
         } catch {
             // ignore
         } finally {
-            setPassagensLoading(false);
+            if (mostrarLoading) setPassagensLoading(false);
+            if (!passagensInicializadas) setPassagensInicializadas(true);
         }
-    }, [codigoInstituicao]);
+    }, [codigoInstituicao, passagensInicializadas]);
 
     useEffect(() => {
         void loadPassagens();
@@ -412,6 +433,105 @@ export default function DashboardPage() {
                             Atualizar snapshot global
                         </button>
                     )}
+                </div>
+            </div>
+
+            <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
+                <div className="border-b border-gray-200 px-4 py-3 dark:border-gray-800">
+                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
+                        Últimas Passagens
+                    </h3>
+                    <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Atualização automática a cada 10s — {instituicao?.INSNome || `Instituição ${codigoInstituicao}`}
+                    </p>
+                </div>
+                <div className="overflow-x-auto">
+                    <table className="w-full">
+                        <thead>
+                            <tr className="border-b border-gray-100 dark:border-gray-800">
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400 w-14">
+                                    Foto
+                                </th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                    Pessoa
+                                </th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                    Ação
+                                </th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                    Equipamento
+                                </th>
+                                <th className="px-4 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
+                                    Hora
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {passagensLoading && recentes.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="px-4 py-4 text-center text-gray-400">
+                                        Carregando...
+                                    </td>
+                                </tr>
+                            ) : recentes.length === 0 ? (
+                                <tr>
+                                    <td colSpan={5} className="px-4 py-4 text-center text-gray-400">
+                                        Nenhuma passagem registrada.
+                                    </td>
+                                </tr>
+                            ) : (
+                                recentes.map((p) => {
+                                    const src = p.pessoa ? fotoDataUrl(p.pessoa) : null;
+                                    const initial = (p.pessoa?.PESNome || "?").trim().charAt(0).toUpperCase();
+                                    return (
+                                        <tr
+                                            key={p.REGCodigo}
+                                            className="border-b border-gray-50 transition-colors hover:bg-gray-50 dark:border-gray-800/50 dark:hover:bg-white/[0.02]"
+                                        >
+                                            <td className="px-4 py-2 align-middle">
+                                                {src ? (
+                                                    <img
+                                                        src={src}
+                                                        alt={p.pessoa?.PESNome ? `Foto de ${p.pessoa.PESNome}` : "Foto"}
+                                                        width={32}
+                                                        height={32}
+                                                        className="h-8 w-8 rounded-full object-cover border border-gray-200 dark:border-gray-600"
+                                                    />
+                                                ) : (
+                                                    <div
+                                                        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-[11px] font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300"
+                                                        aria-hidden
+                                                    >
+                                                        {initial}
+                                                    </div>
+                                                )}
+                                            </td>
+                                            <td className="px-4 py-2 text-xs text-gray-800 dark:text-white/90">
+                                                {p.pessoa?.PESNome || "—"}
+                                            </td>
+                                            <td className="px-4 py-2">
+                                                <span
+                                                    className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                                                        p.REGAcao === "ENTRADA"
+                                                            ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+                                                            : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
+                                                    }`}
+                                                >
+                                                    {p.REGAcao === "ENTRADA" ? "↗ Entrada" : "↙ Saída"}
+                                                </span>
+                                            </td>
+                                            <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                                                {p.equipamento?.EQPDescricao || "—"}
+                                            </td>
+                                            <td className="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">
+                                                {new Date(p.REGDataHora).toLocaleTimeString("pt-BR")}
+                                            </td>
+                                        </tr>
+                                    );
+                                })
+                            )}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
@@ -726,80 +846,6 @@ export default function DashboardPage() {
                             </ol>
                         </div>
                     ))}
-                </div>
-            </div>
-
-            <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03]">
-                <div className="border-b border-gray-200 px-5 py-4 dark:border-gray-800">
-                    <h3 className="text-lg font-semibold text-gray-800 dark:text-white/90">
-                        Últimas Passagens
-                    </h3>
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Atualização automática a cada 10s — {instituicao?.INSNome || `Instituição ${codigoInstituicao}`}
-                    </p>
-                </div>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="border-b border-gray-100 dark:border-gray-800">
-                                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                                    Pessoa
-                                </th>
-                                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                                    Ação
-                                </th>
-                                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                                    Equipamento
-                                </th>
-                                <th className="px-5 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
-                                    Hora
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {passagensLoading ? (
-                                <tr>
-                                    <td colSpan={4} className="px-5 py-8 text-center text-gray-400">
-                                        Carregando...
-                                    </td>
-                                </tr>
-                            ) : recentes.length === 0 ? (
-                                <tr>
-                                    <td colSpan={4} className="px-5 py-8 text-center text-gray-400">
-                                        Nenhuma passagem registrada hoje.
-                                    </td>
-                                </tr>
-                            ) : (
-                                recentes.map((p) => (
-                                    <tr
-                                        key={p.REGCodigo}
-                                        className="border-b border-gray-50 transition-colors hover:bg-gray-50 dark:border-gray-800/50 dark:hover:bg-white/[0.02]"
-                                    >
-                                        <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
-                                            {p.pessoa?.PESNome || "—"}
-                                        </td>
-                                        <td className="px-5 py-3">
-                                            <span
-                                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-                                                    p.REGAcao === "ENTRADA"
-                                                        ? "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
-                                                        : "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400"
-                                                }`}
-                                            >
-                                                {p.REGAcao === "ENTRADA" ? "↗ Entrada" : "↙ Saída"}
-                                            </span>
-                                        </td>
-                                        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
-                                            {p.equipamento?.EQPDescricao || "—"}
-                                        </td>
-                                        <td className="px-5 py-3 text-sm text-gray-500 dark:text-gray-400">
-                                            {new Date(p.REGDataHora).toLocaleTimeString("pt-BR")}
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
                 </div>
             </div>
 

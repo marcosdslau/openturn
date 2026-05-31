@@ -359,27 +359,80 @@ export class RegistroDiarioManutencaoService {
     dto: AlterarRegistrosDiariosDto,
     userId: number,
   ): Promise<{ alterados: number }> {
-    const data: Prisma.RPDRegistrosDiariosUncheckedUpdateManyInput = {
+    const base: Prisma.RPDRegistrosDiariosUncheckedUpdateManyInput = {
       RPDStatus: RPDStatus.MANUAL,
       USRCodigoAlteracao: userId,
       RPDAlteradoEm: new Date(),
     };
 
-    if (dto.alterarEntrada && dto.novaEntrada) {
-      data.RPDDataEntrada = new Date(dto.novaEntrada);
-    }
-    if (dto.alterarSaida && dto.novaSaida) {
-      data.RPDDataSaida = new Date(dto.novaSaida);
+    const usarHoraEntrada = dto.alterarEntrada && !!dto.novaEntradaHora;
+    const usarHoraSaida = dto.alterarSaida && !!dto.novaSaidaHora;
+    const usarIsoEntrada = dto.alterarEntrada && !!dto.novaEntrada;
+    const usarIsoSaida = dto.alterarSaida && !!dto.novaSaida;
+
+    if (!usarHoraEntrada && !usarHoraSaida) {
+      const data: Prisma.RPDRegistrosDiariosUncheckedUpdateManyInput = { ...base };
+      if (usarIsoEntrada) data.RPDDataEntrada = new Date(dto.novaEntrada!);
+      if (usarIsoSaida) data.RPDDataSaida = new Date(dto.novaSaida!);
+
+      const result = await this.prisma.rls.rPDRegistrosDiarios.updateMany({
+        where: {
+          RPDCodigo: { in: dto.rpdCodigos },
+          INSInstituicaoCodigo: instituicaoCodigo,
+        },
+        data,
+      });
+      return { alterados: result.count };
     }
 
-    const result = await this.prisma.rls.rPDRegistrosDiarios.updateMany({
+    const inst = await this.prisma.rls.iNSInstituicao.findUnique({
+      where: { INSCodigo: instituicaoCodigo },
+      select: { INSFusoHorario: true },
+    });
+    const fusoHorario = inst?.INSFusoHorario ?? -3;
+
+    const rows = await this.prisma.rls.rPDRegistrosDiarios.findMany({
       where: {
         RPDCodigo: { in: dto.rpdCodigos },
         INSInstituicaoCodigo: instituicaoCodigo,
       },
-      data,
+      select: { RPDCodigo: true, RPDData: true },
     });
-    return { alterados: result.count };
+
+    const byDay = new Map<number, number[]>();
+    for (const r of rows) {
+      const key = r.RPDData.getTime();
+      const list = byDay.get(key);
+      if (list) list.push(r.RPDCodigo);
+      else byDay.set(key, [r.RPDCodigo]);
+    }
+
+    let alterados = 0;
+    for (const [dayKey, codigos] of byDay.entries()) {
+      const dia = new Date(dayKey);
+      const data: Prisma.RPDRegistrosDiariosUncheckedUpdateManyInput = { ...base };
+      if (usarHoraEntrada) {
+        data.RPDDataEntrada = buildDatetimeFromDiaHora(dia, dto.novaEntradaHora!, fusoHorario);
+      } else if (usarIsoEntrada) {
+        data.RPDDataEntrada = new Date(dto.novaEntrada!);
+      }
+      if (usarHoraSaida) {
+        data.RPDDataSaida = buildDatetimeFromDiaHora(dia, dto.novaSaidaHora!, fusoHorario);
+      } else if (usarIsoSaida) {
+        data.RPDDataSaida = new Date(dto.novaSaida!);
+      }
+
+      const result = await this.prisma.rls.rPDRegistrosDiarios.updateMany({
+        where: {
+          RPDCodigo: { in: codigos },
+          INSInstituicaoCodigo: instituicaoCodigo,
+        },
+        data,
+      });
+      alterados += result.count;
+    }
+
+    return { alterados };
   }
 
   // ---------------------------------------------------------------------------

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -131,6 +132,10 @@ export class RotinaExecutionService {
 
     if (!original || original.INSInstituicaoCodigo !== instituicaoCodigo) {
       throw new NotFoundException('Execução não encontrada');
+    }
+
+    if (original.ROTCodigo == null) {
+      throw new BadRequestException('Execução não está associada a uma rotina');
     }
 
     const rotina = await this.prisma.rOTRotina.findFirst({
