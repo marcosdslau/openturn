@@ -112,10 +112,12 @@ export class QueryPassagemDto extends PaginationDto {
   EQPCodigo?: number;
 
   @IsOptional()
+  @Transform(trimOrUndefined)
   @IsDateString()
   dataInicio?: string;
 
   @IsOptional()
+  @Transform(trimOrUndefined)
   @IsDateString()
   dataFim?: string;
 
@@ -140,6 +142,7 @@ export class UpdatePassagemDto {
   PESCodigo?: number;
 
   @IsOptional()
+  @Transform(trimOrUndefined)
   @IsDateString()
   REGDataHora?: string;
 }
