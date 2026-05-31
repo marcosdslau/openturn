@@ -39,7 +39,7 @@ export interface ReprocessDeadLetterResult {
 
 interface BatchDbPayload {
   EXEIdExterno: string;
-  ROTCodigo: number;
+  ROTCodigo: number | null;
   INSInstituicaoCodigo: number;
   EXEStatus: StatusExecucao;
   EXEInicio: Date;
@@ -362,34 +362,76 @@ export class RotinaQueueService {
 
   /**
    * Publica um job INTERNAL de sincronização de registros diários para a instituição.
-   * Não cria ROTExecucaoLog — o worker trata esse trigger por ramo próprio.
+   * Cria ROTExecucaoLog antes de publicar para o worker sempre encontrar o registro na base.
    */
   async publishRegistroDiarioSyncJob(instituicaoCodigo: number): Promise<string> {
     const exeId = randomUUID();
+    const now = new Date();
     const jobData: RotinaJobData = {
       exeId,
       rotinaCodigo: 0,
       instituicaoCodigo,
       trigger: 'INTERNAL',
       internalKind: 'RPD_AGGREGATION',
-      enqueuedAt: new Date().toISOString(),
+      enqueuedAt: now.toISOString(),
     };
-    await this.publishJobWithConfirm(jobData, exeId);
+
+    await this.batcher.submit({
+      jobData: jobData,
+      exeId: exeId,
+      dbPayload: {
+        EXEIdExterno: exeId,
+        ROTCodigo: null,
+        INSInstituicaoCodigo: instituicaoCodigo,
+        EXEStatus: StatusExecucao.EM_EXECUCAO,
+        EXEInicio: now,
+        EXETrigger: 'INTERNAL',
+        EXERequestBody: { internalKind: 'RPD_AGGREGATION' },
+      },
+    });
+
+    void this.setPendingMarker(exeId).catch((e) =>
+      this.logger.debug(
+        `rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`,
+      ),
+    );
+
     this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})`);
     return exeId;
   }
 
   async publishFreqEducacionalSyncJob(instituicaoCodigo: number): Promise<string> {
     const exeId = randomUUID();
+    const now = new Date();
     const jobData: RotinaJobData = {
       exeId,
       rotinaCodigo: 0,
       instituicaoCodigo,
       trigger: 'INTERNAL',
       internalKind: 'FREQ_ERP_SYNC',
-      enqueuedAt: new Date().toISOString(),
+      enqueuedAt: now.toISOString(),
     };
-    await this.publishJobWithConfirm(jobData, exeId);
+
+    await this.batcher.submit({
+      jobData: jobData,
+      exeId: exeId,
+      dbPayload: {
+        EXEIdExterno: exeId,
+        ROTCodigo: null,
+        INSInstituicaoCodigo: instituicaoCodigo,
+        EXEStatus: StatusExecucao.EM_EXECUCAO,
+        EXEInicio: now,
+        EXETrigger: 'INTERNAL',
+        EXERequestBody: { internalKind: 'FREQ_ERP_SYNC' },
+      },
+    });
+
+    void this.setPendingMarker(exeId).catch((e) =>
+      this.logger.debug(
+        `rotina:pending não gravado (${exeId}): ${(e as Error)?.message ?? e}`,
+      ),
+    );
+
     this.logger.log(`INTERNAL freq-erp-sync job published: ${exeId} (inst=${instituicaoCodigo})`);
     return exeId;
   }

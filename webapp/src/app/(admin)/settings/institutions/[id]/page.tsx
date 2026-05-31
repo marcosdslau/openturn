@@ -8,6 +8,7 @@ import ComponentCard from "@/components/common/ComponentCard";
 import Label from "@/components/form/Label";
 import InputField from "@/components/form/input/InputField";
 import Select from "@/components/form/Select";
+import Switch from "@/components/form/switch/Switch";
 import Button from "@/components/ui/button/Button";
 import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
@@ -39,6 +40,7 @@ interface Instituicao {
     INSAglutinacaoRegistros?: string;
     INSSyncFreqEducacional?: boolean;
     INSTempoFreqEducacional?: string;
+    INSLancFreqAusenciaRegistro?: boolean;
 }
 
 interface RotinaListItem {
@@ -108,6 +110,7 @@ export default function InstitutionERPPage() {
     // Sincronização de frequências ao ERP
     const [syncFreqEducacional, setSyncFreqEducacional] = useState(false);
     const [tempoFreqEducacional, setTempoFreqEducacional] = useState("58 23 * * *");
+    const [lancFreqAusenciaRegistro, setLancFreqAusenciaRegistro] = useState(false);
 
     // Aglutinação de registros diários
     const [aglutinacaoTipo, setAglutinacaoTipo] = useState<TipoAglutinacaoRegistro>("entrada_saida");
@@ -160,6 +163,7 @@ export default function InstitutionERPPage() {
             setSyncAtivo(!!(instRes as any).INSSyncRegistrosDiarios);
             setSyncFreqEducacional(!!(instRes as any).INSSyncFreqEducacional);
             setTempoFreqEducacional((instRes as any).INSTempoFreqEducacional ?? "58 23 * * *");
+            setLancFreqAusenciaRegistro(!!(instRes as any).INSLancFreqAusenciaRegistro);
             setAglutinacaoTipo(((instRes as any).INSAglutinacaoRegistros as TipoAglutinacaoRegistro) ?? "entrada_saida");
             setPeriodos(Array.isArray(periodosRes) ? periodosRes : []);
             setWebhookRotinas(
@@ -254,6 +258,7 @@ export default function InstitutionERPPage() {
                 INSSyncRegistrosDiarios: syncAtivo,
                 INSSyncFreqEducacional: syncFreqEducacional,
                 INSTempoFreqEducacional: tempoFreqEducacional,
+                INSLancFreqAusenciaRegistro: lancFreqAusenciaRegistro,
                 INSAglutinacaoRegistros: aglutinacaoTipo,
             });
 
@@ -679,6 +684,12 @@ export default function InstitutionERPPage() {
                             </span>
                         </label>
                         <div className={!syncFreqEducacional ? "opacity-50 pointer-events-none" : ""}>
+                            <Switch
+                                key={`inst-lanc-freq-ausencia-${String(id)}-${lancFreqAusenciaRegistro ? "1" : "0"}`}
+                                label={`Lançar Falta para alunos sem registro no dia? ${lancFreqAusenciaRegistro ? 'Sim' : 'Não'}`}
+                                defaultChecked={lancFreqAusenciaRegistro}
+                                onChange={setLancFreqAusenciaRegistro}
+                            />
                             <label className="mb-2 block text-xs font-medium text-gray-600 dark:text-gray-400">
                                 Agendamento (Cron)
                             </label>

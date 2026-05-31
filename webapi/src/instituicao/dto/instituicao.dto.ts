@@ -110,6 +110,10 @@ export class CreateInstituicaoDto {
   INSSyncFreqEducacional?: boolean;
 
   @IsOptional()
+  @IsBoolean()
+  INSLancFreqAusenciaRegistro?: boolean;
+
+  @IsOptional()
   @IsString()
   @Matches(CRON_5_OR_6_FIELDS, {
     message:
@@ -209,6 +213,10 @@ export class UpdateInstituicaoDto {
   @IsOptional()
   @IsBoolean()
   INSSyncFreqEducacional?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  INSLancFreqAusenciaRegistro?: boolean;
 
   @IsOptional()
   @IsString()

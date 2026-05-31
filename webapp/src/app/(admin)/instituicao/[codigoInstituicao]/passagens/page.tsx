@@ -3,7 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet } from "@/lib/api";
-import Button from "@/components/ui/button/Button";
+import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
+import PassagensFiltros, {
+    PASSAGEM_FILTROS_VAZIOS,
+    buildPassagemListQuery,
+    type PassagemFiltrosAplicados,
+} from "./components/PassagensFiltros";
 
 interface Passagem {
     REGCodigo: number;
@@ -45,87 +50,91 @@ export default function PassagensPage() {
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 20, totalPages: 0 });
     const [loading, setLoading] = useState(true);
 
-    // Filters
-    const [search, setSearch] = useState("");
-    const [acao, setAcao] = useState("");
-    const [dataInicio, setDataInicio] = useState("");
-    const [dataFim, setDataFim] = useState("");
     const [page, setPage] = useState(1);
+    const [limit, setLimit] = useState(20);
+    const [filtrosAplicados, setFiltrosAplicados] = useState<PassagemFiltrosAplicados>(
+        PASSAGEM_FILTROS_VAZIOS
+    );
+    const [gruposDisponiveis, setGruposDisponiveis] = useState<string[]>([]);
+    const [opcoesFiltro, setOpcoesFiltro] = useState<{
+        cursos: string[];
+        series: string[];
+        turmas: string[];
+    }>({ cursos: [], series: [], turmas: [] });
 
     const load = useCallback(async () => {
+        if (!codigoInstituicao) return;
         setLoading(true);
         try {
-            const params = new URLSearchParams();
-            params.set("page", String(page));
-            params.set("limit", "20");
-            if (acao) params.set("REGAcao", acao);
-            if (dataInicio) params.set("dataInicio", dataInicio);
-            if (dataFim) params.set("dataFim", dataFim);
-
-            const res = await apiGet<{ data: Passagem[]; meta: Meta }>(`/instituicao/${codigoInstituicao}/passagem?${params}`);
-            let data = res.data || [];
-
-            // Client-side search by name/document
-            if (search) {
-                const s = search.toLowerCase();
-                data = data.filter(
-                    (p) =>
-                        p.pessoa?.PESNome?.toLowerCase().includes(s) ||
-                        p.pessoa?.PESDocumento?.toLowerCase().includes(s)
-                );
-            }
-
-            setPassagens(data);
+            const qs = buildPassagemListQuery(page, limit, filtrosAplicados);
+            const res = await apiGet<{ data: Passagem[]; meta: Meta }>(
+                `/instituicao/${codigoInstituicao}/passagem?${qs}`
+            );
+            setPassagens(res.data || []);
             setMeta(res.meta);
         } catch {
             // ignore
         } finally {
             setLoading(false);
         }
-    }, [codigoInstituicao, page, acao, dataInicio, dataFim, search]);
+    }, [codigoInstituicao, page, limit, filtrosAplicados]);
 
     useEffect(() => {
         load();
     }, [load]);
 
+    const loadGrupos = useCallback(async () => {
+        if (!codigoInstituicao) return;
+        try {
+            const list = await apiGet<string[]>(
+                `/instituicao/${codigoInstituicao}/pessoa/grupos`
+            );
+            setGruposDisponiveis(Array.isArray(list) ? list : []);
+        } catch {
+            setGruposDisponiveis([]);
+        }
+    }, [codigoInstituicao]);
+
+    const loadOpcoesFiltro = useCallback(async () => {
+        if (!codigoInstituicao) return;
+        try {
+            const data = await apiGet<{
+                cursos: string[];
+                series: string[];
+                turmas: string[];
+            }>(`/instituicao/${codigoInstituicao}/matricula/opcoes-filtro`);
+            setOpcoesFiltro({
+                cursos: data.cursos ?? [],
+                series: data.series ?? [],
+                turmas: data.turmas ?? [],
+            });
+        } catch {
+            setOpcoesFiltro({ cursos: [], series: [], turmas: [] });
+        }
+    }, [codigoInstituicao]);
+
+    useEffect(() => { loadGrupos(); }, [loadGrupos]);
+    useEffect(() => { loadOpcoesFiltro(); }, [loadOpcoesFiltro]);
+
     return (
         <div className="space-y-6">
             <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Passagens</h2>
 
-            {/* Filters */}
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 rounded-2xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-white/[0.03]">
-                <input
-                    type="text"
-                    placeholder="Buscar por nome/documento..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-                <select
-                    value={acao}
-                    onChange={(e) => { setAcao(e.target.value); setPage(1); }}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                >
-                    <option value="">Todas as ações</option>
-                    <option value="ENTRADA">Entrada</option>
-                    <option value="SAIDA">Saída</option>
-                </select>
-                <input
-                    type="date"
-                    value={dataInicio}
-                    onChange={(e) => { setDataInicio(e.target.value); setPage(1); }}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-                <input
-                    type="date"
-                    value={dataFim}
-                    onChange={(e) => { setDataFim(e.target.value); setPage(1); }}
-                    className="rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white"
-                />
-                <Button size="sm" onClick={() => { setSearch(""); setAcao(""); setDataInicio(""); setDataFim(""); setPage(1); }}>
-                    Limpar
-                </Button>
-            </div>
+            <PassagensFiltros
+                aplicados={filtrosAplicados}
+                gruposDisponiveis={gruposDisponiveis}
+                cursosDisponiveis={opcoesFiltro.cursos}
+                seriesDisponiveis={opcoesFiltro.series}
+                turmasDisponiveis={opcoesFiltro.turmas}
+                onAplicar={(f) => {
+                    setFiltrosAplicados(f);
+                    setPage(1);
+                }}
+                onLimpar={() => {
+                    setFiltrosAplicados(PASSAGEM_FILTROS_VAZIOS);
+                    setPage(1);
+                }}
+            />
 
             {/* Table */}
             <div className="rounded-2xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-white/[0.03] overflow-x-auto">
@@ -190,21 +199,36 @@ export default function PassagensPage() {
             </div>
 
             {/* Pagination */}
-            {meta.totalPages > 1 && (
-                <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Página {meta.page} de {meta.totalPages} ({meta.total} registros)
-                    </p>
-                    <div className="flex gap-2">
-                        <Button size="sm" disabled={page <= 1} onClick={() => setPage(page - 1)}>
-                            Anterior
-                        </Button>
-                        <Button size="sm" disabled={page >= meta.totalPages} onClick={() => setPage(page + 1)}>
-                            Próxima
-                        </Button>
-                    </div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between px-2">
+                <div className="flex items-center gap-3">
+                    <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">Registros por página:</span>
+                    <select
+                        value={limit}
+                        onChange={(e) => {
+                            setLimit(Number(e.target.value));
+                            setPage(1);
+                        }}
+                        className="rounded-lg border border-gray-300 bg-white px-2 py-1 text-sm dark:border-gray-700 dark:bg-gray-800 dark:text-white focus:outline-none"
+                    >
+                        <option value={5}>5</option>
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                    </select>
                 </div>
-            )}
+
+                {meta.totalPages > 1 && (
+                    <PaginationWithIcon
+                        totalPages={meta.totalPages}
+                        initialPage={page}
+                        onPageChange={(p) => setPage(p)}
+                    />
+                )}
+
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                    Total: {meta.total} registros
+                </p>
+            </div>
         </div>
     );
 }

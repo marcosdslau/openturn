@@ -1,14 +1,15 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { useToast } from "@/context/ToastContext";
-import { apiPost } from "@/lib/api";
+import { apiGet, apiPost } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import Label from "@/components/form/Label";
 import InputField from "@/components/form/input/InputField";
 import { Modal } from "@/components/ui/modal";
 import PessoaInstituicaoAsyncMultiSelect from "@/components/form/PessoaInstituicaoAsyncMultiSelect";
+import SearchableMultiSelect from "@/components/form/SearchableMultiSelect";
 import JanelasDesejadasEditor, { type Janela } from "./JanelasDesejadasEditor";
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -29,18 +30,18 @@ interface PreviewMeta {
 
 interface FiltrosState {
     pessoasCodigos: number[];
-    MATCurso: string;
-    MATSerie: string;
-    MATTurma: string;
+    MATCurso: string[];
+    MATSerie: string[];
+    MATTurma: string[];
     dataHoraInicio: string;
     dataHoraFim: string;
 }
 
 const FILTROS_VAZIOS: FiltrosState = {
     pessoasCodigos: [],
-    MATCurso: "",
-    MATSerie: "",
-    MATTurma: "",
+    MATCurso: [],
+    MATSerie: [],
+    MATTurma: [],
     dataHoraInicio: "",
     dataHoraFim: "",
 };
@@ -60,6 +61,11 @@ export default function CriarManualRegistrosModal({ onClose, onSuccess }: Props)
 
     const [step, setStep] = useState<1 | 2>(1);
     const [filtros, setFiltros] = useState<FiltrosState>(FILTROS_VAZIOS);
+    const [opcoesFiltro, setOpcoesFiltro] = useState<{ cursos: string[]; series: string[]; turmas: string[] }>({
+        cursos: [],
+        series: [],
+        turmas: [],
+    });
     const [preview, setPreview] = useState<PreviewItem[]>([]);
     const [previewMeta, setPreviewMeta] = useState<PreviewMeta | null>(null);
     const [loadingPreview, setLoadingPreview] = useState(false);
@@ -76,6 +82,15 @@ export default function CriarManualRegistrosModal({ onClose, onSuccess }: Props)
         ? [...new Set(preview.map((p) => p.pessoa?.PESCodigo).filter(Boolean))].length
         : 0;
     const totalDias = previewMeta ? [...new Set(preview.map((p) => p.RPDData))].length : 0;
+
+    useEffect(() => {
+        if (!codigoInstituicao) return;
+        apiGet<{ cursos: string[]; series: string[]; turmas: string[] }>(
+            `/instituicao/${codigoInstituicao}/matricula/opcoes-filtro`
+        )
+            .then((data) => setOpcoesFiltro({ cursos: data.cursos ?? [], series: data.series ?? [], turmas: data.turmas ?? [] }))
+            .catch(() => setOpcoesFiltro({ cursos: [], series: [], turmas: [] }));
+    }, [codigoInstituicao]);
 
     const handleVerificar = async () => {
         if (!codigoInstituicao || !filtrosValidos) return;
@@ -166,30 +181,27 @@ export default function CriarManualRegistrosModal({ onClose, onSuccess }: Props)
                                 )}
 
                                 <div className="grid grid-cols-3 gap-3">
-                                    <div>
-                                        <Label>Curso</Label>
-                                        <InputField
-                                            placeholder="Ex: Administração"
-                                            value={filtros.MATCurso}
-                                            onChange={(e) => setFiltros((f) => ({ ...f, MATCurso: e.target.value }))}
-                                        />
-                                    </div>
-                                    <div>
-                                        <Label>Série</Label>
-                                        <InputField
-                                            placeholder="Ex: 3º Ano"
-                                            value={filtros.MATSerie}
-                                            onChange={(e) => setFiltros((f) => ({ ...f, MATSerie: e.target.value }))}
-                                        />
-                                    </div>
-                                    <div>
-                                        <Label>Turma</Label>
-                                        <InputField
-                                            placeholder="Ex: A"
-                                            value={filtros.MATTurma}
-                                            onChange={(e) => setFiltros((f) => ({ ...f, MATTurma: e.target.value }))}
-                                        />
-                                    </div>
+                                    <SearchableMultiSelect
+                                        label="Curso"
+                                        placeholder="Selecione um ou mais cursos"
+                                        options={opcoesFiltro.cursos.map((c) => ({ value: c, label: c }))}
+                                        value={filtros.MATCurso}
+                                        onChange={(MATCurso) => setFiltros((f) => ({ ...f, MATCurso }))}
+                                    />
+                                    <SearchableMultiSelect
+                                        label="Módulo / Série"
+                                        placeholder="Selecione um ou mais módulos/séries"
+                                        options={opcoesFiltro.series.map((s) => ({ value: s, label: s }))}
+                                        value={filtros.MATSerie}
+                                        onChange={(MATSerie) => setFiltros((f) => ({ ...f, MATSerie }))}
+                                    />
+                                    <SearchableMultiSelect
+                                        label="Turma"
+                                        placeholder="Selecione uma ou mais turmas"
+                                        options={opcoesFiltro.turmas.map((t) => ({ value: t, label: t }))}
+                                        value={filtros.MATTurma}
+                                        onChange={(MATTurma) => setFiltros((f) => ({ ...f, MATTurma }))}
+                                    />
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
@@ -337,9 +349,9 @@ export default function CriarManualRegistrosModal({ onClose, onSuccess }: Props)
 function buildFiltrosPayload(f: FiltrosState) {
     return {
         pessoasCodigos: f.pessoasCodigos.length > 0 ? f.pessoasCodigos : undefined,
-        MATCurso: f.MATCurso || undefined,
-        MATSerie: f.MATSerie || undefined,
-        MATTurma: f.MATTurma || undefined,
+        MATCurso: f.MATCurso.length > 0 ? f.MATCurso : undefined,
+        MATSerie: f.MATSerie.length > 0 ? f.MATSerie : undefined,
+        MATTurma: f.MATTurma.length > 0 ? f.MATTurma : undefined,
         dataHoraInicio: f.dataHoraInicio ? new Date(f.dataHoraInicio).toISOString() : undefined,
         dataHoraFim: f.dataHoraFim ? new Date(f.dataHoraFim).toISOString() : undefined,
     };

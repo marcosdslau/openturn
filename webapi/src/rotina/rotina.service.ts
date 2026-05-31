@@ -358,6 +358,7 @@ export class RotinaService {
     const out: Record<string, { running: boolean; exeId: string }> = {};
 
     for (const row of rows) {
+      if (row.ROTCodigo == null) continue;
       if (seen.has(row.ROTCodigo)) continue;
       seen.add(row.ROTCodigo);
 

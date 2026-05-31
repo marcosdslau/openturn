@@ -94,6 +94,7 @@ model INSInstituicao {
   INSSyncFreqEducacional            Boolean @default(false)
   /// Expressão cron (5 campos: min hora dom mês dow) para sincronização de frequências ao ERP.
   INSTempoFreqEducacional           String  @default("58 23 * * *")
+  INSLancFreqAusenciaRegistro       Boolean @default(false)
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -480,8 +481,8 @@ model ROTRotina {
 model ROTExecucaoLog {
   EXECodigo            Int            @id @default(autoincrement())
   EXEIdExterno         String         @unique @default(uuid())
-  ROTCodigo            Int
-  rotina               ROTRotina      @relation(fields: [ROTCodigo], references: [ROTCodigo])
+  ROTCodigo            Int?
+  rotina               ROTRotina?     @relation(fields: [ROTCodigo], references: [ROTCodigo])
   EXEStatus            StatusExecucao
   EXEInicio            DateTime
   EXEFim               DateTime?

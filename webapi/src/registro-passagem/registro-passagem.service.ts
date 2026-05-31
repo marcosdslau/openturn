@@ -69,8 +69,24 @@ export class RegistroPassagemService {
     instituicaoCodigo: number,
     query: QueryPassagemDto,
   ): Promise<PaginatedResult<any>> {
-    const { page, limit, PESCodigo, EQPCodigo, dataInicio, dataFim, REGAcao } =
-      query;
+    const {
+      page,
+      limit,
+      PESCodigo,
+      EQPCodigo,
+      dataInicio,
+      dataFim,
+      REGAcao,
+      nome,
+      documento,
+      email,
+      grupo,
+      cartaoTag,
+      numero,
+      curso,
+      serie,
+      turma,
+    } = query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.REGRegistroPassagemWhereInput = {
@@ -81,8 +97,60 @@ export class RegistroPassagemService {
     if (REGAcao) where.REGAcao = REGAcao;
     if (dataInicio || dataFim) {
       where.REGDataHora = {};
-      if (dataInicio) where.REGDataHora.gte = new Date(dataInicio);
-      if (dataFim) where.REGDataHora.lte = new Date(dataFim);
+      if (dataInicio) where.REGDataHora.gte = new Date(`${dataInicio}T00:00:00`);
+      if (dataFim) where.REGDataHora.lte = new Date(`${dataFim}T23:59:59.999`);
+    }
+
+    const pessoaWhere: Prisma.PESPessoaWhereInput = {
+      INSInstituicaoCodigo: instituicaoCodigo,
+    };
+    if (nome) {
+      pessoaWhere.OR = [
+        { PESNome: { contains: nome, mode: 'insensitive' } },
+        { PESNomeSocial: { contains: nome, mode: 'insensitive' } },
+      ];
+    }
+    if (documento) {
+      pessoaWhere.PESDocumento = { contains: documento, mode: 'insensitive' };
+    }
+    if (email) {
+      pessoaWhere.PESEmail = { contains: email, mode: 'insensitive' };
+    }
+    if (grupo) {
+      pessoaWhere.PESGrupo = { equals: grupo, mode: 'insensitive' };
+    }
+    if (cartaoTag) {
+      pessoaWhere.PESCartaoTag = { contains: cartaoTag, mode: 'insensitive' };
+    }
+
+    const hasMatriculaFilter =
+      !!numero?.trim() ||
+      (curso?.length ?? 0) > 0 ||
+      (serie?.length ?? 0) > 0 ||
+      (turma?.length ?? 0) > 0;
+    if (hasMatriculaFilter) {
+      const matriculaWhere: Prisma.MATMatriculaWhereInput = {
+        INSInstituicaoCodigo: instituicaoCodigo,
+        MATAtivo: true,
+      };
+      if (numero) {
+        matriculaWhere.MATNumero = { contains: numero, mode: 'insensitive' };
+      }
+      if (curso?.length) matriculaWhere.MATCurso = { in: curso };
+      if (serie?.length) matriculaWhere.MATSerie = { in: serie };
+      if (turma?.length) matriculaWhere.MATTurma = { in: turma };
+      pessoaWhere.matriculas = { some: matriculaWhere };
+    }
+
+    const hasPessoaFilter =
+      !!nome ||
+      !!documento ||
+      !!email ||
+      !!grupo ||
+      !!cartaoTag ||
+      hasMatriculaFilter;
+    if (hasPessoaFilter) {
+      where.pessoa = { is: pessoaWhere };
     }
 
     const [data, total] = await Promise.all([
