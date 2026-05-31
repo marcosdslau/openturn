@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   CreatePassagemDto,
@@ -12,6 +12,36 @@ import { resizeBase64Image } from '../common/utils/image.utils';
 @Injectable()
 export class RegistroPassagemService {
   constructor(private prisma: PrismaService) {}
+
+  private isValidDate(d: Date) {
+    return !Number.isNaN(d.getTime());
+  }
+
+  private parseDateStart(value: string): Date | null {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+      const year = Number(dateOnly[1]);
+      const month = Number(dateOnly[2]);
+      const day = Number(dateOnly[3]);
+      const d = new Date(year, month - 1, day, 0, 0, 0, 0);
+      return this.isValidDate(d) ? d : null;
+    }
+    const d = new Date(value);
+    return this.isValidDate(d) ? d : null;
+  }
+
+  private parseDateEnd(value: string): Date | null {
+    const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+    if (dateOnly) {
+      const year = Number(dateOnly[1]);
+      const month = Number(dateOnly[2]);
+      const day = Number(dateOnly[3]);
+      const d = new Date(year, month - 1, day, 23, 59, 59, 999);
+      return this.isValidDate(d) ? d : null;
+    }
+    const d = new Date(value);
+    return this.isValidDate(d) ? d : null;
+  }
 
   async create(instituicaoCodigo: number, dto: CreatePassagemDto) {
     const now = new Date();
@@ -44,6 +74,9 @@ export class RegistroPassagemService {
     }
     if (dto.REGDataHora !== undefined) {
       const d = new Date(dto.REGDataHora);
+      if (!this.isValidDate(d)) {
+        throw new BadRequestException('REGDataHora inválida');
+      }
       data.REGDataHora = d;
       data.REGTimestamp = BigInt(Math.floor(d.getTime() / 1000));
     }
@@ -96,9 +129,21 @@ export class RegistroPassagemService {
     if (EQPCodigo) where.EQPCodigo = EQPCodigo;
     if (REGAcao) where.REGAcao = REGAcao;
     if (dataInicio || dataFim) {
-      where.REGDataHora = {};
-      if (dataInicio) where.REGDataHora.gte = new Date(`${dataInicio}T00:00:00`);
-      if (dataFim) where.REGDataHora.lte = new Date(`${dataFim}T23:59:59.999`);
+      const regDataHora: Prisma.DateTimeFilter = {};
+      if (dataInicio) {
+        const gte = this.parseDateStart(dataInicio);
+        if (!gte) throw new BadRequestException('dataInicio inválida');
+        regDataHora.gte = gte;
+      }
+      if (dataFim) {
+        const lte = this.parseDateEnd(dataFim);
+        if (!lte) throw new BadRequestException('dataFim inválida');
+        regDataHora.lte = lte;
+      }
+      if (regDataHora.gte && regDataHora.lte && regDataHora.gte > regDataHora.lte) {
+        throw new BadRequestException('Intervalo de datas inválido (dataInicio > dataFim)');
+      }
+      where.REGDataHora = regDataHora;
     }
 
     const pessoaWhere: Prisma.PESPessoaWhereInput = {
