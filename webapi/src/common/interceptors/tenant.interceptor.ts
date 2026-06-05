@@ -17,10 +17,13 @@ export class TenantInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
+    const tenantIdStrFromRoute =
+      request.params.instituicaoCodigo || request.params.codigoInstituicao;
+
     // Global roles bypass tenant filtering
     if (user?.acessos?.some((a: any) => GLOBAL_ROLES.includes(a.grupo))) {
       const tenantIdStr =
-        request.params.codigoInstituicao || request.headers['x-tenant-id'];
+        tenantIdStrFromRoute || request.headers['x-tenant-id'];
       if (tenantIdStr) {
         const tenantId = parseInt(tenantIdStr, 10);
         if (!isNaN(tenantId)) {
@@ -32,7 +35,7 @@ export class TenantInterceptor implements NestInterceptor {
 
     // Scoped users: capture tenant from route/header
     const tenantIdStr =
-      request.params.codigoInstituicao || request.headers['x-tenant-id'];
+      tenantIdStrFromRoute || request.headers['x-tenant-id'];
 
     if (tenantIdStr) {
       const tenantId = parseInt(tenantIdStr, 10);

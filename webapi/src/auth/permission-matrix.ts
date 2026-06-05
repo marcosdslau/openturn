@@ -8,6 +8,7 @@ export type PermissionResource =
   | 'matricula'
   | 'equipamento'
   | 'usuario_instituicao'
+  | 'notificacao'
   | 'rotina'
   | 'execucao'
   | 'registroDiario';
@@ -36,6 +37,7 @@ const RULES: Record<
     pessoa: A(['read', 'update']),
     matricula: A(['read']),
     usuario_instituicao: A(['read']),
+    notificacao: A(['read', 'update']),
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
     registroDiario: A(['read']),
@@ -47,6 +49,7 @@ const RULES: Record<
     matricula: A(['read']),
     equipamento: A(['read']),
     usuario_instituicao: A(['read', 'create', 'update', 'delete']),
+    notificacao: A(['read', 'update']),
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
     registroDiario: A(['read', 'execute']),
@@ -58,6 +61,7 @@ const RULES: Record<
     matricula: A(['read', 'create', 'update', 'delete']),
     equipamento: A(['read', 'create', 'update', 'delete', 'proxy_http']),
     usuario_instituicao: A(['read', 'create', 'update', 'delete']),
+    notificacao: A(['read', 'update']),
     registroDiario: A(['read', 'create', 'update', 'delete', 'execute']),
     rotina: A([
       'read',

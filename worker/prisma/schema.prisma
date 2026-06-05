@@ -115,6 +115,7 @@ model INSInstituicao {
   ctlControlidDaos    CTLControlidDao[]
   ctlControlidCatraEvents CTLControlidCatraEvent[]
   periodosRegistro        PERPeriodosConfig[]
+  notificacoes        NOTNotificacao[]
 }
 
 model PESPessoa {
@@ -128,6 +129,7 @@ model PESPessoa {
   PESCelular           String?
   PESFotoBase64        String?
   PESFotoExtensao      String?
+  PESImageError        Json?
   PESGrupo             String?
   PESCartaoTag         String?
   PESTemplates         Json?
@@ -143,6 +145,23 @@ model PESPessoa {
   passagens            REGRegistroPassagem[]
   registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
+}
+
+model NOTNotificacao {
+  NOTCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  ckey                 String         @unique
+  tipo                 String
+  titulo               String
+  conteudo             String
+  origem               String
+  chaveOrigem          String
+  lido                 Boolean        @default(false)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  @@index([INSInstituicaoCodigo, lido, updatedAt])
 }
 
 model MATMatricula {

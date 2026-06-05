@@ -20,6 +20,7 @@ import { ConnectorModule } from './connector/connector.module';
 import { AiModule } from './modules/ai/ai.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
+import { NotificacaoModule } from './notificacao/notificacao.module';
 
 @Module({
   imports: [
@@ -40,6 +41,7 @@ import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
     AiModule,
     MonitorModule,
     RegistroDiarioModule,
+    NotificacaoModule,
   ],
   controllers: [AppController],
   providers: [
