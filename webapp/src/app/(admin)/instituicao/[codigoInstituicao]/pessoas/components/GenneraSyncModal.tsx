@@ -27,9 +27,15 @@ interface Props {
     isOpen: boolean;
     onClose: () => void;
     onSuccess?: () => void;
+    onSyncStateChange?: (syncing: boolean) => void;
 }
 
-export default function GenneraSyncModal({ isOpen, onClose, onSuccess }: Props) {
+export default function GenneraSyncModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    onSyncStateChange,
+}: Props) {
     const { codigoInstituicao } = useTenant();
     const { showToast } = useToast();
 
@@ -108,6 +114,7 @@ export default function GenneraSyncModal({ isOpen, onClose, onSuccess }: Props) 
     const handleSync = async () => {
         if (!codigoInstituicao || selectedIds.size === 0) return;
         setSyncing(true);
+        onSyncStateChange?.(true);
         try {
             const res = await apiPost<GenneraSyncResult>(
                 `/instituicao/${codigoInstituicao}/pessoa/gennera/sincronizar`,
@@ -124,13 +131,18 @@ export default function GenneraSyncModal({ isOpen, onClose, onSuccess }: Props) 
             );
         } finally {
             setSyncing(false);
+            onSyncStateChange?.(false);
         }
     };
 
     const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} className="max-w-3xl p-0 overflow-hidden">
+        <Modal
+            isOpen={isOpen}
+            onClose={syncing ? () => {} : onClose}
+            className="max-w-3xl p-0 overflow-hidden"
+        >
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
                 <h2 className="text-lg font-semibold text-gray-800 dark:text-white">
                     Sincronizar pessoas (Gennera)

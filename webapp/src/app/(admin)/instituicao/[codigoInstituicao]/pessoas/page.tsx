@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "@/context/TenantContext";
@@ -88,6 +89,7 @@ export default function PessoasPage() {
     const [loadingMappings, setLoadingMappings] = useState(false);
     const [syncingPerson, setSyncingPerson] = useState(false);
     const [deletingFromDevices, setDeletingFromDevices] = useState(false);
+    const [genneraSyncProcessing, setGenneraSyncProcessing] = useState(false);
 
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -673,7 +675,32 @@ export default function PessoasPage() {
                 isOpen={genneraSyncModal.isOpen}
                 onClose={genneraSyncModal.closeModal}
                 onSuccess={load}
+                onSyncStateChange={setGenneraSyncProcessing}
             />
+
+            {typeof document !== "undefined" &&
+                genneraSyncProcessing &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-gray-900/40 backdrop-blur-[2px] dark:bg-black/55"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                    >
+                        <div className="mx-4 flex max-w-sm flex-col items-center gap-4 rounded-2xl bg-white px-8 py-7 text-center shadow-xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-white/10">
+                            <RefreshIcon className="h-10 w-10 animate-spin text-brand-500" aria-hidden />
+                            <div>
+                                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                                    Sincronizando pessoas…
+                                </p>
+                                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    Aguarde finalizar o processamento.
+                                </p>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }
