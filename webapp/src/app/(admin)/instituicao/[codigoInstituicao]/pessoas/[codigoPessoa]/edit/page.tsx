@@ -6,6 +6,7 @@ import { apiGet, apiPatch } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import PessoaForm from "../../components/PessoaForm";
+import JsonViewer, { hasJsonContent } from "@/components/ui/json/JsonViewer";
 import { ChevronLeftIcon } from "@/icons";
 
 export default function EditPessoaPage() {
@@ -85,6 +86,16 @@ export default function EditPessoaPage() {
                     <p className="text-sm text-gray-500">Atualize as informações do cadastro</p>
                 </div>
             </div>
+
+            {hasJsonContent(pessoa?.PESImageError) && (
+                <div className="rounded-xl border border-error-500/30 bg-error-50 p-4 dark:border-error-500/30 dark:bg-error-500/10">
+                    <JsonViewer
+                        title="Erro no cadastro facial"
+                        description="Detalhes da última falha ao enviar a foto ao equipamento."
+                        data={pessoa.PESImageError}
+                    />
+                </div>
+            )}
 
             <PessoaForm
                 initialData={pessoa}

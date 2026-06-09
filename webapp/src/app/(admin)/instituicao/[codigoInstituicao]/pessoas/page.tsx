@@ -10,12 +10,13 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon, UserCircleIcon } from "@/icons";
+import { AlertIcon, RefreshIcon, UserCircleIcon } from "@/icons";
 import PessoasFiltros, {
     PESSOA_FILTROS_VAZIOS,
     buildPessoaListQuery,
     type PessoaFiltrosAplicados,
 } from "./components/PessoasFiltros";
+import GenneraSyncModal from "./components/GenneraSyncModal";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 
 interface Pessoa {
@@ -64,6 +65,7 @@ export default function PessoasPage() {
 
     // Modals
     const personModal = useModal();
+    const genneraSyncModal = useModal();
     const deactivateModal = useModal();
     const mappingModal = useModal();
     const deleteFromDevicesModal = useModal();
@@ -300,9 +302,22 @@ export default function PessoasPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Pessoas</h2>
-                {can("pessoa", "create") && (
-                    <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
-                )}
+                <div className="flex items-center gap-2">
+                    {can("pessoa", "sync") && (
+                        <button
+                            type="button"
+                            onClick={genneraSyncModal.openModal}
+                            title="Sincronizar"
+                            aria-label="Sincronizar pessoas do ERP"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                            <RefreshIcon className="h-5 w-5" />
+                        </button>
+                    )}
+                    {can("pessoa", "create") && (
+                        <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
+                    )}
+                </div>
             </div>
 
             <PessoasFiltros
@@ -653,6 +668,12 @@ export default function PessoasPage() {
                     </div>
                 </div>
             </Modal>
+
+            <GenneraSyncModal
+                isOpen={genneraSyncModal.isOpen}
+                onClose={genneraSyncModal.closeModal}
+                onSuccess={load}
+            />
         </div>
     );
 }

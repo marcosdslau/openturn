@@ -15,6 +15,9 @@
   },
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "@tensorflow-models/blazeface": "^0.1.0",
+    "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-backend-cpu": "^4.22.0",
     "amqplib": "^1.0.3",
     "axios": "^1.13.5",
     "dotenv": "^17.3.1",
@@ -25,8 +28,8 @@
   },
   "devDependencies": {
     "@types/amqplib": "^0.10.8",
-    "@types/ws": "^8.5.13",
     "@types/node": "^22.10.7",
+    "@types/ws": "^8.5.13",
     "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"

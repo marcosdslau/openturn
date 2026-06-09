@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { validatePersonPhoto } from '../../../../common/face-photo-validation';
 
 export class ControlIdFaceImageError extends Error {
   readonly code: string;
@@ -39,9 +40,15 @@ export class ControlIdFaceImageProcessingError extends ControlIdFaceImageError {
   }
 }
 
+export class ControlIdFaceImageNoFaceError extends ControlIdFaceImageError {
+  constructor(message: string) {
+    super('ROSTO_NAO_DETECTADO', message);
+  }
+}
+
 export type ControlIdFaceImageResult = {
   buffer: Buffer;
-  format: 'jpeg' | 'png';
+  format: 'jpeg';
   width: number;
   height: number;
   bytes: number;
@@ -110,6 +117,13 @@ export async function processControlIdFaceImage(input: Buffer): Promise<ControlI
     );
   }
 
+  const validation = await validatePersonPhoto(input);
+  if (!validation.valid) {
+    throw new ControlIdFaceImageNoFaceError(
+      validation.reason ?? 'Nenhum rosto detectado na imagem.',
+    );
+  }
+
   const pixels = width * height;
   const needsPixelResize = pixels > maxPixels;
   let targetWidth = width;
@@ -136,25 +150,13 @@ export async function processControlIdFaceImage(input: Buffer): Promise<ControlI
     w: number;
     h: number;
     jpegQuality?: number;
-    pngPalette?: boolean;
-    pngQuality?: number;
   }): Promise<{ buf: Buffer; w: number; h: number }> => {
     let img = base.clone();
     if (opts.w !== width || opts.h !== height) {
       img = img.resize(opts.w, opts.h, { fit: 'inside', withoutEnlargement: true });
     }
-
-    if (format === 'jpeg') {
-      const q = clampInt(opts.jpegQuality ?? 85, 40, 95);
-      const buf = await img.jpeg({ quality: q, mozjpeg: true }).toBuffer();
-      return { buf, w: opts.w, h: opts.h };
-    }
-
-    const palette = opts.pngPalette ?? true;
-    const q = clampInt(opts.pngQuality ?? 80, 40, 100);
-    const buf = await img
-      .png({ compressionLevel: 9, palette, quality: q, effort: 10 })
-      .toBuffer();
+    const q = clampInt(opts.jpegQuality ?? 85, 40, 95);
+    const buf = await img.jpeg({ quality: q, mozjpeg: true }).toBuffer();
     return { buf, w: opts.w, h: opts.h };
   };
 
@@ -164,22 +166,13 @@ export async function processControlIdFaceImage(input: Buffer): Promise<ControlI
   try {
     let out = await render({ w: currentW, h: currentH });
     if (out.buf.length <= maxBytes) {
-      return { buffer: out.buf, format, width: currentW, height: currentH, bytes: out.buf.length };
+      return { buffer: out.buf, format: 'jpeg', width: currentW, height: currentH, bytes: out.buf.length };
     }
 
-    if (format === 'jpeg') {
-      for (const q of [80, 70, 60, 50, 45, 40]) {
-        out = await render({ w: currentW, h: currentH, jpegQuality: q });
-        if (out.buf.length <= maxBytes) {
-          return { buffer: out.buf, format, width: currentW, height: currentH, bytes: out.buf.length };
-        }
-      }
-    } else {
-      for (const q of [80, 70, 60, 50, 45, 40]) {
-        out = await render({ w: currentW, h: currentH, pngPalette: true, pngQuality: q });
-        if (out.buf.length <= maxBytes) {
-          return { buffer: out.buf, format, width: currentW, height: currentH, bytes: out.buf.length };
-        }
+    for (const q of [80, 70, 60, 50, 45, 40]) {
+      out = await render({ w: currentW, h: currentH, jpegQuality: q });
+      if (out.buf.length <= maxBytes) {
+        return { buffer: out.buf, format: 'jpeg', width: currentW, height: currentH, bytes: out.buf.length };
       }
     }
 
@@ -190,12 +183,9 @@ export async function processControlIdFaceImage(input: Buffer): Promise<ControlI
       if (nextW * nextH > maxPixels) break;
       currentW = nextW;
       currentH = nextH;
-      out =
-        format === 'jpeg'
-          ? await render({ w: currentW, h: currentH, jpegQuality: 60 })
-          : await render({ w: currentW, h: currentH, pngPalette: true, pngQuality: 60 });
+      out = await render({ w: currentW, h: currentH, jpegQuality: 60 });
       if (out.buf.length <= maxBytes) {
-        return { buffer: out.buf, format, width: currentW, height: currentH, bytes: out.buf.length };
+        return { buffer: out.buf, format: 'jpeg', width: currentW, height: currentH, bytes: out.buf.length };
       }
     }
 

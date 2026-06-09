@@ -9,6 +9,7 @@ import {
   EQPEquipamento,
   HttpMetodo,
   PESPessoa,
+  ROTRotina,
   StatusExecucao,
   TipoRotina,
 } from '@prisma/client';
@@ -239,175 +240,217 @@ export class HardwareService {
     };
   }
 
-  async syncAll(instituicaoId: number) {
+  private static readonly WEBHOOK_PUBLISH_MAX_TENTATIVAS = 3;
+  private static readonly WEBHOOK_PUBLISH_BACKOFF_MS = [200, 500, 1000];
+  private static readonly WEBHOOK_PESSOA_MAX_TENTATIVAS = 3;
+  private static readonly WEBHOOK_PESSOA_BACKOFF_MS = [500, 1500, 3000];
+
+  private async resolvePessoaWebhookRotina(instituicaoCodigo: number): Promise<
+    | { kind: 'ready'; rotina: ROTRotina; path: string; method: HttpMetodo }
+    | { kind: 'invalid'; rotinaPessoasCodigo: number }
+    | { kind: 'missing' }
+  > {
     const inst = await this.prisma.iNSInstituicao.findUnique({
-      where: { INSCodigo: instituicaoId },
+      where: { INSCodigo: instituicaoCodigo },
       select: { INSRotinaPessoasCodigo: true },
     });
     const rotinaPessoasCodigo = inst?.INSRotinaPessoasCodigo ?? null;
+    if (rotinaPessoasCodigo == null) {
+      return { kind: 'missing' };
+    }
 
-    if (rotinaPessoasCodigo != null) {
-      const rotina = await this.prisma.rOTRotina.findFirst({
-        where: {
-          ROTCodigo: rotinaPessoasCodigo,
-          INSInstituicaoCodigo: instituicaoId,
-          ROTTipo: TipoRotina.WEBHOOK,
-          ROTAtivo: true,
-        },
-      });
-      const pathRaw = rotina?.ROTWebhookPath?.trim();
-      if (rotina && pathRaw && rotina.ROTWebhookMetodo) {
-        const path = pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`;
-        const method = rotina.ROTWebhookMetodo;
-        const people = await this.prisma.pESPessoa.findMany({
-          where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
-        });
-        let enfileirados = 0;
-        const MAX_TENTATIVAS = 3;
-        const BACKOFF_MS = [200, 500, 1000];
-        const MAX_TENTATIVAS_PESSOA = 3;
-        const BACKOFF_PESSOA_MS = [500, 1500, 3000];
+    const rotina = await this.prisma.rOTRotina.findFirst({
+      where: {
+        ROTCodigo: rotinaPessoasCodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+        ROTTipo: TipoRotina.WEBHOOK,
+        ROTAtivo: true,
+      },
+    });
+    const pathRaw = rotina?.ROTWebhookPath?.trim();
+    if (rotina && pathRaw && rotina.ROTWebhookMetodo) {
+      const path = pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`;
+      return { kind: 'ready', rotina, path, method: rotina.ROTWebhookMetodo };
+    }
 
-        for (const person of people) {
-          const body = {
-            PESCodigo: person.PESCodigo,
+    return { kind: 'invalid', rotinaPessoasCodigo };
+  }
+
+  private async enqueuePessoaWebhookSync(
+    instituicaoCodigo: number,
+    person: Pick<PESPessoa, 'PESCodigo' | 'PESNome'>,
+    rotina: ROTRotina,
+    path: string,
+    method: HttpMetodo,
+  ): Promise<boolean> {
+    const body = {
+      PESCodigo: person.PESCodigo,
+      PESNome: person.PESNome,
+    };
+    const query =
+      method === HttpMetodo.GET
+        ? {
+            PESCodigo: String(person.PESCodigo),
             PESNome: person.PESNome,
-          };
-          const query =
-            method === HttpMetodo.GET
-              ? {
-                  PESCodigo: String(person.PESCodigo),
-                  PESNome: person.PESNome,
-                }
-              : {};
-          const requestEnvelope = {
-            body,
-            query,
-            headers: {},
-            method,
-            path,
-            params: {},
-          };
+          }
+        : {};
+    const requestEnvelope = {
+      body,
+      query,
+      headers: {},
+      method,
+      path,
+      params: {},
+    };
 
-          let exeIdComitado: string | null = null;
-          let lastPersonError: unknown = null;
+    let exeIdComitado: string | null = null;
+    let lastPersonError: unknown = null;
 
-          for (
-            let pessoaAttempt = 1;
-            pessoaAttempt <= MAX_TENTATIVAS_PESSOA;
-            pessoaAttempt++
-          ) {
-            try {
-              exeIdComitado = await this.prisma.$transaction(
-                async (tx) => {
-                  const exec = await tx.rOTExecucaoLog.create({
-                    data: {
-                      ROTCodigo: rotina.ROTCodigo,
-                      INSInstituicaoCodigo: instituicaoId,
-                      EXEStatus: StatusExecucao.EM_EXECUCAO,
-                      EXEInicio: new Date(),
-                      EXETrigger: 'WEBHOOK',
-                      EXERequestBody: body,
-                      EXERequestParams: {},
-                      EXERequestPath: path,
-                    },
-                  });
+    for (
+      let pessoaAttempt = 1;
+      pessoaAttempt <= HardwareService.WEBHOOK_PESSOA_MAX_TENTATIVAS;
+      pessoaAttempt++
+    ) {
+      try {
+        exeIdComitado = await this.prisma.$transaction(
+          async (tx) => {
+            const exec = await tx.rOTExecucaoLog.create({
+              data: {
+                ROTCodigo: rotina.ROTCodigo,
+                INSInstituicaoCodigo: instituicaoCodigo,
+                EXEStatus: StatusExecucao.EM_EXECUCAO,
+                EXEInicio: new Date(),
+                EXETrigger: 'WEBHOOK',
+                EXERequestBody: body,
+                EXERequestParams: {},
+                EXERequestPath: path,
+              },
+            });
 
-                  const jobData: RotinaJobData = {
-                    exeId: exec.EXEIdExterno,
-                    rotinaCodigo: rotina.ROTCodigo,
-                    instituicaoCodigo: instituicaoId,
-                    trigger: 'WEBHOOK',
-                    requestEnvelope,
-                    enqueuedAt: new Date().toISOString(),
-                  };
+            const jobData: RotinaJobData = {
+              exeId: exec.EXEIdExterno,
+              rotinaCodigo: rotina.ROTCodigo,
+              instituicaoCodigo,
+              trigger: 'WEBHOOK',
+              requestEnvelope,
+              enqueuedAt: new Date().toISOString(),
+            };
 
-                  let lastError: unknown = null;
-                  for (let attempt = 1; attempt <= MAX_TENTATIVAS; attempt++) {
-                    try {
-                      await this.rotinaQueueService.publishJobWithConfirm(
-                        jobData,
-                        exec.EXEIdExterno,
-                      );
-                      return exec.EXEIdExterno;
-                    } catch (e) {
-                      lastError = e;
-                      this.logger.warn(
-                        `[${instituicaoId}] Publicação falhou tentativa ${attempt}/${MAX_TENTATIVAS} ` +
-                          `(PESCodigo=${person.PESCodigo}, exeId=${exec.EXEIdExterno}): ${(e as Error)?.message}`,
-                      );
-                      if (attempt < MAX_TENTATIVAS) {
-                        await new Promise((r) =>
-                          setTimeout(r, BACKOFF_MS[attempt - 1]),
-                        );
-                      }
-                    }
-                  }
-                  throw new Error(
-                    `Rabbit publish falhou após ${MAX_TENTATIVAS} tentativas: ${(lastError as Error)?.message}`,
-                  );
-                },
-                { timeout: 30000, maxWait: 5000 },
-              );
-
-              enfileirados++;
-              break;
-            } catch (e) {
-              lastPersonError = e;
-              this.logger.warn(
-                `[${instituicaoId}] Tentativa ${pessoaAttempt}/${MAX_TENTATIVAS_PESSOA} falhou para PESCodigo=${person.PESCodigo}: ${(e as Error)?.message}`,
-              );
-              if (pessoaAttempt < MAX_TENTATIVAS_PESSOA) {
-                await new Promise((r) =>
-                  setTimeout(r, BACKOFF_PESSOA_MS[pessoaAttempt - 1]),
+            let lastError: unknown = null;
+            for (
+              let attempt = 1;
+              attempt <= HardwareService.WEBHOOK_PUBLISH_MAX_TENTATIVAS;
+              attempt++
+            ) {
+              try {
+                await this.rotinaQueueService.publishJobWithConfirm(
+                  jobData,
+                  exec.EXEIdExterno,
                 );
+                return exec.EXEIdExterno;
+              } catch (e) {
+                lastError = e;
+                this.logger.warn(
+                  `[${instituicaoCodigo}] Publicação falhou tentativa ${attempt}/${HardwareService.WEBHOOK_PUBLISH_MAX_TENTATIVAS} ` +
+                    `(PESCodigo=${person.PESCodigo}, exeId=${exec.EXEIdExterno}): ${(e as Error)?.message}`,
+                );
+                if (attempt < HardwareService.WEBHOOK_PUBLISH_MAX_TENTATIVAS) {
+                  await new Promise((r) =>
+                    setTimeout(
+                      r,
+                      HardwareService.WEBHOOK_PUBLISH_BACKOFF_MS[attempt - 1],
+                    ),
+                  );
+                }
               }
             }
-          }
-
-          if (!exeIdComitado) {
-            this.logger.error(
-              `[${instituicaoId}] Pessoa PESCodigo=${person.PESCodigo} desistida após ${MAX_TENTATIVAS_PESSOA} tentativas: ${(lastPersonError as Error)?.message}`,
-              lastPersonError,
+            throw new Error(
+              `Rabbit publish falhou após ${HardwareService.WEBHOOK_PUBLISH_MAX_TENTATIVAS} tentativas: ${(lastError as Error)?.message}`,
             );
-            continue;
-          }
-
-          void this.rotinaQueueService
-            .setPendingMarker(exeIdComitado)
-            .catch(() => {});
-        }
-        this.logger.log(
-          `[${instituicaoId}] Sync pessoas via webhook (rotina=${rotina.ROTCodigo}): ${enfileirados}/${people.length} job(s) enfileirado(s)`,
+          },
+          { timeout: 30000, maxWait: 5000 },
         );
+
+        break;
+      } catch (e) {
+        lastPersonError = e;
+        this.logger.warn(
+          `[${instituicaoCodigo}] Tentativa ${pessoaAttempt}/${HardwareService.WEBHOOK_PESSOA_MAX_TENTATIVAS} falhou para PESCodigo=${person.PESCodigo}: ${(e as Error)?.message}`,
+        );
+        if (pessoaAttempt < HardwareService.WEBHOOK_PESSOA_MAX_TENTATIVAS) {
+          await new Promise((r) =>
+            setTimeout(
+              r,
+              HardwareService.WEBHOOK_PESSOA_BACKOFF_MS[pessoaAttempt - 1],
+            ),
+          );
+        }
+      }
+    }
+
+    if (!exeIdComitado) {
+      this.logger.error(
+        `[${instituicaoCodigo}] Pessoa PESCodigo=${person.PESCodigo} desistida após ${HardwareService.WEBHOOK_PESSOA_MAX_TENTATIVAS} tentativas: ${(lastPersonError as Error)?.message}`,
+        lastPersonError,
+      );
+      return false;
+    }
+
+    void this.rotinaQueueService
+      .setPendingMarker(exeIdComitado)
+      .catch(() => {});
+
+    return true;
+  }
+
+  async dispatchPessoaSync(
+    instituicaoCodigo: number,
+    pescodigo: number,
+  ): Promise<void> {
+    const person = await this.prisma.pESPessoa.findFirst({
+      where: {
+        PESCodigo: pescodigo,
+        INSInstituicaoCodigo: instituicaoCodigo,
+      },
+      select: { PESCodigo: true, PESNome: true, PESAtivo: true },
+    });
+
+    if (!person?.PESAtivo) {
+      return;
+    }
+
+    const resolved = await this.resolvePessoaWebhookRotina(instituicaoCodigo);
+
+    if (resolved.kind === 'ready') {
+      const enqueued = await this.enqueuePessoaWebhookSync(
+        instituicaoCodigo,
+        person,
+        resolved.rotina,
+        resolved.path,
+        resolved.method,
+      );
+      if (enqueued) {
         return;
       }
+      return;
+    }
+
+    if (resolved.kind === 'invalid') {
       this.logger.warn(
-        `[${instituicaoId}] INSRotinaPessoasCodigo=${rotinaPessoasCodigo} inválido ou inativo; usando sync físico.`,
+        `[${instituicaoCodigo}] INSRotinaPessoasCodigo=${resolved.rotinaPessoasCodigo} inválido ou inativo; usando sync físico.`,
       );
     }
 
-    const devices = await this.prisma.eQPEquipamento.findMany({
-      where: { INSInstituicaoCodigo: instituicaoId, EQPAtivo: true },
-    });
+    await this.syncPersonAcrossInstitution(instituicaoCodigo, pescodigo);
+  }
 
+  async syncAll(instituicaoId: number) {
     const people = await this.prisma.pESPessoa.findMany({
       where: { INSInstituicaoCodigo: instituicaoId, PESAtivo: true },
     });
 
-    for (const dev of devices) {
-      try {
-        const provider = await this.instantiate(dev);
-        for (const person of people) {
-          const hardwareUser = await this.buildHardwareUser(
-            person,
-            dev.EQPCodigo,
-          );
-          await provider.syncPerson(dev.EQPCodigo, hardwareUser);
-        }
-      } catch (e) {
-        this.logger.error(`Failed to sync device ${dev.EQPCodigo}`, e);
-      }
+    for (const person of people) {
+      await this.dispatchPessoaSync(instituicaoId, person.PESCodigo);
     }
   }
 
