@@ -1,5 +1,6 @@
 "use client";
 
+import { createPortal } from "react-dom";
 import { useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { useTenant } from "@/context/TenantContext";
@@ -10,12 +11,13 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon, UserCircleIcon } from "@/icons";
+import { AlertIcon, RefreshIcon, UserCircleIcon } from "@/icons";
 import PessoasFiltros, {
     PESSOA_FILTROS_VAZIOS,
     buildPessoaListQuery,
     type PessoaFiltrosAplicados,
 } from "./components/PessoasFiltros";
+import GenneraSyncModal from "./components/GenneraSyncModal";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 
 interface Pessoa {
@@ -64,6 +66,7 @@ export default function PessoasPage() {
 
     // Modals
     const personModal = useModal();
+    const genneraSyncModal = useModal();
     const deactivateModal = useModal();
     const mappingModal = useModal();
     const deleteFromDevicesModal = useModal();
@@ -86,6 +89,7 @@ export default function PessoasPage() {
     const [loadingMappings, setLoadingMappings] = useState(false);
     const [syncingPerson, setSyncingPerson] = useState(false);
     const [deletingFromDevices, setDeletingFromDevices] = useState(false);
+    const [genneraSyncProcessing, setGenneraSyncProcessing] = useState(false);
 
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -300,9 +304,22 @@ export default function PessoasPage() {
         <div className="space-y-6">
             <div className="flex items-center justify-between">
                 <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Pessoas</h2>
-                {can("pessoa", "create") && (
-                    <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
-                )}
+                <div className="flex items-center gap-2">
+                    {can("pessoa", "sync") && (
+                        <button
+                            type="button"
+                            onClick={genneraSyncModal.openModal}
+                            title="Sincronizar"
+                            aria-label="Sincronizar pessoas do ERP"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                            <RefreshIcon className="h-5 w-5" />
+                        </button>
+                    )}
+                    {can("pessoa", "create") && (
+                        <Button size="sm" onClick={openNew}>+ Nova Pessoa</Button>
+                    )}
+                </div>
             </div>
 
             <PessoasFiltros
@@ -653,6 +670,37 @@ export default function PessoasPage() {
                     </div>
                 </div>
             </Modal>
+
+            <GenneraSyncModal
+                isOpen={genneraSyncModal.isOpen}
+                onClose={genneraSyncModal.closeModal}
+                onSuccess={load}
+                onSyncStateChange={setGenneraSyncProcessing}
+            />
+
+            {typeof document !== "undefined" &&
+                genneraSyncProcessing &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[2147483646] flex items-center justify-center bg-gray-900/40 backdrop-blur-[2px] dark:bg-black/55"
+                        role="status"
+                        aria-live="polite"
+                        aria-busy="true"
+                    >
+                        <div className="mx-4 flex max-w-sm flex-col items-center gap-4 rounded-2xl bg-white px-8 py-7 text-center shadow-xl ring-1 ring-gray-200 dark:bg-gray-900 dark:ring-white/10">
+                            <RefreshIcon className="h-10 w-10 animate-spin text-brand-500" aria-hidden />
+                            <div>
+                                <p className="text-sm font-medium text-gray-800 dark:text-gray-100">
+                                    Sincronizando pessoas…
+                                </p>
+                                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                    Aguarde finalizar o processamento.
+                                </p>
+                            </div>
+                        </div>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }

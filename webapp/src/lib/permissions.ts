@@ -18,6 +18,7 @@ export type PermissionAction =
     | "create"
     | "update"
     | "delete"
+    | "sync"
     | "execute"
     | "reprocess"
     | "cancel_run"
@@ -34,7 +35,7 @@ const RULES: Record<
     OPERACAO: {
         dashboard: A(["read"]),
         passagem: A(["read", "update"]),
-        pessoa: A(["read", "update"]),
+        pessoa: A(["read", "update", "sync"]),
         matricula: A(["read"]),
         usuario_instituicao: A(["read"]),
         rotina: A(["read", "execute", "cancel_run"]),
@@ -44,7 +45,7 @@ const RULES: Record<
     GESTOR: {
         dashboard: A(["read"]),
         passagem: A(["read"]),
-        pessoa: A(["read", "update"]),
+        pessoa: A(["read", "update", "sync"]),
         matricula: A(["read"]),
         equipamento: A(["read"]),
         usuario_instituicao: A(["read", "create", "update", "delete"]),
@@ -55,7 +56,7 @@ const RULES: Record<
     ADMIN: {
         dashboard: A(["read"]),
         passagem: A(["read", "create", "update", "delete"]),
-        pessoa: A(["read", "create", "update", "delete"]),
+        pessoa: A(["read", "create", "update", "delete", "sync"]),
         matricula: A(["read", "create", "update", "delete"]),
         equipamento: A(["read", "create", "update", "delete", "proxy_http"]),
         usuario_instituicao: A(["read", "create", "update", "delete"]),

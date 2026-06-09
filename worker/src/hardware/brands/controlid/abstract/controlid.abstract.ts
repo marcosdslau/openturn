@@ -327,6 +327,8 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         person.pescodigo,
         person.name,
       );
+    } else {
+      await this.removeFace(hardwareId);
     }
     if (person.fingers?.length) {
       await this.setFingers(hardwareId, person.fingers);
@@ -540,7 +542,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     try {
       const processed = await processControlIdFaceImage(rawBuffer);
       buffer = processed.buffer;
-      extensionFinal = processed.format === 'jpeg' ? 'jpg' : 'png';
+      extensionFinal = 'jpg';
 
       await this.withRetry(async () => {
         await this.ensureSession();

@@ -12,11 +12,16 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PessoaService } from './pessoa.service';
+import { GenneraPessoaService } from './gennera/gennera-pessoa.service';
 import {
   CreatePessoaDto,
   UpdatePessoaDto,
   QueryPessoaDto,
 } from './dto/pessoa.dto';
+import {
+  BuscarGenneraPessoaQueryDto,
+  SincronizarGenneraPessoasDto,
+} from './gennera/gennera-pessoa.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
 import { RequirePermission } from '../auth/permissions.decorator';
@@ -24,7 +29,10 @@ import { RequirePermission } from '../auth/permissions.decorator';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('instituicao/:instituicaoCodigo/pessoa')
 export class PessoaController {
-  constructor(private service: PessoaService) {}
+  constructor(
+    private service: PessoaService,
+    private genneraPessoaService: GenneraPessoaService,
+  ) {}
 
   @Post()
   @RequirePermission('pessoa', 'create')
@@ -50,6 +58,38 @@ export class PessoaController {
     @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
   ) {
     return this.service.findDistinctGrupos(instituicaoCodigo);
+  }
+
+  @Get('gennera/status')
+  @RequirePermission('pessoa', 'sync')
+  genneraStatus(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+  ) {
+    return this.genneraPessoaService.getErpStatus(instituicaoCodigo);
+  }
+
+  @Get('gennera/search')
+  @RequirePermission('pessoa', 'sync')
+  genneraSearch(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Query() query: BuscarGenneraPessoaQueryDto,
+  ) {
+    return this.genneraPessoaService.buscarPessoasPorNome(
+      instituicaoCodigo,
+      query.name,
+    );
+  }
+
+  @Post('gennera/sincronizar')
+  @RequirePermission('pessoa', 'sync')
+  genneraSincronizar(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Body() dto: SincronizarGenneraPessoasDto,
+  ) {
+    return this.genneraPessoaService.sincronizarPessoas(
+      instituicaoCodigo,
+      dto.idPersons ?? [],
+    );
   }
 
   @Get(':id/mappings')

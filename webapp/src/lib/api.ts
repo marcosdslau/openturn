@@ -1,4 +1,5 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
+const DEFAULT_API_TIMEOUT_MS = 10 * 60 * 1000;
 
 function getToken(): string | null {
     if (typeof window === 'undefined') return null;
@@ -64,9 +65,10 @@ export async function apiFetchBlob(
 
     let abortController: AbortController | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    if (extra?.timeoutMs && extra.timeoutMs > 0) {
+    const timeoutMs = extra?.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+    if (timeoutMs > 0) {
         abortController = new AbortController();
-        timeoutId = setTimeout(() => abortController!.abort(), extra.timeoutMs);
+        timeoutId = setTimeout(() => abortController!.abort(), timeoutMs);
     }
 
     let res: Response;
@@ -142,9 +144,12 @@ export async function api<T = any>(
 
     let abortController: AbortController | undefined;
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    if (extra?.timeoutMs && extra.timeoutMs > 0 && !options.signal) {
-        abortController = new AbortController();
-        timeoutId = setTimeout(() => abortController!.abort(), extra.timeoutMs);
+    if (!options.signal) {
+        const timeoutMs = extra?.timeoutMs ?? DEFAULT_API_TIMEOUT_MS;
+        if (timeoutMs > 0) {
+            abortController = new AbortController();
+            timeoutId = setTimeout(() => abortController!.abort(), timeoutMs);
+        }
     }
 
     let res: Response;
