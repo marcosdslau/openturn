@@ -9,7 +9,7 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon, UserCircleIcon } from "@/icons";
+import { AlertIcon } from "@/icons";
 import SearchableSelect from "@/components/form/SearchableSelect";
 import MatriculasFiltros, {
     MATRICULA_FILTROS_VAZIOS,
@@ -18,6 +18,7 @@ import MatriculasFiltros, {
     type MatriculaFiltrosAplicados,
     type MatriculaExportPdfOptions,
 } from "./components/MatriculasFiltros";
+import PessoaFotoListagem from "../pessoas/components/PessoaFotoListagem";
 
 interface Matricula {
     MATCodigo: number;
@@ -32,6 +33,7 @@ interface Matricula {
         PESNome: string;
         PESFotoBase64?: string | null;
         PESFotoExtensao?: string | null;
+        PESImageError?: unknown;
     };
 }
 
@@ -313,17 +315,12 @@ export default function MatriculasPage() {
                             <tr key={m.MATCodigo} className="border-b border-gray-50 dark:border-gray-800/50 hover:bg-gray-50 dark:hover:bg-white/[0.02] transition-colors">
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-center">
-                                            {m.pessoa?.PESFotoBase64 ? (
-                                                <img
-                                                    src={`data:image/${m.pessoa.PESFotoExtensao || 'png'};base64,${m.pessoa.PESFotoBase64}`}
-                                                    alt={m.pessoa?.PESNome}
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            ) : (
-                                                <UserCircleIcon className="w-6 h-6 text-gray-400" />
-                                            )}
-                                        </div>
+                                        <PessoaFotoListagem
+                                            nome={m.pessoa?.PESNome || "—"}
+                                            fotoBase64={m.pessoa?.PESFotoBase64}
+                                            fotoExtensao={m.pessoa?.PESFotoExtensao}
+                                            imageError={m.pessoa?.PESImageError}
+                                        />
                                         <span className="font-medium">{m.pessoa?.PESNome || "—"}</span>
                                     </div>
                                 </td>

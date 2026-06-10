@@ -13,6 +13,7 @@ export type PessoaFiltrosAplicados = {
     grupo: string;
     cartaoTag: string;
     ativo: boolean | undefined;
+    foto: "" | "com" | "sem";
 };
 
 const EMPTY: PessoaFiltrosAplicados = {
@@ -22,6 +23,7 @@ const EMPTY: PessoaFiltrosAplicados = {
     grupo: "",
     cartaoTag: "",
     ativo: undefined,
+    foto: "",
 };
 
 function toDraft(f: PessoaFiltrosAplicados) {
@@ -32,6 +34,7 @@ function toDraft(f: PessoaFiltrosAplicados) {
         grupo: f.grupo,
         cartaoTag: f.cartaoTag,
         ativoSelect: f.ativo === undefined ? "" : f.ativo ? "true" : "false",
+        foto: f.foto,
     };
 }
 
@@ -43,7 +46,8 @@ function temFiltrosAvancadosAplicados(f: PessoaFiltrosAplicados) {
         !!f.email.trim() ||
         !!f.grupo.trim() ||
         !!f.cartaoTag.trim() ||
-        f.ativo !== undefined
+        f.ativo !== undefined ||
+        f.foto !== ""
     );
 }
 
@@ -75,6 +79,7 @@ export function buildPessoaListQuery(
     if (grupo) p.set("grupo", grupo);
     if (cartaoTag) p.set("cartaoTag", cartaoTag);
     if (f.ativo !== undefined) p.set("ativo", String(f.ativo));
+    if (f.foto) p.set("foto", f.foto);
     return p.toString();
 }
 
@@ -116,6 +121,7 @@ export default function PessoasFiltros({
             grupo: draft.grupo,
             cartaoTag: draft.cartaoTag,
             ativo,
+            foto: draft.foto,
         });
     };
 
@@ -156,7 +162,7 @@ export default function PessoasFiltros({
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {avancadoAberto
                             ? "Ocultar critérios adicionais"
-                            : "Clique para documento, e-mail, grupo, cartão e situação"}
+                            : "Clique para documento, e-mail, grupo, cartão, foto e situação"}
                     </p>
                 </div>
                 <span
@@ -278,6 +284,28 @@ export default function PessoasFiltros({
                                         <option value="">Todas</option>
                                         <option value="true">Ativas</option>
                                         <option value="false">Inativas</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div>
+                                <Label htmlFor="filtro-foto">Foto</Label>
+                                <div className="relative">
+                                    <select
+                                        id="filtro-foto"
+                                        name="foto"
+                                        value={draft.foto}
+                                        onChange={(e) =>
+                                            setDraft((d) => ({
+                                                ...d,
+                                                foto: e.target.value as "" | "com" | "sem",
+                                            }))
+                                        }
+                                        onKeyDown={enterAplica}
+                                        className={selectClass}
+                                    >
+                                        <option value="">Todos</option>
+                                        <option value="com">Com Foto</option>
+                                        <option value="sem">Sem Foto</option>
                                     </select>
                                 </div>
                             </div>

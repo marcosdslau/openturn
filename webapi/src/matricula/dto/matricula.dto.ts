@@ -109,6 +109,11 @@ export class QueryMatriculaDto extends PaginationDto {
   @IsString({ each: true })
   @MaxLength(200, { each: true })
   turma?: string[];
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsIn(['com', 'sem'])
+  foto?: 'com' | 'sem';
 }
 
 export enum MatriculaExportFormat {
@@ -165,6 +170,11 @@ export class ExportMatriculaQueryDto {
   @IsString({ each: true })
   @MaxLength(200, { each: true })
   turma?: string[];
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsIn(['com', 'sem'])
+  foto?: 'com' | 'sem';
 
   @IsOptional()
   @IsEnum(MatriculaPdfOrientation)

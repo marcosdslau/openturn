@@ -554,6 +554,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
           },
         );
         const data = response?.data as any;
+        console.log(JSON.stringify(data));
         const errorMsg = data?.error_msg ?? data?.error ?? null;
         if (typeof errorMsg === 'string' && errorMsg.trim() !== '') {
           throw new Error(errorMsg);
