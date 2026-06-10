@@ -93,6 +93,105 @@ export class HardwareService {
   }
 
   /**
+   * Sincroniza uma ou mais pessoas em todos os equipamentos ativos da instituição (sync físico).
+   * Falhas por equipamento/pessoa não interrompem os demais.
+   */
+  async syncPerson(
+    instituicaoCodigo: number,
+    pescodigos: number[],
+  ): Promise<{
+    results: Array<{
+      equipmentId: number;
+      pescodigo: number;
+      ok: boolean;
+      error?: string;
+    }>;
+    synced: number;
+    failed: number;
+  }> {
+    if (!pescodigos.length) {
+      return { results: [], synced: 0, failed: 0 };
+    }
+
+    const persons = await this.prisma.pESPessoa.findMany({
+      where: {
+        PESCodigo: { in: pescodigos },
+        INSInstituicaoCodigo: instituicaoCodigo,
+        PESAtivo: true,
+      },
+    });
+
+    if (!persons.length) {
+      return { results: [], synced: 0, failed: 0 };
+    }
+
+    const devices = await this.prisma.eQPEquipamento.findMany({
+      where: { INSInstituicaoCodigo: instituicaoCodigo, EQPAtivo: true },
+    });
+
+    const results: Array<{
+      equipmentId: number;
+      pescodigo: number;
+      ok: boolean;
+      error?: string;
+    }> = [];
+    let synced = 0;
+    let failed = 0;
+
+    for (const dev of devices) {
+      let provider: IHardwareProvider;
+      try {
+        provider = await this.instantiate(dev);
+      } catch (e) {
+        const msg = (e as Error)?.message ?? String(e);
+        this.logger.warn(
+          `[${instituicaoCodigo}] syncPerson instanciar EQP=${dev.EQPCodigo}: ${msg}`,
+        );
+        for (const person of persons) {
+          results.push({
+            equipmentId: dev.EQPCodigo,
+            pescodigo: person.PESCodigo,
+            ok: false,
+            error: msg,
+          });
+          failed++;
+        }
+        continue;
+      }
+
+      for (const person of persons) {
+        try {
+          const hardwareUser = await this.buildHardwareUser(
+            person,
+            dev.EQPCodigo,
+          );
+          await provider.syncPerson(dev.EQPCodigo, hardwareUser);
+          results.push({
+            equipmentId: dev.EQPCodigo,
+            pescodigo: person.PESCodigo,
+            ok: true,
+          });
+          synced++;
+        } catch (e) {
+          const msg = (e as Error)?.message ?? String(e);
+          this.logger.warn(
+            `[${instituicaoCodigo}] syncPerson PESCodigo=${person.PESCodigo} EQP=${dev.EQPCodigo}: ${msg}`,
+          );
+          results.push({
+            equipmentId: dev.EQPCodigo,
+            pescodigo: person.PESCodigo,
+            ok: false,
+            error: msg,
+          });
+          failed++;
+        }
+      }
+    }
+
+    return { results, synced, failed };
+  }
+
+  /**
    * Sincroniza uma pessoa em todos os equipamentos ativos da instituição (sync físico).
    * Falhas por equipamento não interrompem os demais.
    */
@@ -118,39 +217,16 @@ export class HardwareService {
       );
     }
 
-    const devices = await this.prisma.eQPEquipamento.findMany({
-      where: { INSInstituicaoCodigo: instituicaoCodigo, EQPAtivo: true },
-    });
-
-    const results: Array<{
-      equipmentId: number;
-      ok: boolean;
-      error?: string;
-    }> = [];
-    let synced = 0;
-    let failed = 0;
-
-    for (const dev of devices) {
-      try {
-        const provider = await this.instantiate(dev);
-        const hardwareUser = await this.buildHardwareUser(
-          person,
-          dev.EQPCodigo,
-        );
-        await provider.syncPerson(dev.EQPCodigo, hardwareUser);
-        results.push({ equipmentId: dev.EQPCodigo, ok: true });
-        synced++;
-      } catch (e) {
-        const msg = (e as Error)?.message ?? String(e);
-        this.logger.warn(
-          `[${instituicaoCodigo}] syncPerson PESCodigo=${pescodigo} EQP=${dev.EQPCodigo}: ${msg}`,
-        );
-        results.push({ equipmentId: dev.EQPCodigo, ok: false, error: msg });
-        failed++;
-      }
-    }
-
-    return { results, synced, failed };
+    const batch = await this.syncPerson(instituicaoCodigo, [pescodigo]);
+    return {
+      results: batch.results.map(({ equipmentId, ok, error }) => ({
+        equipmentId,
+        ok,
+        error,
+      })),
+      synced: batch.synced,
+      failed: batch.failed,
+    };
   }
 
   /**
@@ -406,6 +482,7 @@ export class HardwareService {
   async dispatchPessoaSync(
     instituicaoCodigo: number,
     pescodigo: number,
+    envioOnline = false,
   ): Promise<void> {
     const person = await this.prisma.pESPessoa.findFirst({
       where: {
@@ -416,6 +493,11 @@ export class HardwareService {
     });
 
     if (!person?.PESAtivo) {
+      return;
+    }
+
+    if (envioOnline) {
+      await this.syncPerson(instituicaoCodigo, [pescodigo]);
       return;
     }
 

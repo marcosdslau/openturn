@@ -9,6 +9,8 @@ import {
   Param,
   Query,
   ParseIntPipe,
+  ParseBoolPipe,
+  DefaultValuePipe,
   UseGuards,
 } from '@nestjs/common';
 import { PessoaService } from './pessoa.service';
@@ -85,10 +87,13 @@ export class PessoaController {
   genneraSincronizar(
     @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
     @Body() dto: SincronizarGenneraPessoasDto,
+    @Query('envioOnline', new DefaultValuePipe(true), ParseBoolPipe)
+    envioOnline: boolean,
   ) {
     return this.genneraPessoaService.sincronizarPessoas(
       instituicaoCodigo,
       dto.idPersons ?? [],
+      envioOnline,
     );
   }
 

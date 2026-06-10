@@ -57,6 +57,7 @@ export class GenneraPessoaService {
   async sincronizarPessoas(
     instituicaoCodigo: number,
     idPersons: number[] = [],
+    envioOnline = true,
   ): Promise<GenneraSyncResult> {
     if (!idPersons.length) {
       return { message: 'Em implementação' };
@@ -76,15 +77,20 @@ export class GenneraPessoaService {
     let updated = 0;
     let failed = 0;
     const errors: { idPerson: number; error: string }[] = [];
+    const pescodigosSincronizados: number[] = [];
 
     for (const pessoa of personsGennera) {
       try {
         const result = await this.upsertPessoaFromGennera(
           instituicaoCodigo,
           pessoa,
+          envioOnline,
         );
-        if (result === 'created') created += 1;
+        if (result.action === 'created') created += 1;
         else updated += 1;
+        if (envioOnline) {
+          pescodigosSincronizados.push(result.pescodigo);
+        }
       } catch (error: any) {
         failed += 1;
         errors.push({
@@ -93,6 +99,19 @@ export class GenneraPessoaService {
         });
         this.logger.warn(
           `Falha ao sincronizar pessoa Gennera idPerson=${pessoa.idPerson}: ${error?.message ?? error}`,
+        );
+      }
+    }
+
+    if (envioOnline && pescodigosSincronizados.length > 0) {
+      try {
+        await this.hardwareService.syncPerson(
+          instituicaoCodigo,
+          pescodigosSincronizados,
+        );
+      } catch (error: unknown) {
+        this.logger.warn(
+          `Falha ao enviar pessoas para catraca (envio online): ${(error as Error)?.message ?? error}`,
         );
       }
     }
@@ -235,7 +254,8 @@ export class GenneraPessoaService {
   private async upsertPessoaFromGennera(
     instituicaoCodigo: number,
     pessoa: GenneraPersonDetail,
-  ): Promise<'created' | 'updated'> {
+    envioOnline = true,
+  ): Promise<{ action: 'created' | 'updated'; pescodigo: number }> {
     const {
       telephoneAreaCode,
       telephoneNumber,
@@ -323,8 +343,14 @@ export class GenneraPessoaService {
         where: { PESCodigo: existing.PESCodigo },
         data: pessoaDAO,
       });
-      await this.dispatchPessoaToCatraca(instituicaoCodigo, existing.PESCodigo);
-      return 'updated';
+      if (!envioOnline) {
+        await this.dispatchPessoaToCatraca(
+          instituicaoCodigo,
+          existing.PESCodigo,
+          envioOnline,
+        );
+      }
+      return { action: 'updated', pescodigo: existing.PESCodigo };
     }
 
     const created = await this.prisma.rls.pESPessoa.create({
@@ -334,18 +360,26 @@ export class GenneraPessoaService {
       } as any,
     });
 
-    await this.dispatchPessoaToCatraca(instituicaoCodigo, created.PESCodigo);
-    return 'created';
+    if (!envioOnline) {
+      await this.dispatchPessoaToCatraca(
+        instituicaoCodigo,
+        created.PESCodigo,
+        envioOnline,
+      );
+    }
+    return { action: 'created', pescodigo: created.PESCodigo };
   }
 
   private async dispatchPessoaToCatraca(
     instituicaoCodigo: number,
     pescodigo: number,
+    envioOnline = true,
   ): Promise<void> {
     try {
       await this.hardwareService.dispatchPessoaSync(
         instituicaoCodigo,
         pescodigo,
+        envioOnline,
       );
     } catch (error: unknown) {
       this.logger.warn(

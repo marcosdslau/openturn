@@ -16,6 +16,7 @@ import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
 import { resizeBase64Image } from '../common/utils/image.utils';
 import { buildPessoaFotoWhere } from '../common/utils/pessoa-foto-filter';
+import { buildPessoaImageErrorWhere } from '../common/utils/pessoa-image-error-filter';
 import { format as formatDate } from 'date-fns';
 import {
   buildCsvBuffer,
@@ -37,16 +38,17 @@ export class MatriculaService {
     instituicaoCodigo: number,
     filters: Pick<
       QueryMatriculaDto,
-      'nome' | 'numero' | 'curso' | 'serie' | 'turma' | 'foto'
+      'nome' | 'numero' | 'curso' | 'serie' | 'turma' | 'foto' | 'erro'
     >,
   ): Prisma.MATMatriculaWhereInput {
-    const { nome, numero, curso, serie, turma, foto } = filters;
+    const { nome, numero, curso, serie, turma, foto, erro } = filters;
 
     return {
       INSInstituicaoCodigo: instituicaoCodigo,
       pessoa: {
         deletedAt: null,
         ...buildPessoaFotoWhere(foto),
+        ...buildPessoaImageErrorWhere(erro),
         ...(nome && {
           OR: [
             { PESNome: { contains: nome, mode: 'insensitive' } },
@@ -118,7 +120,7 @@ export class MatriculaService {
     instituicaoCodigo: number,
     query: ExportMatriculaQueryDto,
   ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
-    const { format: exportFormat, nome, numero, curso, serie, turma, foto } = query;
+    const { format: exportFormat, nome, numero, curso, serie, turma, foto, erro } = query;
     const where = this.buildMatriculaWhere(instituicaoCodigo, {
       nome,
       numero,
@@ -126,6 +128,7 @@ export class MatriculaService {
       serie,
       turma,
       foto,
+      erro,
     });
 
     const total = await this.prisma.rls.mATMatricula.count({ where });

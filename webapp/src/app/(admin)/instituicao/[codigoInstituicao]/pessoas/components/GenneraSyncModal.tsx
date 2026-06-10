@@ -5,6 +5,7 @@ import { useTenant } from "@/context/TenantContext";
 import { apiGet, apiPost } from "@/lib/api";
 import { useToast } from "@/context/ToastContext";
 import Button from "@/components/ui/button/Button";
+import Switch from "@/components/form/switch/Switch";
 import { Modal } from "@/components/ui/modal";
 
 interface GenneraSearchPerson {
@@ -46,6 +47,7 @@ export default function GenneraSyncModal({
     const [syncing, setSyncing] = useState(false);
     const [results, setResults] = useState<GenneraSearchPerson[]>([]);
     const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+    const [envioOnline, setEnvioOnline] = useState(true);
 
     const resetState = useCallback(() => {
         setSearchName("");
@@ -53,6 +55,7 @@ export default function GenneraSyncModal({
         setSelectedIds(new Set());
         setSearching(false);
         setSyncing(false);
+        setEnvioOnline(true);
     }, []);
 
     useEffect(() => {
@@ -117,7 +120,7 @@ export default function GenneraSyncModal({
         onSyncStateChange?.(true);
         try {
             const res = await apiPost<GenneraSyncResult>(
-                `/instituicao/${codigoInstituicao}/pessoa/gennera/sincronizar`,
+                `/instituicao/${codigoInstituicao}/pessoa/gennera/sincronizar?envioOnline=${envioOnline}`,
                 { idPersons: Array.from(selectedIds) },
             );
             showToast("success", "Sincronização", res.message || "Concluído.");
@@ -250,21 +253,34 @@ export default function GenneraSyncModal({
                 )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 border-t border-gray-200 px-6 py-4 dark:border-gray-700">
-                <Button size="sm" variant="outline" onClick={onClose} disabled={syncing}>
-                    Fechar
-                </Button>
-                {isGennera && (
-                    <Button
-                        size="sm"
-                        onClick={() => void handleSync()}
-                        disabled={syncing || selectedCount === 0}
-                    >
-                        {syncing
-                            ? "Sincronizando..."
-                            : `Sincronizar selecionados (${selectedCount})`}
+            <div className="flex items-center justify-between border-t border-gray-200 px-6 py-4 dark:border-gray-700">
+                <div>
+                    {isGennera && (
+                        <Switch
+                            key={String(isOpen)}
+                            label="Envio online Sim/Não"
+                            defaultChecked={true}
+                            onChange={setEnvioOnline}
+                            disabled={syncing}
+                        />
+                    )}
+                </div>
+                <div className="flex items-center gap-3">
+                    <Button size="sm" variant="outline" onClick={onClose} disabled={syncing}>
+                        Fechar
                     </Button>
-                )}
+                    {isGennera && (
+                        <Button
+                            size="sm"
+                            onClick={() => void handleSync()}
+                            disabled={syncing || selectedCount === 0}
+                        >
+                            {syncing
+                                ? "Sincronizando..."
+                                : `Sincronizar selecionados (${selectedCount})`}
+                        </Button>
+                    )}
+                </div>
             </div>
         </Modal>
     );

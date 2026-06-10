@@ -170,4 +170,9 @@ export class QueryPessoaDto extends PaginationDto {
   @Transform(trimOrUndefined)
   @IsIn(['com', 'sem'])
   foto?: 'com' | 'sem';
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsIn(['com', 'sem'])
+  erro?: 'com' | 'sem';
 }

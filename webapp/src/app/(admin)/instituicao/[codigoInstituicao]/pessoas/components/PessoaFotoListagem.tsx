@@ -13,6 +13,8 @@ import {
   useRole,
   useInteractions,
   arrow,
+  FloatingPortal,
+  safePolygon,
 } from "@floating-ui/react";
 import { UserCircleIcon } from "@/icons";
 import { formatJsonValue, hasJsonContent } from "@/components/ui/json/JsonViewer";
@@ -49,7 +51,8 @@ export default function PessoaFotoListagem({
 
   const hover = useHover(context, {
     move: false,
-    delay: { open: 100 },
+    delay: { open: 100, close: 0 },
+    handleClose: safePolygon({ blockPointerEvents: true }),
   });
   const focus = useFocus(context);
   const dismiss = useDismiss(context);
@@ -132,33 +135,35 @@ export default function PessoaFotoListagem({
           onClick: stopRowNav,
           onMouseDown: stopRowNav,
         })}
-        className="absolute right-0 top-0.5 z-10 flex h-2.5 w-2.5 cursor-help items-center justify-center"
+        className="absolute -right-0.5 -top-0.5 z-10 flex h-[15px] w-[15px] cursor-help items-center justify-center"
         aria-label="Erro no cadastro facial"
       >
-        <span className="h-2 w-2 rounded-full border border-white bg-error-500 dark:border-gray-900" />
+        <span className="h-3 w-3 rounded-full border border-white bg-error-500 dark:border-gray-900" />
       </span>
       {isOpen && (
-        <div
-          ref={refs.setFloating}
-          style={floatingStyles}
-          {...getFloatingProps({
-            onClick: stopRowNav,
-            onMouseDown: stopRowNav,
-          })}
-          className="z-99999 max-w-sm rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-mono text-gray-700 shadow-md dark:border-gray-700 dark:bg-[#1E2634] dark:text-white/90"
-        >
-          <p className="mb-1 text-[10px] font-sans font-semibold uppercase tracking-wide text-error-600 dark:text-error-400">
-            Erro no cadastro facial
-          </p>
-          <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar">
-            {formatJsonValue(imageError)}
-          </pre>
+        <FloatingPortal>
           <div
-            ref={arrowRef}
-            style={getArrowStyles()}
-            className={`bg-white dark:bg-[#1E2634] ${getArrowBorderSides()} border-gray-200 dark:border-gray-700`}
-          />
-        </div>
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps({
+              onClick: stopRowNav,
+              onMouseDown: stopRowNav,
+            })}
+            className="z-99999 max-w-sm rounded-lg border border-gray-200 bg-white px-3 py-2 text-left text-xs font-mono text-gray-700 shadow-md dark:border-gray-700 dark:bg-[#1E2634] dark:text-white/90"
+          >
+            <p className="mb-1 text-[10px] font-sans font-semibold uppercase tracking-wide text-error-600 dark:text-error-400">
+              Erro no cadastro facial
+            </p>
+            <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words custom-scrollbar">
+              {formatJsonValue(imageError)}
+            </pre>
+            <div
+              ref={arrowRef}
+              style={getArrowStyles()}
+              className={`bg-white dark:bg-[#1E2634] ${getArrowBorderSides()} border-gray-200 dark:border-gray-700`}
+            />
+          </div>
+        </FloatingPortal>
       )}
     </div>
   );
