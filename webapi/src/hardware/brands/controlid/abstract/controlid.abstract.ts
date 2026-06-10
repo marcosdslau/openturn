@@ -564,6 +564,17 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     );
   }
 
+  async openGate(equipmentId: number): Promise<void> {
+    await this.postWithRetry('/execute_actions.fcgi', {
+      actions: [
+        { action: 'catra', parameters: 'allow=both, reason=3' },
+      ],
+    });
+    this.logger.log(
+      `[ControlID] openGate equipmentId=${equipmentId} host=${this.config.host}`,
+    );
+  }
+
   async executeAction(action: string, params?: any): Promise<void> {
     await this.executeActionImpl(action, params);
   }

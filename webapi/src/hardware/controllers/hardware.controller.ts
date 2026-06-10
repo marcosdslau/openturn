@@ -78,6 +78,18 @@ export class HardwareController {
     );
   }
 
+  @Post(':equipmentId/open-gate')
+  @RequirePermission('visitante', 'execute')
+  async openGate(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('equipmentId', ParseIntPipe) equipmentId: number,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] open-gate on equipment ${equipmentId}`,
+    );
+    return this.hardwareService.openGate(instituicaoCodigo, equipmentId);
+  }
+
   @Post(':equipmentId/delete-all-users')
   @RequirePermission('equipamento', 'update')
   async deleteAllUsers(

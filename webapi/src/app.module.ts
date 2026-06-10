@@ -21,6 +21,7 @@ import { AiModule } from './modules/ai/ai.module';
 import { MonitorModule } from './monitor/monitor.module';
 import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
 import { NotificacaoModule } from './notificacao/notificacao.module';
+import { VisitanteModule } from './visitante/visitante.module';
 
 @Module({
   imports: [
@@ -42,6 +43,7 @@ import { NotificacaoModule } from './notificacao/notificacao.module';
     MonitorModule,
     RegistroDiarioModule,
     NotificacaoModule,
+    VisitanteModule,
   ],
   controllers: [AppController],
   providers: [

@@ -4,6 +4,7 @@ import {
     BoxCubeIcon,
     CalenderIcon,
     CallIcon,
+    LockIcon,
     CartIcon,
     ChatIcon,
     GridIcon,
@@ -58,6 +59,11 @@ export const getMainNavItems = (
             icon: <GridIcon />,
             name: "Dashboard",
             path: `${basePath}/dashboard`,
+        },
+        {
+            icon: <LockIcon />,
+            name: "Liberações",
+            path: `${basePath}/liberacoes`,
         },
         {
             icon: <ListIcon />,

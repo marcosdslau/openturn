@@ -51,6 +51,8 @@ export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
 
   executeAction(action: string, params?: any): Promise<void>;
 
+  openGate(equipmentId: number): Promise<void>;
+
   enroll(type: 'face' | 'biometry', userId: number): Promise<void>;
 
   customCommand(cmd: string, params?: any): Promise<any>;
