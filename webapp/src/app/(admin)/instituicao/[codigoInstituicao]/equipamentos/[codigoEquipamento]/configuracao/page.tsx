@@ -21,6 +21,8 @@ interface Equipamento {
     EQPConfig?: any;
 }
 
+type ConfigTabId = 'geral' | 'horarios' | 'departamentos' | 'liberacoes_agendadas';
+
 export default function ControlIDConfigPage() {
     const { loading: authLoading } = useAuth();
     const { codigoInstituicao } = useTenant();
@@ -36,7 +38,7 @@ export default function ControlIDConfigPage() {
     const [equipment, setEquipment] = useState<Equipamento | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [activeTab, setActiveTab] = useState<'geral' | 'horarios' | 'departamentos'>('geral');
+    const [activeTab, setActiveTab] = useState<ConfigTabId>('geral');
     const [connectorOnline, setConnectorOnline] = useState(false);
     const [creatingSession, setCreatingSession] = useState(false);
     const [remoteTargetIp, setRemoteTargetIp] = useState<string>("");
@@ -133,6 +135,24 @@ export default function ControlIDConfigPage() {
             loadEquipment();
         }
     }, [authLoading, mayMutateEquip, codigoEquipamento, codigoInstituicao, router, showToast, loadEquipment]);
+
+    const tabs = useMemo(() => {
+        const base: { id: ConfigTabId; name: string }[] = [
+            { id: 'geral', name: 'Geral' },
+            { id: 'horarios', name: 'Horários' },
+            { id: 'departamentos', name: 'Departamentos' },
+        ];
+        if (equipment?.EQPMarca === 'ControlID') {
+            base.push({ id: 'liberacoes_agendadas', name: 'Liberações Agendadas' });
+        }
+        return base;
+    }, [equipment?.EQPMarca]);
+
+    useEffect(() => {
+        if (activeTab === 'liberacoes_agendadas' && equipment?.EQPMarca !== 'ControlID') {
+            setActiveTab('geral');
+        }
+    }, [activeTab, equipment?.EQPMarca]);
 
     const handleConfigureEquipment = async (type: "GERAL" | "BOX" | "WEBHOOK") => {
         if (!equipment) return;
@@ -344,14 +364,10 @@ export default function ControlIDConfigPage() {
             {/* Tabs */}
             <div className="border-b border-gray-200 dark:border-gray-700">
                 <nav className="-mb-px flex space-x-8" aria-label="Tabs">
-                    {[
-                        { id: 'geral', name: 'Geral' },
-                        { id: 'horarios', name: 'Horários' },
-                        { id: 'departamentos', name: 'Departamentos' },
-                    ].map((tab) => (
+                    {tabs.map((tab) => (
                         <button
                             key={tab.id}
-                            onClick={() => setActiveTab(tab.id as any)}
+                            onClick={() => setActiveTab(tab.id)}
                             className={`
                                 whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium
                                 ${activeTab === tab.id
@@ -631,6 +647,15 @@ export default function ControlIDConfigPage() {
 
                 {activeTab === 'departamentos' && (
                     <DepartmentsTab
+                        institutionId={Number(codigoInstituicao)}
+                        equipmentId={Number(equipment.EQPCodigo)}
+                        config={equipment.EQPConfig}
+                        mainIp={equipment.EQPEnderecoIp}
+                    />
+                )}
+
+                {activeTab === 'liberacoes_agendadas' && equipment.EQPMarca === 'ControlID' && (
+                    <ScheduledUnlocksTab
                         institutionId={Number(codigoInstituicao)}
                         equipmentId={Number(equipment.EQPCodigo)}
                         config={equipment.EQPConfig}
@@ -1602,6 +1627,419 @@ function DepartmentsTab({ institutionId, equipmentId, config, mainIp }: TabProps
                             <Button variant="outline" onClick={() => setIsBindingModalOpen(false)}>Cancelar</Button>
                             <Button onClick={handleSaveBindings} className="bg-blue-600 hover:bg-blue-700 text-white border-none shadow-md" disabled={loading}>
                                 {loading ? 'Salvando...' : 'Salvar Vínculos'}
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
+interface ScheduledUnlock {
+    id: number;
+    name: string;
+    message?: string;
+    accessRuleId?: number;
+    timeZoneNames: string[];
+}
+
+async function hardwareCommand(
+    institutionId: number,
+    equipmentId: number,
+    command: string,
+    params: Record<string, unknown>,
+    targetIp: string,
+): Promise<any> {
+    return apiPost(`/instituicao/${institutionId}/hardware/${equipmentId}/command`, {
+        command,
+        params,
+        targetIp,
+    });
+}
+
+function ScheduledUnlocksTab({ institutionId, equipmentId, config, mainIp }: TabProps) {
+    const { showToast } = useToast();
+    const { ips, selectedIp, setSelectedIp } = useIpSelection(config, mainIp);
+
+    const [scheduledUnlocks, setScheduledUnlocks] = useState<ScheduledUnlock[]>([]);
+    const [availableTimeZones, setAvailableTimeZones] = useState<TimeZone[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [saving, setSaving] = useState(false);
+
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+    const [formName, setFormName] = useState("");
+    const [formMessage, setFormMessage] = useState("");
+    const [selectedTimeZoneIds, setSelectedTimeZoneIds] = useState<number[]>([]);
+
+    const loadScheduledUnlocks = useCallback(async () => {
+        if (!selectedIp) return;
+        setLoading(true);
+        try {
+            const [unlocksRes, rulesMapRes, ruleTzRes, tzRes] = await Promise.all([
+                hardwareCommand(institutionId, equipmentId, 'load_objects', { object: 'scheduled_unlocks' }, selectedIp),
+                hardwareCommand(institutionId, equipmentId, 'load_objects', { object: 'scheduled_unlock_access_rules' }, selectedIp),
+                hardwareCommand(institutionId, equipmentId, 'load_objects', { object: 'access_rule_time_zones' }, selectedIp),
+                hardwareCommand(institutionId, equipmentId, 'load_objects', { object: 'time_zones' }, selectedIp),
+            ]);
+
+            const unlocks: { id: number; name: string; message?: string }[] = unlocksRes.scheduled_unlocks || [];
+            const rulesMap: { scheduled_unlock_id: number; access_rule_id: number }[] =
+                rulesMapRes.scheduled_unlock_access_rules || [];
+            const ruleTzLinks: { access_rule_id: number; time_zone_id: number }[] =
+                ruleTzRes.access_rule_time_zones || [];
+            const timeZones: TimeZone[] = tzRes.time_zones || [];
+
+            setAvailableTimeZones(timeZones);
+
+            const tzNameById = new Map(timeZones.map((tz) => [tz.id, tz.name]));
+            const ruleByUnlockId = new Map(rulesMap.map((r) => [r.scheduled_unlock_id, r.access_rule_id]));
+            const tzIdsByRuleId = new Map<number, number[]>();
+            for (const link of ruleTzLinks) {
+                const list = tzIdsByRuleId.get(link.access_rule_id) ?? [];
+                list.push(link.time_zone_id);
+                tzIdsByRuleId.set(link.access_rule_id, list);
+            }
+
+            const aggregated: ScheduledUnlock[] = unlocks.map((unlock) => {
+                const accessRuleId = ruleByUnlockId.get(unlock.id);
+                const tzIds = accessRuleId ? (tzIdsByRuleId.get(accessRuleId) ?? []) : [];
+                const timeZoneNames = tzIds
+                    .map((id) => tzNameById.get(id))
+                    .filter((name): name is string => Boolean(name));
+                return {
+                    id: unlock.id,
+                    name: unlock.name,
+                    message: unlock.message,
+                    accessRuleId,
+                    timeZoneNames,
+                };
+            });
+
+            setScheduledUnlocks(aggregated);
+        } catch (e) {
+            console.error(e);
+            showToast("error", "Erro", "Falha ao carregar liberações agendadas.");
+            setScheduledUnlocks([]);
+        } finally {
+            setLoading(false);
+        }
+    }, [institutionId, equipmentId, selectedIp, showToast]);
+
+    useEffect(() => { loadScheduledUnlocks(); }, [loadScheduledUnlocks]);
+
+    const openCreateModal = () => {
+        setFormName("");
+        setFormMessage("");
+        setSelectedTimeZoneIds([]);
+        setIsCreateModalOpen(true);
+    };
+
+    const toggleTimeZoneSelection = (tzId: number) => {
+        setSelectedTimeZoneIds((prev) =>
+            prev.includes(tzId) ? prev.filter((id) => id !== tzId) : [...prev, tzId],
+        );
+    };
+
+    const rollbackCreate = async (
+        created: { unlockId?: number; accessRuleId?: number },
+    ) => {
+        if (!selectedIp) return;
+        try {
+            if (created.accessRuleId) {
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'portal_access_rules',
+                    where: { portal_access_rules: { access_rule_id: created.accessRuleId } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'access_rule_time_zones',
+                    where: { access_rule_time_zones: { access_rule_id: created.accessRuleId } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'access_rules',
+                    where: { access_rules: { id: created.accessRuleId } },
+                }, selectedIp);
+            }
+            if (created.unlockId) {
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'scheduled_unlock_access_rules',
+                    where: { scheduled_unlock_access_rules: { scheduled_unlock_id: created.unlockId } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'scheduled_unlocks',
+                    where: { scheduled_unlocks: { id: created.unlockId } },
+                }, selectedIp);
+            }
+        } catch {
+            /* best-effort rollback */
+        }
+    };
+
+    const handleCreate = async () => {
+        if (!selectedIp || !formName.trim() || selectedTimeZoneIds.length === 0) return;
+
+        setSaving(true);
+        const created: { unlockId?: number; accessRuleId?: number } = {};
+
+        try {
+            const unlockRes = await hardwareCommand(institutionId, equipmentId, 'create_objects', {
+                object: 'scheduled_unlocks',
+                values: [{ name: formName.trim(), message: formMessage.trim() || undefined }],
+            }, selectedIp);
+            created.unlockId = unlockRes.ids?.[0];
+            if (!created.unlockId) throw new Error('Falha ao criar liberação agendada');
+
+            const ruleRes = await hardwareCommand(institutionId, equipmentId, 'create_objects', {
+                object: 'access_rules',
+                values: [{
+                    name: `(access_rules automatically created for scheduled_unlock ${created.unlockId})`,
+                    type: 1,
+                    priority: 0,
+                }],
+            }, selectedIp);
+            created.accessRuleId = ruleRes.ids?.[0];
+            if (!created.accessRuleId) throw new Error('Falha ao criar regra de acesso');
+
+            await hardwareCommand(institutionId, equipmentId, 'create_objects', {
+                object: 'scheduled_unlock_access_rules',
+                values: [{ scheduled_unlock_id: created.unlockId, access_rule_id: created.accessRuleId }],
+            }, selectedIp);
+
+            const portalRes = await hardwareCommand(institutionId, equipmentId, 'load_objects', {
+                object: 'portals',
+                limit: 1000,
+            }, selectedIp);
+            const portals: { id: number }[] = portalRes.portals || [];
+
+            for (const portal of portals) {
+                try {
+                    await hardwareCommand(institutionId, equipmentId, 'create_objects', {
+                        object: 'portal_access_rules',
+                        values: [{ portal_id: portal.id, access_rule_id: created.accessRuleId }],
+                    }, selectedIp);
+                } catch {
+                    /* ignore if already exists */
+                }
+            }
+
+            await hardwareCommand(institutionId, equipmentId, 'create_objects', {
+                object: 'access_rule_time_zones',
+                values: selectedTimeZoneIds.map((timeZoneId) => ({
+                    access_rule_id: created.accessRuleId,
+                    time_zone_id: timeZoneId,
+                })),
+            }, selectedIp);
+
+            showToast("success", "Sucesso", "Liberação agendada criada.");
+            setIsCreateModalOpen(false);
+            loadScheduledUnlocks();
+        } catch (e) {
+            console.error(e);
+            await rollbackCreate(created);
+            showToast("error", "Erro", "Falha ao criar liberação agendada.");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    const handleDelete = async (unlock: ScheduledUnlock) => {
+        if (!selectedIp) return;
+        if (!confirm(`Tem certeza que deseja excluir a liberação "${unlock.name}"?`)) return;
+
+        setLoading(true);
+        try {
+            let accessRuleId = unlock.accessRuleId;
+            if (!accessRuleId) {
+                const rulesMapRes = await hardwareCommand(institutionId, equipmentId, 'load_objects', {
+                    object: 'scheduled_unlock_access_rules',
+                }, selectedIp);
+                const rulesMap: { scheduled_unlock_id: number; access_rule_id: number }[] =
+                    rulesMapRes.scheduled_unlock_access_rules || [];
+                accessRuleId = rulesMap.find((r) => r.scheduled_unlock_id === unlock.id)?.access_rule_id;
+            }
+
+            if (accessRuleId) {
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'access_rule_time_zones',
+                    where: { access_rule_time_zones: { access_rule_id: accessRuleId } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'portal_access_rules',
+                    where: { portal_access_rules: { access_rule_id: accessRuleId } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'scheduled_unlock_access_rules',
+                    where: { scheduled_unlock_access_rules: { scheduled_unlock_id: unlock.id } },
+                }, selectedIp);
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'access_rules',
+                    where: { access_rules: { id: accessRuleId } },
+                }, selectedIp);
+            } else {
+                await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                    object: 'scheduled_unlock_access_rules',
+                    where: { scheduled_unlock_access_rules: { scheduled_unlock_id: unlock.id } },
+                }, selectedIp);
+            }
+
+            await hardwareCommand(institutionId, equipmentId, 'destroy_objects', {
+                object: 'scheduled_unlocks',
+                where: { scheduled_unlocks: { id: unlock.id } },
+            }, selectedIp);
+
+            showToast("success", "Sucesso", "Liberação agendada removida.");
+            loadScheduledUnlocks();
+        } catch (e) {
+            console.error(e);
+            showToast("error", "Erro", "Falha ao remover liberação agendada.");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const canSaveCreate = formName.trim().length > 0 && selectedTimeZoneIds.length > 0 && !saving;
+
+    return (
+        <div className="flex gap-6 relative">
+            <div className="w-1/4 space-y-1">
+                {ips.map((item) => (
+                    <button
+                        key={`${item.type}-${item.ip}`}
+                        onClick={() => setSelectedIp(item.ip)}
+                        className={`w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                            ${selectedIp === item.ip
+                                ? 'bg-brand-50 text-brand-700 dark:bg-brand-900/20 dark:text-brand-400'
+                                : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-gray-800'
+                            }`}
+                    >
+                        {item.label}
+                        <div className="text-xs font-normal opacity-70">{item.ip}</div>
+                    </button>
+                ))}
+            </div>
+
+            <div className="flex-1 space-y-6 bg-white dark:bg-gray-800 p-6 rounded-xl border border-gray-200 dark:border-gray-700">
+                <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-medium text-gray-900 dark:text-white">Liberações Agendadas</h3>
+                    <Button onClick={openCreateModal} disabled={loading}>Nova Liberação Agendada</Button>
+                </div>
+
+                {loading ? <p>Carregando...</p> : (
+                    <div className="divide-y divide-gray-200 dark:divide-gray-700 border rounded-lg overflow-x-auto">
+                        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                            <thead className="bg-gray-50 dark:bg-gray-900/50">
+                                <tr>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Nome</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Mensagem</th>
+                                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Horários vinculados</th>
+                                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                                {scheduledUnlocks.map((unlock) => (
+                                    <tr key={unlock.id}>
+                                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-white">{unlock.id}</td>
+                                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-white">{unlock.name}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-500">{unlock.message || "—"}</td>
+                                        <td className="px-4 py-3 text-sm text-gray-500">
+                                            {unlock.timeZoneNames.length > 0
+                                                ? unlock.timeZoneNames.join(", ")
+                                                : <span className="italic">Nenhum horário</span>}
+                                        </td>
+                                        <td className="px-4 py-3 text-right text-sm">
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => handleDelete(unlock)}
+                                                className="text-red-500 hover:text-red-700 hover:bg-red-50 border-gray-200 dark:border-gray-700"
+                                            >
+                                                Excluir
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                        {scheduledUnlocks.length === 0 && (
+                            <p className="p-4 text-center text-gray-500 text-sm">Nenhuma liberação agendada cadastrada.</p>
+                        )}
+                    </div>
+                )}
+            </div>
+
+            {isCreateModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+                    <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                        <div className="p-5 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+                            <h3 className="text-lg font-medium text-gray-900 dark:text-white">Nova Liberação Agendada</h3>
+                            <button
+                                onClick={() => setIsCreateModalOpen(false)}
+                                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 p-2"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="p-6 flex-1 overflow-y-auto space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome</label>
+                                <input
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                    value={formName}
+                                    placeholder="Ex: Happy Hour"
+                                    onChange={(e) => setFormName(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Mensagem</label>
+                                <input
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                                    value={formMessage}
+                                    placeholder="Mensagem exibida durante a liberação"
+                                    onChange={(e) => setFormMessage(e.target.value)}
+                                />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    Horários de acesso
+                                </p>
+                                {availableTimeZones.length === 0 ? (
+                                    <p className="text-sm text-amber-600 dark:text-amber-400">
+                                        Cadastre horários na aba &quot;Horários&quot; antes de criar uma liberação.
+                                    </p>
+                                ) : (
+                                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden divide-y divide-gray-200 dark:divide-gray-700">
+                                        {availableTimeZones.map((tz) => (
+                                            <label
+                                                key={tz.id}
+                                                className="flex items-center gap-3 p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer"
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedTimeZoneIds.includes(tz.id)}
+                                                    onChange={() => toggleTimeZoneSelection(tz.id)}
+                                                    className="w-5 h-5 text-brand-600 rounded border-gray-300 focus:ring-brand-500 dark:border-gray-600 dark:bg-gray-700"
+                                                />
+                                                <div className="flex flex-col">
+                                                    <span className="text-sm font-medium text-gray-900 dark:text-white">{tz.name}</span>
+                                                    <span className="text-xs text-gray-500">ID: {tz.id}</span>
+                                                </div>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        <div className="p-5 border-t dark:border-gray-700 flex justify-end gap-3 bg-gray-50 dark:bg-gray-900/50">
+                            <Button variant="outline" onClick={() => setIsCreateModalOpen(false)}>Cancelar</Button>
+                            <Button
+                                onClick={handleCreate}
+                                className="bg-blue-600 hover:bg-blue-700 text-white border-none shadow-md"
+                                disabled={!canSaveCreate}
+                            >
+                                {saving ? 'Salvando...' : 'Salvar'}
                             </Button>
                         </div>
                     </div>

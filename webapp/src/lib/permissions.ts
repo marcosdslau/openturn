@@ -11,7 +11,8 @@ export type PermissionResource =
     | "usuario_instituicao"
     | "rotina"
     | "execucao"
-    | "registroDiario";
+    | "registroDiario"
+    | "visitante";
 
 export type PermissionAction =
     | "read"
@@ -41,6 +42,7 @@ const RULES: Record<
         rotina: A(["read", "execute", "cancel_run"]),
         execucao: A(["read", "reprocess", "cancel_run"]),
         registroDiario: A(["read"]),
+        visitante: A(["read", "execute"]),
     },
     GESTOR: {
         dashboard: A(["read"]),
@@ -52,6 +54,7 @@ const RULES: Record<
         rotina: A(["read", "execute", "cancel_run"]),
         execucao: A(["read", "reprocess", "cancel_run"]),
         registroDiario: A(["read", "execute"]),
+        visitante: A(["read", "execute"]),
     },
     ADMIN: {
         dashboard: A(["read"]),
@@ -72,6 +75,7 @@ const RULES: Record<
             "clear_serial_lock",
         ]),
         execucao: A(["read", "reprocess", "delete", "cancel_run"]),
+        visitante: A(["read", "execute"]),
     },
     SUPER_ROOT: undefined,
     SUPER_ADMIN: undefined,

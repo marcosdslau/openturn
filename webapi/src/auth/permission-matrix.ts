@@ -11,7 +11,8 @@ export type PermissionResource =
   | 'notificacao'
   | 'rotina'
   | 'execucao'
-  | 'registroDiario';
+  | 'registroDiario'
+  | 'visitante';
 
 export type PermissionAction =
   | 'read'
@@ -42,6 +43,7 @@ const RULES: Record<
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
     registroDiario: A(['read']),
+    visitante: A(['read', 'execute']),
   },
   [GrupoAcesso.GESTOR]: {
     dashboard: A(['read']),
@@ -54,6 +56,7 @@ const RULES: Record<
     rotina: A(['read', 'execute', 'cancel_run']),
     execucao: A(['read', 'reprocess', 'cancel_run']),
     registroDiario: A(['read', 'execute']),
+    visitante: A(['read', 'execute']),
   },
   [GrupoAcesso.ADMIN]: {
     dashboard: A(['read']),
@@ -75,6 +78,7 @@ const RULES: Record<
       'clear_serial_lock',
     ]),
     execucao: A(['read', 'reprocess', 'delete', 'cancel_run']),
+    visitante: A(['read', 'execute']),
   },
   [GrupoAcesso.SUPER_ROOT]: undefined,
   [GrupoAcesso.SUPER_ADMIN]: undefined,

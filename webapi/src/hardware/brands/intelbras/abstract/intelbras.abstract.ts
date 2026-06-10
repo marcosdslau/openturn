@@ -106,6 +106,13 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     this.logger.log(`[Intelbras] Removing groups for user ${userId}`);
   }
 
+  async openGate(_equipmentId: number): Promise<void> {
+    throw new BadRequestException({
+      supported: false,
+      message: 'openGate não suportado para esta marca',
+    });
+  }
+
   async executeAction(action: string, params?: any): Promise<void> {
     this.logger.log(`[Intelbras] Executing action ${action}`);
   }

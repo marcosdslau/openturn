@@ -504,6 +504,27 @@ export class HardwareService {
     return { ok: true };
   }
 
+  async openGate(
+    instituicaoCodigo: number,
+    equipmentId: number,
+  ): Promise<{ ok: boolean }> {
+    const device = await this.prisma.eQPEquipamento.findUnique({
+      where: { EQPCodigo: equipmentId },
+    });
+
+    if (!device) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    if (device.INSInstituicaoCodigo !== instituicaoCodigo) {
+      throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
+    }
+
+    const provider = await this.instantiate(device);
+    await provider.openGate(device.EQPCodigo);
+    return { ok: true };
+  }
+
   async executeCommand(
     equipmentId: number,
     command: string,
