@@ -10,7 +10,7 @@ export function hasJsonContent(value: unknown): boolean {
   return true;
 }
 
-function formatJsonValue(data: unknown): string {
+export function formatJsonValue(data: unknown): string {
   if (data == null) return "";
   if (typeof data === "string") {
     try {

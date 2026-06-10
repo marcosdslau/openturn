@@ -1,5 +1,5 @@
 import { BadRequestException, Logger } from '@nestjs/common';
-import { EQPEquipamento } from '@prisma/client';
+import { EQPEquipamento, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
   HardwareEquipmentConfigType,
@@ -13,6 +13,7 @@ import {
 import { IHttpTransport } from '../../../transport/http-transport.interface';
 import { DirectHttpTransport } from '../../../transport/direct-http.transport';
 import { WsRelayHttpTransport } from '../../../transport/ws-relay-http.transport';
+import { processControlIdFaceImage } from '../utils/controlid-face-image';
 
 /** Trecho de `INSInstituicao.INSConfigHardware` usado para Monitor Control iD. */
 type InsConfigHardwareMonitorJson = {
@@ -41,6 +42,97 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     if (error?.code) return error.code;
     if (error?.response?.data?.error_msg) return error.response.data.error_msg;
     return error?.message || 'Unknown error';
+  }
+
+  private isRetryableError(error: any): boolean {
+    const message = this.getErrorDetails(error);
+    return (
+      message === 'Invalid session' ||
+      message === 'write ECONNABORTED' ||
+      message === 'read ECONNRESET' ||
+      message === 'socket hang up' ||
+      error?.response?.status === 401
+    );
+  }
+
+  private formatDdMmYyyy(d: Date): string {
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yyyy = String(d.getFullYear());
+    return `${dd}-${mm}-${yyyy}`;
+  }
+
+  private async persistControlIdImageFailure(params: {
+    pescodigo: number;
+    pesnome?: string;
+    userId: number;
+    equipmentHost: string;
+    timestamp: number;
+    extension: string;
+    bufferSize: number;
+    error: any;
+  }): Promise<void> {
+    const message = this.getErrorDetails(params.error);
+    const status = params.error?.response?.status;
+    const responseData = params.error?.response?.data;
+
+    const errorJson = {
+      origem: 'imagem_control_id',
+      pescodigo: params.pescodigo,
+      pesnome: params.pesnome ?? null,
+      userId: params.userId,
+      equipmentHost: params.equipmentHost,
+      timestamp: params.timestamp,
+      extension: params.extension,
+      bufferSize: params.bufferSize,
+      error: {
+        message,
+        code: params.error?.code ?? null,
+        status: typeof status === 'number' ? status : null,
+        responseData: responseData ?? null,
+      },
+      createdAt: new Date().toISOString(),
+    };
+
+    const pessoa = await this.prisma.pESPessoa.update({
+      where: { PESCodigo: params.pescodigo },
+      data: { PESImageError: errorJson },
+    });
+
+    const instituicaoCodigo = pessoa.INSInstituicaoCodigo;
+    const ckey = `${this.formatDdMmYyyy(new Date())}${params.pescodigo}imagem_control_id`;
+    const titulo = `Falha ao Registrar Facial ${params.pesnome ?? ''}`.trim();
+    let conteudo = '';
+
+    if (responseData) {
+      if (responseData.error) {
+        conteudo = `${responseData.error} | `;
+      }
+    }
+    conteudo += message;
+
+    await this.prisma.$transaction([
+      this.prisma.$executeRawUnsafe(
+        `SET app.current_tenant = '${instituicaoCodigo}'`,
+      ),
+      this.prisma.nOTNotificacao.upsert({
+        where: { ckey },
+        create: {
+          INSInstituicaoCodigo: instituicaoCodigo,
+          ckey,
+          tipo: 'erro',
+          titulo,
+          conteudo,
+          origem: 'imagem_control_id',
+          chaveOrigem: String(params.pescodigo),
+        },
+        update: {
+          titulo,
+          conteudo,
+          lido: false,
+        },
+      }),
+    ]);
   }
 
   protected async withRetry<T>(
@@ -232,7 +324,11 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         hardwareId,
         person.faces[0],
         person.faceExtension || 'jpg',
+        person.pescodigo,
+        person.name,
       );
+    } else {
+      await this.removeFace(hardwareId);
     }
     if (person.fingers?.length) {
       await this.setFingers(hardwareId, person.fingers);
@@ -432,20 +528,72 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     userId: number,
     faceBase64: string,
     extension: string,
+    pescodigo?: number,
+    pesnome?: string,
   ): Promise<void> {
-    const buffer = Buffer.from(faceBase64, 'base64');
+    const base64 = faceBase64.includes('base64,')
+      ? faceBase64.split('base64,').pop() || ''
+      : faceBase64;
+    const rawBuffer: Buffer = Buffer.from(base64, 'base64');
+    let buffer: Buffer = rawBuffer;
+    let extensionFinal = extension;
     const timestamp = Math.floor(Date.now() / 1000);
 
-    await this.withRetry(async () => {
-      await this.ensureSession();
-      await this.transport.post(
-        `/user_set_image.fcgi?session=${this.session}&user_id=${userId}&match=1&timestamp=${timestamp}`,
-        buffer,
-        {
-          'Content-Type': 'application/octet-stream',
-        },
-      );
-    });
+    try {
+      const processed = await processControlIdFaceImage(rawBuffer);
+      buffer = processed.buffer;
+      extensionFinal = 'jpg';
+
+      await this.withRetry(async () => {
+        await this.ensureSession();
+        const response = await this.transport.post(
+          `/user_set_image.fcgi?session=${this.session}&user_id=${userId}&match=1&timestamp=${timestamp}`,
+          buffer,
+          {
+            'Content-Type': 'application/octet-stream',
+          },
+        );
+        const data = response?.data as any;
+        const errorMsg = data?.error_msg ?? data?.error ?? null;
+        if (typeof errorMsg === 'string' && errorMsg.trim() !== '') {
+          throw new Error(errorMsg);
+        }
+        return response;
+      });
+
+      if (pescodigo != null) {
+        try {
+          await this.prisma.pESPessoa.updateMany({
+            where: { PESCodigo: pescodigo },
+            data: { PESImageError: Prisma.DbNull },
+          });
+        } catch (e: any) {
+          this.logger.warn(
+            `Falha ao limpar PESImageError (pescodigo=${pescodigo} userId=${userId}): ${this.getErrorDetails(e)}`,
+          );
+        }
+      }
+    } catch (error: any) {
+      if (!this.isRetryableError(error) && pescodigo != null) {
+        try {
+          await this.persistControlIdImageFailure({
+            pescodigo,
+            pesnome,
+            userId,
+            equipmentHost: this.config.host,
+            timestamp,
+            extension: extensionFinal,
+            bufferSize: buffer.length,
+            error,
+          });
+        } catch (persistErr: any) {
+          this.logger.warn(
+            `Falha ao persistir erro de imagem (pescodigo=${pescodigo} userId=${userId}): ${this.getErrorDetails(persistErr)}`,
+          );
+        }
+      }
+      throw error;
+    }
   }
 
   async removeFace(userId: number): Promise<void> {

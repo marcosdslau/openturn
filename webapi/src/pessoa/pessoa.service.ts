@@ -8,6 +8,8 @@ import {
 import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
 import { resizeBase64Image } from '../common/utils/image.utils';
+import { buildPessoaFotoWhere } from '../common/utils/pessoa-foto-filter';
+import { buildPessoaImageErrorWhere } from '../common/utils/pessoa-image-error-filter';
 
 @Injectable()
 export class PessoaService {
@@ -23,7 +25,7 @@ export class PessoaService {
     instituicaoCodigo: number,
     query: QueryPessoaDto,
   ): Promise<PaginatedResult<any>> {
-    const { page, limit, nome, documento, email, grupo, cartaoTag, ativo } =
+    const { page, limit, nome, documento, email, grupo, cartaoTag, ativo, foto, erro } =
       query;
     const skip = (page - 1) * limit;
 
@@ -44,6 +46,8 @@ export class PessoaService {
         PESCartaoTag: { contains: cartaoTag, mode: 'insensitive' },
       }),
       ...(ativo !== undefined && { PESAtivo: ativo }),
+      ...buildPessoaFotoWhere(foto),
+      ...buildPessoaImageErrorWhere(erro),
       deletedAt: null,
     };
 

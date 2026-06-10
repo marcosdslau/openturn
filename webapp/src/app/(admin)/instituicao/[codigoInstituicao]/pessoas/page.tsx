@@ -11,7 +11,7 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon, RefreshIcon, UserCircleIcon } from "@/icons";
+import { AlertIcon, RefreshIcon } from "@/icons";
 import PessoasFiltros, {
     PESSOA_FILTROS_VAZIOS,
     buildPessoaListQuery,
@@ -19,6 +19,7 @@ import PessoasFiltros, {
 } from "./components/PessoasFiltros";
 import GenneraSyncModal from "./components/GenneraSyncModal";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
+import PessoaFotoListagem from "./components/PessoaFotoListagem";
 
 interface Pessoa {
     PESCodigo: number;
@@ -31,6 +32,7 @@ interface Pessoa {
     PESCartaoTag: string | null;
     PESFotoBase64: string | null;
     PESFotoExtensao: string | null;
+    PESImageError?: unknown;
     PESAtivo: boolean;
     PESLimiarFacial?: number;
     PESGemeo?: boolean;
@@ -365,17 +367,12 @@ export default function PessoasPage() {
                             >
                                 <td className="px-5 py-3 text-sm text-gray-800 dark:text-white/90">
                                     <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 flex-shrink-0 flex items-center justify-center">
-                                            {p.PESFotoBase64 ? (
-                                                <img
-                                                    src={`data:image/${p.PESFotoExtensao || 'png'};base64,${p.PESFotoBase64}`}
-                                                    alt={p.PESNome}
-                                                    className="w-full h-full object-cover"
-                                                />
-                                            ) : (
-                                                <UserCircleIcon className="w-6 h-6 text-gray-400" />
-                                            )}
-                                        </div>
+                                        <PessoaFotoListagem
+                                            nome={p.PESNome}
+                                            fotoBase64={p.PESFotoBase64}
+                                            fotoExtensao={p.PESFotoExtensao}
+                                            imageError={p.PESImageError}
+                                        />
                                         <span className="font-medium">{p.PESNome}</span>
                                     </div>
                                 </td>

@@ -6,6 +6,7 @@ import {
   MaxLength,
   Min,
   Max,
+  IsIn,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { PaginationDto } from '../../common/dto/pagination.dto';
@@ -164,4 +165,14 @@ export class QueryPessoaDto extends PaginationDto {
   })
   @IsBoolean()
   ativo?: boolean;
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsIn(['com', 'sem'])
+  foto?: 'com' | 'sem';
+
+  @IsOptional()
+  @Transform(trimOrUndefined)
+  @IsIn(['com', 'sem'])
+  erro?: 'com' | 'sem';
 }

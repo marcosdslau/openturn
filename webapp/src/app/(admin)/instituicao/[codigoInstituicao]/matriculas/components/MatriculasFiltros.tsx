@@ -13,6 +13,8 @@ export type MatriculaFiltrosAplicados = {
     cursos: string[];
     series: string[];
     turmas: string[];
+    foto: "" | "com" | "sem";
+    erro: "" | "com" | "sem";
 };
 
 const EMPTY: MatriculaFiltrosAplicados = {
@@ -21,6 +23,8 @@ const EMPTY: MatriculaFiltrosAplicados = {
     cursos: [],
     series: [],
     turmas: [],
+    foto: "",
+    erro: "",
 };
 
 type Draft = {
@@ -29,6 +33,8 @@ type Draft = {
     cursos: string[];
     series: string[];
     turmas: string[];
+    foto: "" | "com" | "sem";
+    erro: "" | "com" | "sem";
 };
 
 function toDraft(f: MatriculaFiltrosAplicados): Draft {
@@ -38,6 +44,8 @@ function toDraft(f: MatriculaFiltrosAplicados): Draft {
         cursos: [...f.cursos],
         series: [...f.series],
         turmas: [...f.turmas],
+        foto: f.foto,
+        erro: f.erro,
     };
 }
 
@@ -46,7 +54,9 @@ function temFiltrosAvancadosAplicados(f: MatriculaFiltrosAplicados) {
         !!f.numero.trim() ||
         f.cursos.length > 0 ||
         f.series.length > 0 ||
-        f.turmas.length > 0
+        f.turmas.length > 0 ||
+        f.foto !== "" ||
+        f.erro !== ""
     );
 }
 
@@ -77,6 +87,8 @@ export function buildMatriculaListQuery(
     for (const c of f.cursos) p.append("curso", c);
     for (const s of f.series) p.append("serie", s);
     for (const t of f.turmas) p.append("turma", t);
+    if (f.foto) p.set("foto", f.foto);
+    if (f.erro) p.set("erro", f.erro);
     return p.toString();
 }
 
@@ -101,6 +113,8 @@ export function buildMatriculaExportQuery(
     for (const c of f.cursos) p.append("curso", c);
     for (const s of f.series) p.append("serie", s);
     for (const t of f.turmas) p.append("turma", t);
+    if (f.foto) p.set("foto", f.foto);
+    if (f.erro) p.set("erro", f.erro);
     if (format === "pdf" && pdfOptions) {
         p.set("pdfOrientation", pdfOptions.pdfOrientation);
         p.set("pdfColumns", String(pdfOptions.pdfColumns));
@@ -144,6 +158,8 @@ export default function MatriculasFiltros({
             cursos: draft.cursos,
             series: draft.series,
             turmas: draft.turmas,
+            foto: draft.foto,
+            erro: draft.erro,
         });
     };
 
@@ -174,7 +190,7 @@ export default function MatriculasFiltros({
                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                         {avancadoAberto
                             ? "Ocultar critérios adicionais"
-                            : "Clique para número da matrícula, curso, módulo/série e turma"}
+                            : "Clique para número da matrícula, curso, módulo/série, turma, foto e erro facial"}
                     </p>
                 </div>
                 <span
@@ -245,6 +261,44 @@ export default function MatriculasFiltros({
                                 value={draft.turmas}
                                 onChange={(turmas) => setDraft((d) => ({ ...d, turmas }))}
                             />
+                            <div>
+                                <Label htmlFor="filtro-mat-foto">Foto</Label>
+                                <select
+                                    id="filtro-mat-foto"
+                                    name="foto"
+                                    value={draft.foto}
+                                    onChange={(e) =>
+                                        setDraft((d) => ({
+                                            ...d,
+                                            foto: e.target.value as "" | "com" | "sem",
+                                        }))
+                                    }
+                                    className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="com">Com Foto</option>
+                                    <option value="sem">Sem Foto</option>
+                                </select>
+                            </div>
+                            <div>
+                                <Label htmlFor="filtro-mat-erro">Erro facial</Label>
+                                <select
+                                    id="filtro-mat-erro"
+                                    name="erro"
+                                    value={draft.erro}
+                                    onChange={(e) =>
+                                        setDraft((d) => ({
+                                            ...d,
+                                            erro: e.target.value as "" | "com" | "sem",
+                                        }))
+                                    }
+                                    className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-hidden focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+                                >
+                                    <option value="">Todos</option>
+                                    <option value="com">Com erro</option>
+                                    <option value="sem">Sem erro</option>
+                                </select>
+                            </div>
                         </div>
                     )}
 
