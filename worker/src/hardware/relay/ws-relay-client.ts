@@ -106,7 +106,7 @@ export class WsRelayClient {
         this.ws = socket;
 
         socket.on('open', () => {
-          console.log(workerLogLine(`WsRelay connected to ${this.url}`));
+          //console.log(workerLogLine(`WsRelay connected to ${this.url}`));
           this.connectPromise = null;
           resolve();
         });

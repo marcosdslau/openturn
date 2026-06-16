@@ -20,6 +20,8 @@ interface Props {
     periodos: PeriodoRegistro[];
     onTipoChange: (tipo: TipoAglutinacaoRegistro) => void;
     onPeriodosChange: (periodos: PeriodoRegistro[]) => void;
+    autoComplete?: boolean;
+    onAutoCompleteChange?: (v: boolean) => void;
 }
 
 export default function AglutinacaoRegistrosCard({
@@ -28,6 +30,8 @@ export default function AglutinacaoRegistrosCard({
     periodos,
     onTipoChange,
     onPeriodosChange,
+    autoComplete,
+    onAutoCompleteChange,
 }: Props) {
     const { showToast } = useToast();
     const [modalOpen, setModalOpen] = useState(false);
@@ -101,6 +105,8 @@ export default function AglutinacaoRegistrosCard({
                             onAdd={handleAdd}
                             onEdit={handleEdit}
                             onDelete={handleDelete}
+                            autoComplete={autoComplete}
+                            onAutoCompleteChange={onAutoCompleteChange}
                         />
                     )}
                 </div>

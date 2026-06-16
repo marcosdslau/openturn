@@ -50,7 +50,7 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
     const rpds = await this.prisma.rPDRegistrosDiarios.findMany({
       where: {
         INSInstituicaoCodigo: instituicaoCodigo,
-        RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.ERRO] },
+        RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.MANUAL, RPDStatus.ERRO] },
         RPDDataEntrada: { not: null },
         RPDDataSaida: { not: null },
       },

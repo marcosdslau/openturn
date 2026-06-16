@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_DIRECT")
 }
 
 enum GrupoAcesso {
@@ -90,6 +91,8 @@ model INSInstituicao {
   INSSyncRegistrosDiarios           Boolean @default(false)
   /// Modo de agregação de passagens em registros diários (RPD).
   INSAglutinacaoRegistros           TipoAglutinacaoRegistro @default(entrada_saida)
+  /// Se true, a rotina preenche entrada/saída ausentes quando o período já encerrou.
+  INSAglutinacaoAutoCompletePeriodo Boolean                 @default(false)
   /// Indica se a sincronização agendada de frequências ao ERP educacional está ativa.
   INSSyncFreqEducacional            Boolean @default(false)
   /// Expressão cron (5 campos: min hora dom mês dow) para sincronização de frequências ao ERP.

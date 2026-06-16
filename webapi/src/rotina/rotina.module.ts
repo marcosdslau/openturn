@@ -9,7 +9,6 @@ import { SchedulerService } from './scheduler.service';
 import { ExecutionService } from './engine/execution.service';
 import { ProcessManager } from './engine/process-manager';
 import { ConsoleGateway } from './console.gateway';
-import { PrismaService } from '../common/prisma/prisma.service';
 import { LogCleanupService } from './log-cleanup.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 
@@ -27,7 +26,6 @@ import { RotinaQueueService } from './queue/rotina-queue.service';
     ExecutionService,
     ProcessManager,
     ConsoleGateway,
-    PrismaService,
     LogCleanupService,
     RotinaQueueService,
   ],

@@ -107,6 +107,10 @@ export class CreateInstituicaoDto {
 
   @IsOptional()
   @IsBoolean()
+  INSAglutinacaoAutoCompletePeriodo?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
   INSSyncFreqEducacional?: boolean;
 
   @IsOptional()
@@ -209,6 +213,10 @@ export class UpdateInstituicaoDto {
   @IsOptional()
   @IsEnum(TipoAglutinacaoRegistro)
   INSAglutinacaoRegistros?: TipoAglutinacaoRegistro;
+
+  @IsOptional()
+  @IsBoolean()
+  INSAglutinacaoAutoCompletePeriodo?: boolean;
 
   @IsOptional()
   @IsBoolean()

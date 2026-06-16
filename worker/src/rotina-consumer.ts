@@ -858,10 +858,11 @@ class RabbitRotinaConsumer {
 
         const inst = await this.prisma.iNSInstituicao.findUnique({
             where: { INSCodigo: instituicaoCodigo },
-            select: { INSAglutinacaoRegistros: true, INSFusoHorario: true },
+            select: { INSAglutinacaoRegistros: true, INSFusoHorario: true, INSAglutinacaoAutoCompletePeriodo: true },
         });
         const modo = inst?.INSAglutinacaoRegistros ?? 'entrada_saida';
         const fusoHorario = inst?.INSFusoHorario ?? -3;
+        const autoCompletePeriodo = inst?.INSAglutinacaoAutoCompletePeriodo ?? false;
 
         const pendentes = await this.prisma.rEGRegistroPassagem.findMany({
             where: { INSInstituicaoCodigo: instituicaoCodigo, REGProcessado: false },
@@ -903,7 +904,10 @@ class RabbitRotinaConsumer {
                 janelas = aggregateTempoPermanencia(allPassagens);
                 break;
             case 'tempo_permanencia_periodo':
-                janelas = aggregateTempoPermanenciaPeriodo(allPassagens, periodos, fusoHorario);
+                janelas = aggregateTempoPermanenciaPeriodo(allPassagens, periodos, fusoHorario, {
+                    autoComplete: autoCompletePeriodo,
+                    nowUtc: new Date(),
+                });
                 break;
             case 'entrada_saida':
             default:
