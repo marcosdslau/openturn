@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Switch from "@/components/form/switch/Switch";
 import type { PeriodoRegistro } from "./aglutinacao-types";
 
 interface Props {
@@ -8,9 +9,11 @@ interface Props {
     onAdd: () => void;
     onEdit: (periodo: PeriodoRegistro) => void;
     onDelete: (perCodigo: number) => void;
+    autoComplete?: boolean;
+    onAutoCompleteChange?: (v: boolean) => void;
 }
 
-export default function PeriodosRegistroList({ periodos, onAdd, onEdit, onDelete }: Props) {
+export default function PeriodosRegistroList({ periodos, onAdd, onEdit, onDelete, autoComplete, onAutoCompleteChange }: Props) {
     const handleDelete = (p: PeriodoRegistro) => {
         if (!p.PERCodigo) return;
         if (!window.confirm(`Remover o período "${p.PERNome}"?`)) return;
@@ -23,14 +26,22 @@ export default function PeriodosRegistroList({ periodos, onAdd, onEdit, onDelete
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
                     Períodos configurados
                 </p>
-                <button
-                    type="button"
-                    onClick={onAdd}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100 dark:border-brand-700 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/40"
-                >
-                    <span className="text-base leading-none">+</span>
-                    Adicionar período
-                </button>
+                <div className="flex items-center gap-3">
+                    <Switch
+                        key={`autocomplete-periodo-${autoComplete ? "1" : "0"}`}
+                        label="Auto completar períodos"
+                        defaultChecked={autoComplete ?? false}
+                        onChange={onAutoCompleteChange}
+                    />
+                    <button
+                        type="button"
+                        onClick={onAdd}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-700 transition hover:bg-brand-100 dark:border-brand-700 dark:bg-brand-900/20 dark:text-brand-400 dark:hover:bg-brand-900/40"
+                    >
+                        <span className="text-base leading-none">+</span>
+                        Adicionar período
+                    </button>
+                </div>
             </div>
 
             {periodos.length === 0 ? (

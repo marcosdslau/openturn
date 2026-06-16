@@ -190,7 +190,7 @@ export class GenneraAttendanceService {
           RPDData: dia,
           PESCodigo: { in: pessoasAlvo.map((p) => p.PESCodigo) },
           // Retry: processar apenas PENDENTE e ERRO; pular ENVIADO
-          RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.ERRO] },
+          RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.MANUAL, RPDStatus.ERRO] },
         },
       });
 

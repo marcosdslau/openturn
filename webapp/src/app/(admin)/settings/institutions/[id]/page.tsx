@@ -38,6 +38,7 @@ interface Instituicao {
     INSControlidMonitorRotinaCodigo?: number | null;
     INSRotinaPessoasCodigo?: number | null;
     INSAglutinacaoRegistros?: string;
+    INSAglutinacaoAutoCompletePeriodo?: boolean;
     INSSyncFreqEducacional?: boolean;
     INSTempoFreqEducacional?: string;
     INSLancFreqAusenciaRegistro?: boolean;
@@ -114,6 +115,7 @@ export default function InstitutionERPPage() {
 
     // Aglutinação de registros diários
     const [aglutinacaoTipo, setAglutinacaoTipo] = useState<TipoAglutinacaoRegistro>("entrada_saida");
+    const [aglutinacaoAutoCompletePeriodo, setAglutinacaoAutoCompletePeriodo] = useState(false);
     const [periodos, setPeriodos] = useState<PeriodoRegistro[]>([]);
 
     // Connector On-Premise
@@ -165,6 +167,7 @@ export default function InstitutionERPPage() {
             setTempoFreqEducacional((instRes as any).INSTempoFreqEducacional ?? "58 23 * * *");
             setLancFreqAusenciaRegistro(!!(instRes as any).INSLancFreqAusenciaRegistro);
             setAglutinacaoTipo(((instRes as any).INSAglutinacaoRegistros as TipoAglutinacaoRegistro) ?? "entrada_saida");
+            setAglutinacaoAutoCompletePeriodo(!!(instRes as any).INSAglutinacaoAutoCompletePeriodo);
             setPeriodos(Array.isArray(periodosRes) ? periodosRes : []);
             setWebhookRotinas(
                 Array.isArray(rotinasRes)
@@ -260,6 +263,7 @@ export default function InstitutionERPPage() {
                 INSTempoFreqEducacional: tempoFreqEducacional,
                 INSLancFreqAusenciaRegistro: lancFreqAusenciaRegistro,
                 INSAglutinacaoRegistros: aglutinacaoTipo,
+                INSAglutinacaoAutoCompletePeriodo: aglutinacaoAutoCompletePeriodo,
             });
 
             await Promise.all([erpPromise, instPromise]);
@@ -714,6 +718,8 @@ export default function InstitutionERPPage() {
                     periodos={periodos}
                     onTipoChange={setAglutinacaoTipo}
                     onPeriodosChange={setPeriodos}
+                    autoComplete={aglutinacaoAutoCompletePeriodo}
+                    onAutoCompleteChange={setAglutinacaoAutoCompletePeriodo}
                 />
 
                 {/* Log Retention Settings */}

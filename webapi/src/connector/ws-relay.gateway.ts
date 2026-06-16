@@ -79,14 +79,14 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
         const expectedToken = process.env.RELAY_INTERNAL_TOKEN || '';
 
         if (expectedToken && internalToken !== expectedToken) {
-          this.logger.warn(
-            `Internal service "${internalService}" rejected: invalid token`,
-          );
+          //this.logger.warn(
+          //  `Internal service "${internalService}" rejected: invalid token`,
+          //);
           client.close(4010, 'Invalid internal token');
           return;
         }
 
-        this.logger.log(`Internal service connected: ${internalService}`);
+        //this.logger.log(`Internal service connected: ${internalService}`);
         this.internalClients.add(client);
 
         client.on('message', (data: Buffer) => {
@@ -112,7 +112,7 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
       // ——— Connector connection (JWT auth) ———
       const authHeader = headers.authorization;
       if (!authHeader?.startsWith('Bearer ')) {
-        this.logger.warn('Connection rejected: missing authorization');
+        //this.logger.warn('Connection rejected: missing authorization');
         client.close(4001, 'Missing authorization header');
         return;
       }
@@ -147,9 +147,9 @@ export class WsRelayGateway implements OnModuleInit, OnModuleDestroy {
       this.connections.set(connector.CONCodigo, connection);
       await this.connectorService.updateHeartbeat(connector.CONCodigo);
 
-      this.logger.log(
-        `Connector ${connector.CONCodigo} (${connector.CONNome}) connected — inst=${payload.instituicaoCodigo}`,
-      );
+      //this.logger.log(
+      //  `Connector ${connector.CONCodigo} (${connector.CONNome}) connected — inst=${payload.instituicaoCodigo}`,
+      //);
 
       client.on('message', (data: Buffer) => {
         this.handleMessage(connection, data);

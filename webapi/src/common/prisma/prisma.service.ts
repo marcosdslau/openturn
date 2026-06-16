@@ -34,7 +34,7 @@ export class PrismaService
               if (tenantId) {
                 const results = await (baseClient as any).$transaction([
                   (baseClient as any).$executeRawUnsafe(
-                    `SET app.current_tenant = '${tenantId}'`,
+                    `SET LOCAL app.current_tenant = '${tenantId}'`,
                   ),
                   query(args),
                 ]);

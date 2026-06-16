@@ -259,6 +259,20 @@ export function toLocalMinutes(regDataHora: Date, fusoHorario: number): number {
     return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
+/**
+ * Converte um horário "HH:mm" de um dia civil específico para um timestamp UTC.
+ * `dataLocal` é o meio-dia UTC do dia civil (conforme convenção de `dataLocal` nas janelas).
+ * `fusoHorario` é o offset UTC em horas (ex.: -3 para BRT).
+ */
+export function localHHmmToUtc(dataLocal: Date, hhmm: string, fusoHorario: number): Date {
+    const [h, m] = hhmm.split(':').map(Number);
+    const y = dataLocal.getUTCFullYear();
+    const mo = dataLocal.getUTCMonth();
+    const d = dataLocal.getUTCDate();
+    const localMidnightUtcMs = Date.UTC(y, mo, d, 0, 0, 0) - fusoHorario * 3_600_000;
+    return new Date(localMidnightUtcMs + (h * 60 + m) * 60_000);
+}
+
 /** Constrói uma janela min(ENTRADA)/max(SAIDA) a partir de um conjunto de passagens. */
 function buildMinMaxJanela(
     passagens: PassagemParaAgregacao[],
@@ -291,6 +305,7 @@ export function aggregateTempoPermanenciaPeriodo(
     passagens: PassagemParaAgregacao[],
     periodos: PeriodoConfig[],
     fusoHorario: number,
+    options?: { autoComplete?: boolean; nowUtc?: Date },
 ): JanelaAgregada[] {
     const byPersonDay = groupPassagensByPersonDay(passagens);
     const result: JanelaAgregada[] = [];
@@ -309,14 +324,27 @@ export function aggregateTempoPermanenciaPeriodo(
             if (inPeriod.length === 0) continue;
 
             inPeriod.forEach((p) => capturedCodigos.add(p.REGCodigo));
-            result.push(
-                buildMinMaxJanela(inPeriod, {
-                    PESCodigo,
-                    dataLocal,
-                    RPDJanelaIndice: janelaIdx++,
-                    PERCodigo: periodo.PERCodigo,
-                }),
-            );
+            let janela = buildMinMaxJanela(inPeriod, {
+                PESCodigo,
+                dataLocal,
+                RPDJanelaIndice: janelaIdx++,
+                PERCodigo: periodo.PERCodigo,
+            });
+
+            // Auto-complete: preenche entrada ou saída ausente quando o período já encerrou.
+            if (options?.autoComplete && options.nowUtc) {
+                const periodEndUtc = localHHmmToUtc(dataLocal, periodo.PERHorarioFim, fusoHorario);
+                if (periodEndUtc < options.nowUtc) {
+                    if (janela.RPDDataEntrada !== null && janela.RPDDataSaida === null) {
+                        janela = { ...janela, RPDDataSaida: periodEndUtc };
+                    } else if (janela.RPDDataSaida !== null && janela.RPDDataEntrada === null) {
+                        const periodStartUtc = localHHmmToUtc(dataLocal, periodo.PERHorarioInicio, fusoHorario);
+                        janela = { ...janela, RPDDataEntrada: periodStartUtc };
+                    }
+                }
+            }
+
+            result.push(janela);
         }
 
         // P4-A: janela extra com passagens fora de todos os períodos
