@@ -7,6 +7,7 @@
  */
 
 import { FileLogger } from './file-logger';
+import { createRotinaUtils } from '../../common/utils/foto-utils';
 
 const pendingRpcs = new Map<
   string,
@@ -40,6 +41,7 @@ process.on('message', async (message: any) => {
 
       // Importa axios para injetar no sandbox
       const axios = require('axios');
+      const utils = createRotinaUtils();
 
       // Cria função assíncrona com o código da rotina
       const AsyncFunction = Object.getPrototypeOf(
@@ -50,11 +52,12 @@ process.on('message', async (message: any) => {
         'console',
         'logger',
         'axios',
+        'utils',
         code,
       );
 
       // Executa a rotina
-      const result = await fn(context, console, logger, axios);
+      const result = await fn(context, console, logger, axios, utils);
 
       // Envia resultado de sucesso
       process.send?.({

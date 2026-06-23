@@ -1,4 +1,5 @@
 import { FileLogger } from './file-logger';
+import { createRotinaUtils } from '../common/foto-utils';
 
 const pendingRpcs = new Map<string, { resolve: (value: any) => void, reject: (reason: any) => void }>();
 
@@ -22,11 +23,12 @@ process.on('message', async (message: any) => {
 
             const logger = new FileLogger(context.instituicaoCodigo, context.logsDir);
             const axios = require('axios');
+            const utils = createRotinaUtils();
 
             const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor;
-            const fn = new AsyncFunction('context', 'console', 'logger', 'axios', code);
+            const fn = new AsyncFunction('context', 'console', 'logger', 'axios', 'utils', code);
 
-            const result = await fn(context, console, logger, axios);
+            const result = await fn(context, console, logger, axios, utils);
 
             process.send?.({ type: 'success', result });
             setTimeout(() => process.exit(0), 100);
