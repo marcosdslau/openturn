@@ -1,5 +1,12 @@
 import { IsOptional, IsInt, IsDateString, IsString, IsArray, IsBoolean, Min, Max, Matches } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
+
+/** Normaliza query param de string simples para array (ex: ?turma=A → ['A']) */
+const toArray = () =>
+  Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    return Array.isArray(value) ? value : [value];
+  });
 
 /** Paginação própria: limite até 1000 (lista administrativa de registros). */
 export class QueryRegistroDiarioDto {
@@ -34,16 +41,19 @@ export class QueryRegistroDiarioDto {
   grupo?: string;
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATCurso?: string[];
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATSerie?: string[];
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATTurma?: string[];

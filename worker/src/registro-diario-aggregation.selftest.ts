@@ -242,16 +242,11 @@ assert(
 }
 
 // ---------------------------------------------------------------------------
-// 6. aggregateTempoPermanenciaPeriodo — períodos PO com tolerância 1h (60 min)
+// 6. aggregateTempoPermanenciaPeriodo — state machine + atribuição de período
 // ---------------------------------------------------------------------------
-// Períodos: Manhã 05:00–12:00, Tarde 12:01–18:00, Noite 18:01–23:59 (todos tol 60 min)
-// Passagens (UTC -3 → local = UTC+3h... mas o fuso aqui é -3, então local=UTC-3)
-// Para fuso = -3: passagem às 10:00 UTC = 07:00 local
-// Usando fuso -3 (BRT). Passagens em UTC; local = UTC - 3h.
-// Manhã efetivo (com tol 60): 04:00–13:00 local = 07:00–16:00 UTC
-// Tarde efetivo: 11:01–19:00 local = 14:01–22:00 UTC
-// Noite efetivo: 17:01–24:59 local = 20:01–03:59 UTC
-// Vamos simplificar usando fuso=0 para que local=UTC e facilitar os asserts:
+// Com o novo algoritmo, passagens são pareadas pela state machine antes de
+// atribuir PERCodigo. Sem autoComplete, as janelas mantêm os horários reais
+// do pareamento e recebem PERCodigo pela hora da entrada.
 
 {
     const periodos: PeriodoConfig[] = [
@@ -260,45 +255,41 @@ assert(
         { PERCodigo: 30, PERHorarioInicio: '18:01', PERHorarioFim: '23:59', PERToleranciaEntradaMinutos: 0, PERToleranciaSaidaMinutos: 0 },
     ];
     const D = '2026-06-14';
-    // fuso=0 → local=UTC; horários das passagens são diretamente comparáveis com HH:mm
+    // fuso=0 → local=UTC
+    // State machine: window(07:00,12:35) + window(13:00,17:02) + window(17:30,20:36)
+    // PERCodigo by entry: Manhã(10), Tarde(20), Tarde(20) — 17:30 < 18:01
     const passagens: PassagemParaAgregacao[] = [
         mk(301, 9, `${D}T07:00:00.000Z`, E),
-        mk(302, 9, `${D}T12:35:00.000Z`, S),  // Manhã: 07:00–12:35 (dentro 07:00–12:00? 12:35>12:00 → fora)
-        mk(303, 9, `${D}T13:00:00.000Z`, E),  // Tarde
-        mk(304, 9, `${D}T17:02:00.000Z`, S),  // Tarde
-        mk(305, 9, `${D}T17:30:00.000Z`, E),  // Noite (depois de 18:01? não... 17:30 < 18:01)
-        mk(306, 9, `${D}T20:36:00.000Z`, S),  // Noite
+        mk(302, 9, `${D}T12:35:00.000Z`, S),
+        mk(303, 9, `${D}T13:00:00.000Z`, E),
+        mk(304, 9, `${D}T17:02:00.000Z`, S),
+        mk(305, 9, `${D}T17:30:00.000Z`, E),
+        mk(306, 9, `${D}T20:36:00.000Z`, S),
     ];
-    // Reanalisando: 12:35 não cabe em Manhã (fim=12:00), cai em Tarde (12:01–18:00 OK)
-    // 07:00 E → Manhã (07:00–12:00), nenhuma saída dentro do Manhã → janela com saída null? não, 12:35 caiu em Tarde
-    // Passagens por período:
-    //   Manhã: 07:00 E (só ela)
-    //   Tarde: 12:35 S, 13:00 E, 17:02 S, 17:30 E
-    //   Noite: 20:36 S
 
     const janelas = aggregateTempoPermanenciaPeriodo(passagens, periodos, 0);
     assert(janelas.length === 3, `período 3 janelas: got ${janelas.length}`);
 
-    const jManha = janelas.find((j) => j.PERCodigo === 10);
-    assert(!!jManha, 'janela manhã existe');
-    assert(jManha!.RPDDataEntrada?.getTime() === new Date(`${D}T07:00:00.000Z`).getTime(), 'manhã entrada=07:00');
-    assert(jManha!.RPDDataSaida === null, 'manhã sem saída');
+    const sorted = [...janelas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
 
-    const jTarde = janelas.find((j) => j.PERCodigo === 20);
-    assert(!!jTarde, 'janela tarde existe');
-    assert(jTarde!.RPDDataEntrada?.getTime() === new Date(`${D}T13:00:00.000Z`).getTime(), 'tarde entrada=13:00');
-    // max(SAIDA) em Tarde: 12:35 e 17:02; 17:30 é ENTRADA
-    assert(jTarde!.RPDDataSaida?.getTime() === new Date(`${D}T17:02:00.000Z`).getTime(), 'tarde saida=17:02');
+    assert(sorted[0].PERCodigo === 10, 'janela 1 PERCodigo=Manhã');
+    assert(sorted[0].RPDDataEntrada?.getTime() === new Date(`${D}T07:00:00.000Z`).getTime(), 'janela 1 entrada=07:00');
+    assert(sorted[0].RPDDataSaida?.getTime() === new Date(`${D}T12:35:00.000Z`).getTime(), 'janela 1 saida=12:35');
 
-    const jNoite = janelas.find((j) => j.PERCodigo === 30);
-    assert(!!jNoite, 'janela noite existe');
-    assert(jNoite!.RPDDataEntrada === null, 'noite sem entrada');
-    assert(jNoite!.RPDDataSaida?.getTime() === new Date(`${D}T20:36:00.000Z`).getTime(), 'noite saida=20:36');
+    assert(sorted[1].PERCodigo === 20, 'janela 2 PERCodigo=Tarde');
+    assert(sorted[1].RPDDataEntrada?.getTime() === new Date(`${D}T13:00:00.000Z`).getTime(), 'janela 2 entrada=13:00');
+    assert(sorted[1].RPDDataSaida?.getTime() === new Date(`${D}T17:02:00.000Z`).getTime(), 'janela 2 saida=17:02');
+
+    assert(sorted[2].PERCodigo === 20, 'janela 3 PERCodigo=Tarde (17:30 < 18:01)');
+    assert(sorted[2].RPDDataEntrada?.getTime() === new Date(`${D}T17:30:00.000Z`).getTime(), 'janela 3 entrada=17:30');
+    assert(sorted[2].RPDDataSaida?.getTime() === new Date(`${D}T20:36:00.000Z`).getTime(), 'janela 3 saida=20:36');
 }
 
 // ---------------------------------------------------------------------------
 // 7. aggregateTempoPermanenciaPeriodo — P4-A: passagem orphan fora de qualquer período
 // ---------------------------------------------------------------------------
+// State machine agrupa 06:00 E + 09:00 E (P1-A) + 11:00 S em uma janela.
+// Entrada 06:00 < 08:00 → fora de todos os períodos → PERCodigo=null.
 
 {
     const periodos: PeriodoConfig[] = [
@@ -306,27 +297,26 @@ assert(
         { PERCodigo: 2, PERHorarioInicio: '13:00', PERHorarioFim: '18:00', PERToleranciaEntradaMinutos: 0, PERToleranciaSaidaMinutos: 0 },
     ];
     const D = '2026-06-15';
-    // 06:00 fora de ambos os períodos → janela extra PERCodigo=null
     const passagens: PassagemParaAgregacao[] = [
-        mk(401, 11, `${D}T06:00:00.000Z`, E),   // orphan
-        mk(402, 11, `${D}T09:00:00.000Z`, E),   // Manhã
-        mk(403, 11, `${D}T11:00:00.000Z`, S),   // Manhã
-        mk(404, 11, `${D}T14:00:00.000Z`, E),   // Tarde
-        mk(405, 11, `${D}T17:00:00.000Z`, S),   // Tarde
+        mk(401, 11, `${D}T06:00:00.000Z`, E),   // fora de período
+        mk(402, 11, `${D}T09:00:00.000Z`, E),   // P1-A: janela ainda aberta (06:00 sem SAIDA)
+        mk(403, 11, `${D}T11:00:00.000Z`, S),   // fecha janela → window(06:00, 11:00)
+        mk(404, 11, `${D}T14:00:00.000Z`, E),
+        mk(405, 11, `${D}T17:00:00.000Z`, S),
     ];
 
     const janelas = aggregateTempoPermanenciaPeriodo(passagens, periodos, 0);
-    assert(janelas.length === 3, `P4-A: 3 janelas (2 períodos + 1 extra): got ${janelas.length}`);
+    assert(janelas.length === 2, `P4-A: 2 janelas: got ${janelas.length}`);
 
-    const extra = janelas.find((j) => j.PERCodigo === null);
-    assert(!!extra, 'P4-A: janela extra PERCodigo=null existe');
-    assert(extra!.RPDDataEntrada?.getTime() === new Date(`${D}T06:00:00.000Z`).getTime(), 'P4-A: orphan entrada=06:00');
-    assert(extra!.RPDDataSaida === null, 'P4-A: orphan sem saída');
+    const sorted = [...janelas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
 
-    const jM = janelas.find((j) => j.PERCodigo === 1);
-    assert(!!jM, 'P4-A: janela período 1 existe');
-    assert(jM!.RPDDataEntrada?.getTime() === new Date(`${D}T09:00:00.000Z`).getTime(), 'P4-A: manhã entrada=09:00');
-    assert(jM!.RPDDataSaida?.getTime() === new Date(`${D}T11:00:00.000Z`).getTime(), 'P4-A: manhã saida=11:00');
+    assert(sorted[0].PERCodigo === null, 'P4-A: janela 1 orphan PERCodigo=null');
+    assert(sorted[0].RPDDataEntrada?.getTime() === new Date(`${D}T06:00:00.000Z`).getTime(), 'P4-A: orphan entrada=06:00');
+    assert(sorted[0].RPDDataSaida?.getTime() === new Date(`${D}T11:00:00.000Z`).getTime(), 'P4-A: orphan saida=11:00');
+
+    assert(sorted[1].PERCodigo === 2, 'P4-A: janela 2 PERCodigo=Tarde');
+    assert(sorted[1].RPDDataEntrada?.getTime() === new Date(`${D}T14:00:00.000Z`).getTime(), 'P4-A: tarde entrada=14:00');
+    assert(sorted[1].RPDDataSaida?.getTime() === new Date(`${D}T17:00:00.000Z`).getTime(), 'P4-A: tarde saida=17:00');
 }
 
 // ---------------------------------------------------------------------------
@@ -334,7 +324,6 @@ assert(
 // ---------------------------------------------------------------------------
 
 {
-    // Manhã nominal 08:00–12:00, tolerância entrada 60 min → captura início a partir 07:00
     const periodos: PeriodoConfig[] = [
         {
             PERCodigo: 5,
@@ -346,7 +335,7 @@ assert(
     ];
     const D = '2026-06-16';
     const passagens: PassagemParaAgregacao[] = [
-        mk(501, 13, `${D}T07:30:00.000Z`, E),  // dentro da tolerância (07:00 ≤ 07:30 ≤ 12:00)
+        mk(501, 13, `${D}T07:30:00.000Z`, E),  // nominal 07:30<08:00, efetivo 07:30>=07:00
         mk(502, 13, `${D}T11:00:00.000Z`, S),
     ];
 
@@ -354,6 +343,119 @@ assert(
     assert(janelas.length === 1, 'tolerância: 1 janela com tolerância entrada');
     assert(janelas[0].PERCodigo === 5, 'tolerância: PERCodigo correto');
     assert(janelas[0].RPDDataEntrada?.getTime() === new Date(`${D}T07:30:00.000Z`).getTime(), 'tolerância: entrada=07:30');
+    assert(janelas[0].RPDDataSaida?.getTime() === new Date(`${D}T11:00:00.000Z`).getTime(), 'tolerância: saida=11:00');
+}
+
+// ---------------------------------------------------------------------------
+// 9. Bug-fix — cenário Liliany com autoComplete=true (fuso -3)
+// ---------------------------------------------------------------------------
+// Passagens locais: 15:54 E, 18:15 S, 18:54 E
+// State machine: window(15:54,18:15) + window(18:54,null)
+// Split window(15:54,18:15): Tarde(15:54→17:35) + Noite(17:36→18:15)
+// window(18:54,null): Noite → auto-complete saída=23:00
+
+{
+    const periodos: PeriodoConfig[] = [
+        { PERCodigo: 103, PERHorarioInicio: '05:00', PERHorarioFim: '12:02', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+        { PERCodigo: 104, PERHorarioInicio: '12:03', PERHorarioFim: '17:35', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+        { PERCodigo: 105, PERHorarioInicio: '17:36', PERHorarioFim: '23:00', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+    ];
+    const D = '2026-07-03';
+    const passagens: PassagemParaAgregacao[] = [
+        mk(601, 144, `${D}T18:54:56.000Z`, E),  // local 15:54
+        mk(602, 144, `${D}T21:15:59.000Z`, S),  // local 18:15
+        mk(603, 144, `${D}T21:54:56.000Z`, E),  // local 18:54
+    ];
+
+    const janelas = aggregateTempoPermanenciaPeriodo(passagens, periodos, -3, {
+        autoComplete: true,
+        nowUtc: new Date('2026-07-04T12:00:00.000Z'),
+    });
+
+    assert(janelas.length === 3, `bug-fix AC=true: 3 janelas, got ${janelas.length}`);
+    const sorted = [...janelas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
+
+    assert(sorted[0].PERCodigo === 104, 'bug-fix AC: j1 PERCodigo=Tarde');
+    assert(sorted[0].RPDDataEntrada?.getTime() === new Date(`${D}T18:54:56.000Z`).getTime(), 'bug-fix AC: j1 entrada');
+    assert(sorted[0].RPDDataSaida?.getTime() === new Date(`${D}T20:35:00.000Z`).getTime(), 'bug-fix AC: j1 saida=17:35 BRT');
+
+    assert(sorted[1].PERCodigo === 105, 'bug-fix AC: j2 PERCodigo=Noite');
+    assert(sorted[1].RPDDataEntrada?.getTime() === new Date(`${D}T20:36:00.000Z`).getTime(), 'bug-fix AC: j2 entrada=17:36 BRT');
+    assert(sorted[1].RPDDataSaida?.getTime() === new Date(`${D}T21:15:59.000Z`).getTime(), 'bug-fix AC: j2 saida');
+
+    assert(sorted[2].PERCodigo === 105, 'bug-fix AC: j3 PERCodigo=Noite');
+    assert(sorted[2].RPDDataEntrada?.getTime() === new Date(`${D}T21:54:56.000Z`).getTime(), 'bug-fix AC: j3 entrada');
+    assert(sorted[2].RPDDataSaida?.getTime() === new Date('2026-07-04T02:00:00.000Z').getTime(), 'bug-fix AC: j3 saida=23:00 BRT');
+}
+
+// ---------------------------------------------------------------------------
+// 10. Bug-fix — cenário Liliany com autoComplete=false
+// ---------------------------------------------------------------------------
+// State machine mantém pareamento real: window(15:54,18:15) + window(18:54,null)
+// PERCodigo by entry: Tarde (15:54) + Noite (18:54)
+
+{
+    const periodos: PeriodoConfig[] = [
+        { PERCodigo: 103, PERHorarioInicio: '05:00', PERHorarioFim: '12:02', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+        { PERCodigo: 104, PERHorarioInicio: '12:03', PERHorarioFim: '17:35', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+        { PERCodigo: 105, PERHorarioInicio: '17:36', PERHorarioFim: '23:00', PERToleranciaEntradaMinutos: 30, PERToleranciaSaidaMinutos: 30 },
+    ];
+    const D = '2026-07-03';
+    const passagens: PassagemParaAgregacao[] = [
+        mk(701, 144, `${D}T18:54:56.000Z`, E),
+        mk(702, 144, `${D}T21:15:59.000Z`, S),
+        mk(703, 144, `${D}T21:54:56.000Z`, E),
+    ];
+
+    const janelas = aggregateTempoPermanenciaPeriodo(passagens, periodos, -3);
+    assert(janelas.length === 2, `bug-fix AC=false: 2 janelas, got ${janelas.length}`);
+
+    const sorted = [...janelas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
+
+    assert(sorted[0].PERCodigo === 104, 'bug-fix noAC: j1 PERCodigo=Tarde');
+    assert(sorted[0].RPDDataEntrada?.getTime() === new Date(`${D}T18:54:56.000Z`).getTime(), 'bug-fix noAC: j1 entrada');
+    assert(sorted[0].RPDDataSaida?.getTime() === new Date(`${D}T21:15:59.000Z`).getTime(), 'bug-fix noAC: j1 saida');
+
+    assert(sorted[1].PERCodigo === 105, 'bug-fix noAC: j2 PERCodigo=Noite');
+    assert(sorted[1].RPDDataEntrada?.getTime() === new Date(`${D}T21:54:56.000Z`).getTime(), 'bug-fix noAC: j2 entrada');
+    assert(sorted[1].RPDDataSaida === null, 'bug-fix noAC: j2 saida=null');
+}
+
+// ---------------------------------------------------------------------------
+// 11. Window cruzando 3 períodos com autoComplete=true
+// ---------------------------------------------------------------------------
+
+{
+    const periodos: PeriodoConfig[] = [
+        { PERCodigo: 41, PERHorarioInicio: '07:00', PERHorarioFim: '12:00', PERToleranciaEntradaMinutos: 0, PERToleranciaSaidaMinutos: 0 },
+        { PERCodigo: 42, PERHorarioInicio: '12:01', PERHorarioFim: '17:00', PERToleranciaEntradaMinutos: 0, PERToleranciaSaidaMinutos: 0 },
+        { PERCodigo: 43, PERHorarioInicio: '17:01', PERHorarioFim: '23:00', PERToleranciaEntradaMinutos: 0, PERToleranciaSaidaMinutos: 0 },
+    ];
+    const D = '2026-06-20';
+    const passagens: PassagemParaAgregacao[] = [
+        mk(801, 50, `${D}T08:00:00.000Z`, E),
+        mk(802, 50, `${D}T22:00:00.000Z`, S),
+    ];
+
+    const janelas = aggregateTempoPermanenciaPeriodo(passagens, periodos, 0, {
+        autoComplete: true,
+        nowUtc: new Date('2026-06-21T12:00:00.000Z'),
+    });
+
+    assert(janelas.length === 3, `3-períodos AC: 3 janelas, got ${janelas.length}`);
+    const sorted = [...janelas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
+
+    assert(sorted[0].PERCodigo === 41, '3-per: j1 Manhã');
+    assert(sorted[0].RPDDataEntrada?.getTime() === new Date(`${D}T08:00:00.000Z`).getTime(), '3-per: j1 entrada=08:00');
+    assert(sorted[0].RPDDataSaida?.getTime() === new Date(`${D}T12:00:00.000Z`).getTime(), '3-per: j1 saida=12:00');
+
+    assert(sorted[1].PERCodigo === 42, '3-per: j2 Tarde');
+    assert(sorted[1].RPDDataEntrada?.getTime() === new Date(`${D}T12:01:00.000Z`).getTime(), '3-per: j2 entrada=12:01');
+    assert(sorted[1].RPDDataSaida?.getTime() === new Date(`${D}T17:00:00.000Z`).getTime(), '3-per: j2 saida=17:00');
+
+    assert(sorted[2].PERCodigo === 43, '3-per: j3 Noite');
+    assert(sorted[2].RPDDataEntrada?.getTime() === new Date(`${D}T17:01:00.000Z`).getTime(), '3-per: j3 entrada=17:01');
+    assert(sorted[2].RPDDataSaida?.getTime() === new Date(`${D}T22:00:00.000Z`).getTime(), '3-per: j3 saida=22:00');
 }
 
 console.log('registro-diario-aggregation selftest OK');

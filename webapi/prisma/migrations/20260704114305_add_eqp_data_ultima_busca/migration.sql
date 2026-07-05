@@ -1,0 +1,2 @@
+-- AlterTable
+ALTER TABLE "EQPEquipamento" ADD COLUMN     "EQPDataUltimaBusca" BIGINT NOT NULL DEFAULT 1750381200;

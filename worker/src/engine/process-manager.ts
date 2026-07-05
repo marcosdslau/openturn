@@ -129,12 +129,18 @@ export class WorkerProcessManager {
                     if (rpcHandler) {
                         try {
                             const result = await rpcHandler(message.method, message.params);
-                            child.send({ type: 'rpc:success', id: message.id, result });
+                            if (child.connected) {
+                                child.send({ type: 'rpc:success', id: message.id, result });
+                            }
                         } catch (error: any) {
-                            child.send({ type: 'rpc:error', id: message.id, error: error.message || String(error) });
+                            if (child.connected) {
+                                child.send({ type: 'rpc:error', id: message.id, error: error.message || String(error) });
+                            }
                         }
                     } else {
-                        child.send({ type: 'rpc:error', id: message.id, error: 'RPC Handler not configured' });
+                        if (child.connected) {
+                            child.send({ type: 'rpc:error', id: message.id, error: 'RPC Handler not configured' });
+                        }
                     }
                     return;
                 }

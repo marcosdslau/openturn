@@ -64,4 +64,8 @@ export class UpdateEquipamentoDto {
 
   @IsOptional()
   EQPConfig?: any;
+
+  @IsOptional()
+  @IsInt()
+  EQPDataUltimaBusca?: number;
 }
