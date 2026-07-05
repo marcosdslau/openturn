@@ -12,7 +12,14 @@ import {
   ValidateNested,
   Matches,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
+
+/** Normaliza query param de string simples para array (ex: ?turma=A → ['A']) */
+const toArray = () =>
+  Transform(({ value }) => {
+    if (value === undefined || value === null) return undefined;
+    return Array.isArray(value) ? value : [value];
+  });
 
 const HHMM_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -28,16 +35,19 @@ export class ManutencaoFiltrosDto {
   pessoasCodigos?: number[];
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATCurso?: string[];
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATSerie?: string[];
 
   @IsOptional()
+  @toArray()
   @IsArray()
   @IsString({ each: true })
   MATTurma?: string[];

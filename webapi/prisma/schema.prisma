@@ -191,6 +191,7 @@ model EQPEquipamento {
   deviceId             String?               @map("EQPDeviceId")
   EQPConfig            Json?
   EQPUltimoSincronismo DateTime?
+  EQPDataUltimaBusca   BigInt                @default(1750381200)
   EQPUsaAddon          Boolean               @default(false)
   EQPAtivo             Boolean               @default(true)
   INSInstituicaoCodigo Int

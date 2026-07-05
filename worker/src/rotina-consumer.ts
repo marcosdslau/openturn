@@ -158,6 +158,7 @@ const SCHEMA_DEFINITION = {
             { name: 'EQPModelo', type: 'String' },
             { name: 'EQPEnderecoIp', type: 'String' },
             { name: 'EQPAtivo', type: 'Boolean' },
+            { name: 'EQPDataUltimaBusca', type: 'BigInt' },
             { name: 'createdAt', type: 'DateTime' },
         ],
     },
@@ -981,6 +982,14 @@ class RabbitRotinaConsumer {
                     });
 
                     for (const j of dayJanelas) {
+                        if (j.RPDDataEntrada && j.RPDDataSaida && j.RPDDataEntrada > j.RPDDataSaida) {
+                            console.warn(
+                                workerLogLine(
+                                    `[INTERNAL] Guard: janela ${j.RPDJanelaIndice} pes=${j.PESCodigo} entrada(${j.RPDDataEntrada.toISOString()}) > saida(${j.RPDDataSaida.toISOString()}) — descartando`,
+                                ),
+                            );
+                            continue;
+                        }
                         await tx.rPDRegistrosDiarios.create({
                             data: {
                                 INSInstituicaoCodigo: instituicaoCodigo,

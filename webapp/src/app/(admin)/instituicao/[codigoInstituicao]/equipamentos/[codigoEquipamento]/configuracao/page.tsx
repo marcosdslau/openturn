@@ -19,6 +19,7 @@ interface Equipamento {
     EQPAtivo: boolean;
     EQPUsaAddon: boolean;
     EQPConfig?: any;
+    EQPDataUltimaBusca?: number;
 }
 
 type ConfigTabId = 'geral' | 'horarios' | 'departamentos' | 'liberacoes_agendadas';
@@ -46,6 +47,7 @@ export default function ControlIDConfigPage() {
     // General Form State
     const [form, setForm] = useState<any>({});
     const [usaAddon, setUsaAddon] = useState(false);
+    const [dataUltimaBusca, setDataUltimaBusca] = useState<number>(1750381200);
     const [sessions, setSessions] = useState<any[]>([]);
     const [loadingSessions, setLoadingSessions] = useState(false);
     const [configureTypeLoading, setConfigureTypeLoading] = useState<
@@ -101,6 +103,7 @@ export default function ControlIDConfigPage() {
                     cfg.entry_direction_applied_by_equipment ?? false,
             });
             setUsaAddon(res.EQPUsaAddon || false);
+            setDataUltimaBusca(res.EQPDataUltimaBusca ?? 1750381200);
             setRemoteTargetIp(res.EQPEnderecoIp || "");
             loadSessions();
 
@@ -218,7 +221,8 @@ export default function ControlIDConfigPage() {
             // We only update the config payload
             await apiPatch(`/instituicao/${codigoInstituicao}/equipamento/${equipment.EQPCodigo}`, {
                 EQPConfig: form,
-                EQPUsaAddon: usaAddon
+                EQPUsaAddon: usaAddon,
+                EQPDataUltimaBusca: dataUltimaBusca,
             });
             showToast("success", "Configuração salva", "As configurações foram atualizadas com sucesso.");
             loadEquipment(); // Refresh to update button visibility
@@ -571,6 +575,29 @@ export default function ControlIDConfigPage() {
                                 </fieldset>
                             </div>
                         )}
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                Data Última Busca <span className="font-normal text-gray-500">(Unix Timestamp)</span>
+                            </label>
+                            <input
+                                type="number"
+                                value={dataUltimaBusca}
+                                onChange={(e) => setDataUltimaBusca(Number(e.target.value))}
+                                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-brand-500 focus:border-brand-500"
+                            />
+                            <p className="text-xs text-gray-500 dark:text-gray-400">
+                                Referência de tempo para a última busca de dados neste equipamento.{' '}
+                                {dataUltimaBusca > 0 && (
+                                    <span className="font-medium">
+                                        {new Date(dataUltimaBusca * 1000).toLocaleString('pt-BR', {
+                                            day: '2-digit', month: '2-digit', year: 'numeric',
+                                            hour: '2-digit', minute: '2-digit', second: '2-digit',
+                                        })}
+                                    </span>
+                                )}
+                            </p>
+                        </div>
 
                         <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
                             <Button variant="outline" onClick={() => router.back()}>Cancelar</Button>

@@ -1138,6 +1138,13 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
               { ...params },
             )
           ).data;
+        case 'report_generate':
+          return (
+            await this.transport.post(
+              `/report_generate.fcgi?session=${this.session}`,
+              { ...params },
+            )
+          ).data;
         default:
           throw new Error(`Unknown command: ${cmd}`);
       }

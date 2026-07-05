@@ -394,6 +394,7 @@ export class ExecutionService {
           { name: 'EQPModelo', type: 'String' },
           { name: 'EQPEnderecoIp', type: 'String' },
           { name: 'EQPAtivo', type: 'Boolean' },
+          { name: 'EQPDataUltimaBusca', type: 'BigInt' },
           { name: 'createdAt', type: 'DateTime' },
         ],
       },
@@ -540,6 +541,7 @@ export class ExecutionService {
             marca: eq.EQPMarca || '',
             modelo: eq.EQPModelo || '',
             ativo: eq.EQPAtivo,
+            dataUltimaBusca: eq.EQPDataUltimaBusca != null ? Number(eq.EQPDataUltimaBusca) : null,
           })),
         },
         dbConfig: {

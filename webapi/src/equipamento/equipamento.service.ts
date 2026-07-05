@@ -20,10 +20,19 @@ export class EquipamentoService {
     private connectorService: ConnectorService,
   ) {}
 
+  private serializeEquipamento(eq: any) {
+    return {
+      ...eq,
+      EQPDataUltimaBusca:
+        eq.EQPDataUltimaBusca != null ? Number(eq.EQPDataUltimaBusca) : null,
+    };
+  }
+
   async create(instituicaoCodigo: number, dto: CreateEquipamentoDto) {
-    return this.prisma.rls.eQPEquipamento.create({
+    const result = await this.prisma.rls.eQPEquipamento.create({
       data: { ...dto, INSInstituicaoCodigo: instituicaoCodigo },
     });
+    return this.serializeEquipamento(result);
   }
 
   async findAll(
@@ -46,7 +55,7 @@ export class EquipamentoService {
     ]);
 
     return {
-      data,
+      data: data.map((eq) => this.serializeEquipamento(eq)),
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -62,7 +71,7 @@ export class EquipamentoService {
       throw new NotFoundException(
         `Equipamento ${id} não encontrado para esta instituição`,
       );
-    return equip;
+    return this.serializeEquipamento(equip);
   }
 
   async update(
@@ -71,10 +80,17 @@ export class EquipamentoService {
     dto: UpdateEquipamentoDto,
   ) {
     await this.findOne(instituicaoCodigo, id);
-    return this.prisma.rls.eQPEquipamento.update({
+    const { EQPDataUltimaBusca, ...rest } = dto;
+    const result = await this.prisma.rls.eQPEquipamento.update({
       where: { EQPCodigo: id },
-      data: dto,
+      data: {
+        ...rest,
+        ...(EQPDataUltimaBusca !== undefined
+          ? { EQPDataUltimaBusca: BigInt(EQPDataUltimaBusca) }
+          : {}),
+      },
     });
+    return this.serializeEquipamento(result);
   }
 
   async remove(instituicaoCodigo: number, id: number) {

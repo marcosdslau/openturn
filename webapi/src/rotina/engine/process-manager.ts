@@ -108,6 +108,18 @@ export class ProcessManager {
           if (this.consoleGateway) {
             this.consoleGateway.sendLog(rotinaCodigo, logEntry, exeId);
           }
+
+          if (process.env.NODE_ENV !== 'PRD' && process.env.NODE_ENV !== 'production') {
+            const prefix = `[Rotina:${rotinaCodigo}][${exeId.substring(0, 8)}]`;
+            if (logEntry.level === 'error') {
+              this.logger.error(`${prefix} ${logEntry.message}`);
+            } else if (logEntry.level === 'warn') {
+              this.logger.warn(`${prefix} ${logEntry.message}`);
+            } else {
+              this.logger.log(`${prefix} ${logEntry.message}`);
+            }
+          }
+
           return;
         }
 
@@ -115,20 +127,26 @@ export class ProcessManager {
           if (rpcHandler) {
             try {
               const result = await rpcHandler(message.method, message.params);
-              child.send({ type: 'rpc:success', id: message.id, result });
+              if (child.connected) {
+                child.send({ type: 'rpc:success', id: message.id, result });
+              }
             } catch (error: any) {
+              if (child.connected) {
+                child.send({
+                  type: 'rpc:error',
+                  id: message.id,
+                  error: error.message || String(error),
+                });
+              }
+            }
+          } else {
+            if (child.connected) {
               child.send({
                 type: 'rpc:error',
                 id: message.id,
-                error: error.message || String(error),
+                error: 'RPC Handler not configured',
               });
             }
-          } else {
-            child.send({
-              type: 'rpc:error',
-              id: message.id,
-              error: 'RPC Handler not configured',
-            });
           }
           return;
         }

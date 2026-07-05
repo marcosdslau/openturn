@@ -45,6 +45,20 @@ interface RotinaExecucao {
     };
 }
 
+const INTERNAL_KIND_NAMES: Record<string, string> = {
+    RPD_AGGREGATION: 'Agregação de Passagens',
+    FREQ_ERP_SYNC: 'Envio Registros ERP',
+};
+
+function getRotinaNome(ex: RotinaExecucao): string {
+    if (ex.rotina?.ROTNome) return ex.rotina.ROTNome;
+    if (ex.EXETrigger === 'INTERNAL') {
+        const kind = ex.EXERequestBody?.internalKind;
+        return INTERNAL_KIND_NAMES[kind] ?? 'Rotina Interna';
+    }
+    return 'Rotina Desconhecida';
+}
+
 export default function ExecucoesPage() {
     const { codigoInstituicao } = useTenant();
     const { can } = usePermissions();
@@ -473,7 +487,7 @@ export default function ExecucoesPage() {
                                     </td>
                                 )}
                                 <td className="px-4 py-4">
-                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{ex.rotina?.ROTNome || "Rotina Desconhecida"}</div>
+                                    <div className="text-sm font-medium text-gray-900 dark:text-white">{getRotinaNome(ex)}</div>
                                     <div className="text-[10px] font-mono text-gray-400 mt-0.5 truncate max-w-[150px]" title={ex.EXEIdExterno}>
                                         {ex.EXEIdExterno}
                                     </div>

@@ -140,6 +140,7 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
       { name: 'EQPModelo', type: 'String', description: 'Modelo' },
       { name: 'EQPEnderecoIp', type: 'String', description: 'IP' },
       { name: 'EQPAtivo', type: 'Boolean', description: 'Ativo?' },
+      { name: 'EQPDataUltimaBusca', type: 'BigInt', description: 'Unix Timestamp da última busca de dados' },
       { name: 'createdAt', type: 'DateTime', description: 'Data Criação' },
     ],
   },
