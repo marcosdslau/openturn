@@ -3,6 +3,32 @@ import axios, { AxiosInstance } from 'axios';
 import { ErpFrequencyProvider, ErpFrequencySendResult } from '../../erp-frequency.types';
 import { workerLogLine } from '../../../worker-log';
 
+function computeAbsenceGaps(
+  janelas: { start: Date; end: Date }[],
+  dayStart: Date,
+  dayEnd: Date,
+): { start: Date; end: Date }[] {
+  const sorted = [...janelas].sort(
+    (a, b) => a.start.getTime() - b.start.getTime(),
+  );
+  const gaps: { start: Date; end: Date }[] = [];
+  let cursor = dayStart;
+
+  for (const w of sorted) {
+    if (w.start.getTime() > cursor.getTime()) {
+      gaps.push({ start: cursor, end: w.start });
+    }
+    if (w.end.getTime() > cursor.getTime()) {
+      cursor = w.end;
+    }
+  }
+
+  if (cursor.getTime() < dayEnd.getTime()) {
+    gaps.push({ start: cursor, end: dayEnd });
+  }
+  return gaps;
+}
+
 type ErpConfig = {
   ERPSistema: string;
   ERPUrlBase: string | null;
@@ -74,32 +100,113 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
       .map(([key, date]) => ({ key, date }));
     const diasLabel = dias.map(({ date }) => `${String(date.getUTCDate()).padStart(2, '0')}/${String(date.getUTCMonth() + 1).padStart(2, '0')}/${date.getUTCFullYear()}`);
 
-    for (const rpd of rpds) {
-      const pesIdExterno = rpd.pessoa.PESIdExterno;
+    const buildUtcFromLocalDay = (day: Date, hhmm: string): Date => {
+      const [hh, mm] = hhmm.split(':').map(Number);
+      return new Date(Date.UTC(
+        day.getUTCFullYear(), day.getUTCMonth(), day.getUTCDate(),
+        hh - fusoHorario, mm, 0, 0,
+      ));
+    };
 
-      if (!pesIdExterno) {
-        await this.aplicarResultado(rpd.RPDCodigo, false, { error: 'PESIdExterno não configurado' });
-        erros++;
-        continue;
+    if (lancarAusencias) {
+      const rpdGroups = new Map<string, typeof rpds>();
+      for (const rpd of rpds) {
+        const d = rpd.RPDData;
+        const dayKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+        const groupKey = `${rpd.PESCodigo}|${dayKey}`;
+        const arr = rpdGroups.get(groupKey) ?? [];
+        arr.push(rpd);
+        rpdGroups.set(groupKey, arr);
       }
 
-      const startMs = rpd.RPDDataEntrada!.getTime() - tolEntradaMin * 60_000;
-      const endMs = rpd.RPDDataSaida!.getTime() + tolSaidaMin * 60_000;
+      for (const [, groupRpds] of rpdGroups) {
+        const pesIdExterno = groupRpds[0].pessoa.PESIdExterno;
 
-      try {
-        await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
-          startDate: new Date(startMs).toISOString(),
-          endDate: new Date(endMs).toISOString(),
-          present: true,
-          justification: '',
-        });
-        await this.aplicarResultado(rpd.RPDCodigo, true);
-        enviados++;
-      } catch (err: any) {
-        const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
-        await this.aplicarResultado(rpd.RPDCodigo, false, errData);
-        erros++;
-        console.error(workerLogLine(`[GenneraFreq] RPD=${rpd.RPDCodigo} erro: ${JSON.stringify(errData)}`));
+        if (!pesIdExterno) {
+          for (const rpd of groupRpds) {
+            await this.aplicarResultado(rpd.RPDCodigo, false, { error: 'PESIdExterno não configurado' });
+            erros++;
+          }
+          continue;
+        }
+
+        const windows = groupRpds.map((rpd) => ({
+          start: rpd.RPDDataEntrada!,
+          end: rpd.RPDDataSaida!,
+        }));
+        const dayStart = buildUtcFromLocalDay(groupRpds[0].RPDData, '01:00');
+        const dayEnd = buildUtcFromLocalDay(groupRpds[0].RPDData, '23:59');
+        const gaps = computeAbsenceGaps(windows, dayStart, dayEnd);
+
+        for (const gap of gaps) {
+          try {
+            await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
+              startDate: gap.start.toISOString(),
+              endDate: gap.end.toISOString(),
+              present: false,
+              justification: '',
+            });
+            enviados++;
+          } catch (err: any) {
+            const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
+            erros++;
+            console.error(
+              workerLogLine(
+                `[GenneraFreq] falta complementar pes=${groupRpds[0].PESCodigo} erro: ${JSON.stringify(errData)}`,
+              ),
+            );
+          }
+        }
+
+        for (const rpd of groupRpds) {
+          const startMs = rpd.RPDDataEntrada!.getTime() - tolEntradaMin * 60_000;
+          const endMs = rpd.RPDDataSaida!.getTime() + tolSaidaMin * 60_000;
+
+          try {
+            await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
+              startDate: new Date(startMs).toISOString(),
+              endDate: new Date(endMs).toISOString(),
+              present: true,
+              justification: '',
+            });
+            await this.aplicarResultado(rpd.RPDCodigo, true);
+            enviados++;
+          } catch (err: any) {
+            const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
+            await this.aplicarResultado(rpd.RPDCodigo, false, errData);
+            erros++;
+            console.error(workerLogLine(`[GenneraFreq] RPD=${rpd.RPDCodigo} erro: ${JSON.stringify(errData)}`));
+          }
+        }
+      }
+    } else {
+      for (const rpd of rpds) {
+        const pesIdExterno = rpd.pessoa.PESIdExterno;
+
+        if (!pesIdExterno) {
+          await this.aplicarResultado(rpd.RPDCodigo, false, { error: 'PESIdExterno não configurado' });
+          erros++;
+          continue;
+        }
+
+        const startMs = rpd.RPDDataEntrada!.getTime() - tolEntradaMin * 60_000;
+        const endMs = rpd.RPDDataSaida!.getTime() + tolSaidaMin * 60_000;
+
+        try {
+          await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
+            startDate: new Date(startMs).toISOString(),
+            endDate: new Date(endMs).toISOString(),
+            present: true,
+            justification: '',
+          });
+          await this.aplicarResultado(rpd.RPDCodigo, true);
+          enviados++;
+        } catch (err: any) {
+          const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
+          await this.aplicarResultado(rpd.RPDCodigo, false, errData);
+          erros++;
+          console.error(workerLogLine(`[GenneraFreq] RPD=${rpd.RPDCodigo} erro: ${JSON.stringify(errData)}`));
+        }
       }
     }
 
@@ -139,17 +246,6 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
       }
 
       const missingIdCounted = new Set<number>();
-
-      const buildUtcFromLocalDay = (day: Date, hhmm: string): Date => {
-        const [hhStr, mmStr] = hhmm.split(':');
-        const hh = Number(hhStr);
-        const mm = Number(mmStr);
-        const y = day.getUTCFullYear();
-        const mo = day.getUTCMonth();
-        const d = day.getUTCDate();
-        const utcHour = hh - fusoHorario;
-        return new Date(Date.UTC(y, mo, d, utcHour, mm, 0, 0));
-      };
 
       for (const day of dias) {
         for (const [pesCodigo, pesIdExterno] of alunos.entries()) {
