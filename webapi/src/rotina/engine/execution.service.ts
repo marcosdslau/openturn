@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { ProcessManager } from './process-manager';
 import { DbTenantProxy } from './db-tenant-proxy';
+import { sanitizeForIpc } from './sanitize-for-ipc';
 import { ConsoleGateway } from '../console.gateway';
 import { StatusExecucao } from '@prisma/client';
 import { HardwareService } from '../../hardware/hardware.service';
@@ -488,7 +489,7 @@ export class ExecutionService {
           throw new Error(`Method ${dbMethod} not found on model ${model}`);
         }
 
-        return realDb[model][dbMethod](...args);
+        return sanitizeForIpc(await realDb[model][dbMethod](...args));
       }
 
       if (method === 'hardware.exec') {

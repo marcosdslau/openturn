@@ -174,10 +174,14 @@ export class GenneraAttendanceService {
       select: {
         INSToleranciaEntradaMinutos: true,
         INSToleranciaSaidaMinutos: true,
+        INSLancFreqAusenciaRegistro: true,
+        INSFusoHorario: true,
       },
     });
     const tolEntradaMin = Math.max(0, inst?.INSToleranciaEntradaMinutos ?? 15);
     const tolSaidaMin = Math.max(0, inst?.INSToleranciaSaidaMinutos ?? 15);
+    const lancarAusencias = inst?.INSLancFreqAusenciaRegistro === true;
+    const fusoHorario = inst?.INSFusoHorario ?? -3;
 
     const total = dias.length * pessoasAlvo.length;
     let processed = 0;
@@ -189,8 +193,6 @@ export class GenneraAttendanceService {
           INSInstituicaoCodigo: instituicaoCodigo,
           RPDData: dia,
           PESCodigo: { in: pessoasAlvo.map((p) => p.PESCodigo) },
-          // Retry: processar apenas PENDENTE e ERRO; pular ENVIADO
-          RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.MANUAL, RPDStatus.ERRO] },
         },
       });
 
@@ -211,7 +213,32 @@ export class GenneraAttendanceService {
           for (const reg of todasJanelas) {
             await this.aplicarResultadoGennera(reg.RPDCodigo, false, { error: 'PESIdExterno não configurado' });
           }
-        } else {
+        } else if (todasJanelas.length > 0) {
+          if (lancarAusencias && janelaValidas.length > 0) {
+            const windows = janelaValidas.map((r) => ({
+              start: r.RPDDataEntrada!,
+              end: r.RPDDataSaida!,
+            }));
+            const dayStart = this.buildUtcFromLocalDay(dia, fusoHorario, '01:00');
+            const dayEnd = this.buildUtcFromLocalDay(dia, fusoHorario, '23:59');
+            const gaps = this.computeAbsenceGaps(windows, dayStart, dayEnd);
+
+            for (const gap of gaps) {
+              try {
+                await client.post(`/persons/${pessoa.PESIdExterno}/attendances/interval`, {
+                  startDate: gap.start.toISOString(),
+                  endDate: gap.end.toISOString(),
+                  present: false,
+                  justification: '',
+                });
+              } catch (err: any) {
+                this.logger.warn(
+                  `Falta complementar não lançada pes=${pessoa.PESCodigo} dia=${dia.toISOString()}: ${err?.message}`,
+                );
+              }
+            }
+          }
+
           for (const reg of janelaValidas) {
             try {
               const startMs = reg.RPDDataEntrada!.getTime() - tolEntradaMin * 60_000;
@@ -228,6 +255,21 @@ export class GenneraAttendanceService {
               const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
               await this.aplicarResultadoGennera(reg.RPDCodigo, false, errData);
             }
+          }
+        } else if (lancarAusencias && pessoa.PESIdExterno) {
+          try {
+            const start = this.buildUtcFromLocalDay(dia, fusoHorario, '01:00');
+            const end = this.buildUtcFromLocalDay(dia, fusoHorario, '23:59');
+            await client.post(`/persons/${pessoa.PESIdExterno}/attendances/interval`, {
+              startDate: start.toISOString(),
+              endDate: end.toISOString(),
+              present: false,
+              justification: '',
+            });
+          } catch (err: any) {
+            this.logger.warn(
+              `Falta não lançada pes=${pessoa.PESCodigo} dia=${dia.toISOString()}: ${err?.message}`,
+            );
           }
         }
 
@@ -454,8 +496,49 @@ export class GenneraAttendanceService {
   }
 
   // ---------------------------------------------------------------------------
-  // Helper de persistência de resultado
+  // Helpers
   // ---------------------------------------------------------------------------
+
+  private buildUtcFromLocalDay(day: Date, fusoOffset: number, hhmm: string): Date {
+    const [hh, mm] = hhmm.split(':').map(Number);
+    return new Date(
+      Date.UTC(
+        day.getUTCFullYear(),
+        day.getUTCMonth(),
+        day.getUTCDate(),
+        hh - fusoOffset,
+        mm,
+        0,
+        0,
+      ),
+    );
+  }
+
+  private computeAbsenceGaps(
+    janelas: { start: Date; end: Date }[],
+    dayStart: Date,
+    dayEnd: Date,
+  ): { start: Date; end: Date }[] {
+    const sorted = [...janelas].sort(
+      (a, b) => a.start.getTime() - b.start.getTime(),
+    );
+    const gaps: { start: Date; end: Date }[] = [];
+    let cursor = dayStart;
+
+    for (const w of sorted) {
+      if (w.start.getTime() > cursor.getTime()) {
+        gaps.push({ start: cursor, end: w.start });
+      }
+      if (w.end.getTime() > cursor.getTime()) {
+        cursor = w.end;
+      }
+    }
+
+    if (cursor.getTime() < dayEnd.getTime()) {
+      gaps.push({ start: cursor, end: dayEnd });
+    }
+    return gaps;
+  }
 
   private async aplicarResultadoGennera(
     rpdCodigo: number,

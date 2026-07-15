@@ -16,6 +16,20 @@ export class DbTenantProxy {
     this.instituicaoCodigo = instituicaoCodigo;
   }
 
+  /** INSInstituicao usa INSCodigo como PK; demais modelos usam INSInstituicaoCodigo. */
+  private tenantWhere(modelName: string): Record<string, number> {
+    return modelName === 'iNSInstituicao'
+      ? { INSCodigo: this.instituicaoCodigo }
+      : { INSInstituicaoCodigo: this.instituicaoCodigo };
+  }
+
+  /** Campo de tenant para injeção em create/createMany (exceto INSInstituicao). */
+  private tenantData(modelName: string): Record<string, number> {
+    return modelName === 'iNSInstituicao'
+      ? {}
+      : { INSInstituicaoCodigo: this.instituicaoCodigo };
+  }
+
   /**
    * Cria um proxy para um modelo específico do Prisma
    */
@@ -46,7 +60,7 @@ export class DbTenantProxy {
                       ? params.where.AND
                       : [params.where.AND]
                     : []),
-                  { INSInstituicaoCodigo: this.instituicaoCodigo },
+                  this.tenantWhere(modelName),
                 ],
               },
             };
@@ -67,7 +81,7 @@ export class DbTenantProxy {
               ...params,
               where: {
                 ...params?.where,
-                INSInstituicaoCodigo: this.instituicaoCodigo,
+                ...this.tenantWhere(modelName),
               },
             };
             return target[prop](enhancedParams);
@@ -79,7 +93,7 @@ export class DbTenantProxy {
               ...params,
               data: {
                 ...params?.data,
-                INSInstituicaoCodigo: this.instituicaoCodigo,
+                ...this.tenantData(modelName),
               },
             };
             return target[prop](enhancedParams);
@@ -92,11 +106,11 @@ export class DbTenantProxy {
               data: Array.isArray(params?.data)
                 ? params.data.map((item: any) => ({
                     ...item,
-                    INSInstituicaoCodigo: this.instituicaoCodigo,
+                    ...this.tenantData(modelName),
                   }))
                 : {
                     ...params?.data,
-                    INSInstituicaoCodigo: this.instituicaoCodigo,
+                    ...this.tenantData(modelName),
                   },
             };
             return target[prop](enhancedParams);

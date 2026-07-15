@@ -4,8 +4,14 @@ import {
     aggregateEntradaSaida,
     aggregateTempoPermanencia,
     aggregateTempoPermanenciaPeriodo,
+    collectJanelasForLocalDay,
+    diaOverlapsLocalToday,
+    getInstitutionLocalDayBounds,
+    planReconciliacao,
     type PassagemParaAgregacao,
     type PeriodoConfig,
+    type JanelaAgregada,
+    type RpdExistente,
 } from './registro-diario-aggregation.helpers';
 
 function assert(cond: boolean, msg: string) {
@@ -456,6 +462,82 @@ assert(
     assert(sorted[2].PERCodigo === 43, '3-per: j3 Noite');
     assert(sorted[2].RPDDataEntrada?.getTime() === new Date(`${D}T17:01:00.000Z`).getTime(), '3-per: j3 entrada=17:01');
     assert(sorted[2].RPDDataSaida?.getTime() === new Date(`${D}T22:00:00.000Z`).getTime(), '3-per: j3 saida=22:00');
+}
+
+// ---------------------------------------------------------------------------
+// 5. Reconciliação do dia atual
+// ---------------------------------------------------------------------------
+
+function mkJanela(indice: number, entrada: string, saida: string): JanelaAgregada {
+    const dataLocal = new Date('2026-07-09T12:00:00.000Z');
+    return {
+        PESCodigo: 100,
+        dataLocal,
+        RPDJanelaIndice: indice,
+        RPDDataEntrada: new Date(entrada),
+        RPDDataSaida: new Date(saida),
+        PERCodigo: null,
+        codigosPassagem: [indice],
+    };
+}
+
+{
+    const existentes: RpdExistente[] = [
+        { RPDCodigo: 1, RPDJanelaIndice: 1, RPDStatus: 'MANUAL', RPDDataEntrada: new Date('2026-07-09T08:00:00.000Z'), RPDDataSaida: new Date('2026-07-09T12:00:00.000Z'), PERCodigo: null },
+        { RPDCodigo: 2, RPDJanelaIndice: 2, RPDStatus: 'PENDENTE', RPDDataEntrada: new Date('2026-07-09T13:00:00.000Z'), RPDDataSaida: new Date('2026-07-09T17:00:00.000Z'), PERCodigo: null },
+    ];
+    const computadas = [
+        mkJanela(1, '2026-07-09T08:30:00.000Z', '2026-07-09T12:30:00.000Z'),
+        mkJanela(2, '2026-07-09T13:00:00.000Z', '2026-07-09T18:00:00.000Z'),
+        mkJanela(3, '2026-07-09T19:00:00.000Z', '2026-07-09T22:00:00.000Z'),
+    ];
+    const { acoes, stats } = planReconciliacao(existentes, computadas);
+    assert(stats.colisoesProtegidas === 1, 'MANUAL no índice 1 gera colisão');
+    assert(stats.atualizadas === 1, 'PENDENTE no índice 2 é atualizado');
+    assert(stats.criadas === 1, 'índice 3 é criado');
+    assert(stats.removidas === 0, 'nenhuma linha livre removida');
+    assert(acoes.some((a) => a.type === 'collision' && a.indice === 1), 'ação de colisão no índice 1');
+}
+
+{
+    const existentes: RpdExistente[] = [
+        { RPDCodigo: 10, RPDJanelaIndice: 1, RPDStatus: 'ENVIADO', RPDDataEntrada: new Date('2026-07-09T08:00:00.000Z'), RPDDataSaida: new Date('2026-07-09T12:00:00.000Z'), PERCodigo: null },
+    ];
+    const computadas = [mkJanela(1, '2026-07-09T08:00:00.000Z', '2026-07-09T12:00:00.000Z')];
+    const { stats } = planReconciliacao(existentes, computadas);
+    assert(stats.atualizadas === 0, 'ENVIADO com dados iguais não precisa update');
+    assert(stats.removidas === 0, 'ENVIADO não é removido quando índice permanece');
+}
+
+{
+    const existentes: RpdExistente[] = [
+        { RPDCodigo: 20, RPDJanelaIndice: 1, RPDStatus: 'PENDENTE', RPDDataEntrada: new Date('2026-07-09T08:00:00.000Z'), RPDDataSaida: new Date('2026-07-09T12:00:00.000Z'), PERCodigo: null },
+    ];
+    const { stats } = planReconciliacao(existentes, []);
+    assert(stats.removidas === 1, 'PENDENTE órfão é removido');
+}
+
+{
+    const bounds = getInstitutionLocalDayBounds(new Date('2026-07-09T15:00:00.000Z'), -3);
+    const diaUtc = {
+        PESCodigo: 1,
+        dataLocal: new Date('2026-07-09T12:00:00.000Z'),
+        inicio: new Date('2026-07-09T00:00:00.000Z'),
+        fim: new Date('2026-07-10T00:00:00.000Z'),
+    };
+    assert(diaOverlapsLocalToday(diaUtc, bounds), 'dia UTC sobrepõe dia local de hoje');
+}
+
+{
+    const bounds = getInstitutionLocalDayBounds(new Date('2026-07-09T15:00:00.000Z'), -3);
+    const janelas = [
+        mkJanela(1, '2026-07-09T14:00:00.000Z', '2026-07-09T18:00:00.000Z'),
+        { ...mkJanela(2, '2026-07-08T14:00:00.000Z', '2026-07-08T18:00:00.000Z'), PESCodigo: 200 },
+    ];
+    const coletadas = collectJanelasForLocalDay(janelas, 100, bounds);
+    assert(coletadas.length === 1, 'coleta apenas janelas da pessoa no dia local');
+    assert(coletadas[0].RPDJanelaIndice === 1, 'reindexa a partir de 1');
+    assert(coletadas[0].dataLocal.getTime() === bounds.dataLocal.getTime(), 'dataLocal remapeada para dia local');
 }
 
 console.log('registro-diario-aggregation selftest OK');

@@ -13,6 +13,7 @@ import {
   ExcluirRegistrosDiariosDto,
   UpdateRegistroDiarioDto,
 } from './dto/registro-diario-manutencao.dto';
+import { isLastScheduledHour } from './cron-hour.utils';
 
 @Injectable()
 export class RegistroDiarioManutencaoService {
@@ -26,7 +27,17 @@ export class RegistroDiarioManutencaoService {
   // ---------------------------------------------------------------------------
 
   async triggerSync(instituicaoCodigo: number): Promise<{ jobId: string }> {
-    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(instituicaoCodigo);
+    const inst = await this.prisma.iNSInstituicao.findUnique({
+      where: { INSCodigo: instituicaoCodigo },
+      select: { INSTempoSync: true, INSFusoHorario: true },
+    });
+    if (!inst) {
+      throw new NotFoundException('Instituição não encontrada');
+    }
+    const cronExpr = inst.INSTempoSync || '0 9,15,22 * * *';
+    const fusoHorario = inst.INSFusoHorario ?? -3;
+    const isLastRunOfDay = isLastScheduledHour(cronExpr, new Date(), fusoHorario);
+    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(instituicaoCodigo, isLastRunOfDay);
     return { jobId };
   }
 
@@ -55,6 +66,14 @@ export class RegistroDiarioManutencaoService {
     const inicioDate = new Date(Date.UTC(inicio.getUTCFullYear(), inicio.getUTCMonth(), inicio.getUTCDate(), 0, 0, 0));
     const fimDate = new Date(Date.UTC(fim.getUTCFullYear(), fim.getUTCMonth(), fim.getUTCDate(), 23, 59, 59, 999));
 
+    const inst = await this.prisma.iNSInstituicao.findUnique({
+      where: { INSCodigo: instituicaoCodigo },
+      select: { INSTempoSync: true, INSFusoHorario: true },
+    });
+    if (!inst) {
+      throw new NotFoundException('Instituição não encontrada');
+    }
+
     let rpdRemovidos = 0;
     let passagensResetadas = 0;
 
@@ -63,6 +82,7 @@ export class RegistroDiarioManutencaoService {
         where: {
           INSInstituicaoCodigo: instituicaoCodigo,
           RPDData: { gte: inicio, lte: fim },
+          RPDStatus: { not: RPDStatus.MANUAL },
         },
       });
       rpdRemovidos = deleteResult.count;
@@ -78,7 +98,10 @@ export class RegistroDiarioManutencaoService {
       passagensResetadas = updateResult.count;
     });
 
-    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(instituicaoCodigo);
+    const cronExpr = inst.INSTempoSync || '0 9,15,22 * * *';
+    const fusoHorario = inst.INSFusoHorario ?? -3;
+    const isLastRunOfDay = isLastScheduledHour(cronExpr, new Date(), fusoHorario);
+    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(instituicaoCodigo, isLastRunOfDay);
 
     return { jobId, rpdRemovidos, passagensResetadas };
   }

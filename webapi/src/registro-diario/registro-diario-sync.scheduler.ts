@@ -6,6 +6,7 @@ import { RotinaQueueService } from '../rotina/queue/rotina-queue.service';
 import Redis from 'ioredis';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 import { channelSyncSchedulerRefresh } from '../common/redis/redis-keys';
+import { isLastScheduledHour } from './cron-hour.utils';
 
 const LOCK_TTL_SEC = 90;
 const SYNC_LOCK_KEY_PREFIX = 'rpd:sync:cron:lock';
@@ -136,14 +137,19 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
     }
 
     try {
-      const count = await this.prisma.rEGRegistroPassagem.count({
-        where: { INSInstituicaoCodigo: instCodigo, REGProcessado: false },
+      const inst = await this.prisma.iNSInstituicao.findUnique({
+        where: { INSCodigo: instCodigo },
+        select: { INSTempoSync: true, INSFusoHorario: true },
       });
+      const cronExpr = inst?.INSTempoSync || '0 9,15,22 * * *';
+      const fusoHorario = inst?.INSFusoHorario ?? -3;
+      const now = new Date();
+      const isLastRunOfDay = isLastScheduledHour(cronExpr, now, fusoHorario);
 
-      if (count > 0) {
-        await this.queueService.publishRegistroDiarioSyncJob(instCodigo);
-        this.logger.log(`INTERNAL sync job enfileirado para inst=${instCodigo} (${count} registros pendentes)`);
-      }
+      await this.queueService.publishRegistroDiarioSyncJob(instCodigo, isLastRunOfDay);
+      this.logger.log(
+        `INTERNAL sync job enfileirado para inst=${instCodigo} isLastRunOfDay=${isLastRunOfDay}`,
+      );
     } catch (err) {
       this.logger.error(`Erro no tick de sync para inst=${instCodigo}`, err);
     }
