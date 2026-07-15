@@ -6,6 +6,7 @@ import type { RedisOptions } from 'ioredis';
 import { join } from 'path';
 import { DbTenantProxy } from './engine/db-tenant-proxy';
 import { WorkerProcessManager } from './engine/process-manager';
+import { sanitizeForIpc } from './engine/sanitize-for-ipc';
 import {
     getRabbitUrl,
     getMainQueueName,
@@ -35,11 +36,17 @@ import {
     aggregateEntradaSaida,
     aggregateTempoPermanencia,
     aggregateTempoPermanenciaPeriodo,
+    collectJanelasForLocalDay,
+    diaOverlapsLocalToday,
     extractAffectedDayKeys,
+    getInstitutionLocalDayBounds,
     groupJanelasByPersonDay,
+    isSameRpdData,
+    reconciliarDiaAtual,
     type DiaAfetado,
     type JanelaAgregada,
     type PeriodoConfig,
+    type ReconciliacaoResult,
 } from './registro-diario-aggregation.helpers';
 import { ErpFrequencySyncOrchestrator } from './erp-frequency/erp-frequency-sync.orchestrator';
 
@@ -49,6 +56,7 @@ export interface RotinaJobData {
     instituicaoCodigo: number;
     trigger: 'SCHEDULE' | 'WEBHOOK' | 'INTERNAL';
     internalKind?: 'RPD_AGGREGATION' | 'FREQ_ERP_SYNC';
+    isLastRunOfDay?: boolean;
     requestEnvelope?: any;
     enqueuedAt: string;
 }
@@ -738,7 +746,10 @@ class RabbitRotinaConsumer {
                 await this.clearPendingMarker(data.exeId);
                 switch (kind) {
                     case 'RPD_AGGREGATION':
-                        await this.processRegistroDiarioAggregation(data.instituicaoCodigo);
+                        await this.processRegistroDiarioAggregation(
+                            data.instituicaoCodigo,
+                            data.isLastRunOfDay ?? false,
+                        );
                         break;
                     case 'FREQ_ERP_SYNC':
                         await this.erpFrequencySync.run(data.instituicaoCodigo);
@@ -850,12 +861,20 @@ class RabbitRotinaConsumer {
     }
 
     /**
-     * Agrega passagens não processadas (REGProcessado=false) em RPDRegistrosDiarios.
-     * Lê INSAglutinacaoRegistros e aplica a estratégia correspondente.
-     * Para cada (PESCodigo, dia) com pendentes, recomputa o dia inteiro (delete + insert).
+     * Agrega passagens em RPDRegistrosDiarios.
+     * Dias passados: fluxo baseado em REGProcessado=false (delete + insert).
+     * Dia atual (local): reconcilia todas as passagens (upsert/delete seletivo);
+     * marca REGProcessado=true somente na última execução agendada do dia.
      */
-    private async processRegistroDiarioAggregation(instituicaoCodigo: number) {
-        console.log(workerLogLine(`[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo}`));
+    private async processRegistroDiarioAggregation(
+        instituicaoCodigo: number,
+        isLastRunOfDay: boolean,
+    ) {
+        console.log(
+            workerLogLine(
+                `[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo} isLastRunOfDay=${isLastRunOfDay}`,
+            ),
+        );
 
         const inst = await this.prisma.iNSInstituicao.findUnique({
             where: { INSCodigo: instituicaoCodigo },
@@ -864,6 +883,7 @@ class RabbitRotinaConsumer {
         const modo = inst?.INSAglutinacaoRegistros ?? 'entrada_saida';
         const fusoHorario = inst?.INSFusoHorario ?? -3;
         const autoCompletePeriodo = inst?.INSAglutinacaoAutoCompletePeriodo ?? false;
+        const hojeBounds = getInstitutionLocalDayBounds(new Date(), fusoHorario);
 
         const pendentes = await this.prisma.rEGRegistroPassagem.findMany({
             where: { INSInstituicaoCodigo: instituicaoCodigo, REGProcessado: false },
@@ -871,12 +891,38 @@ class RabbitRotinaConsumer {
             orderBy: { REGDataHora: 'asc' },
         });
 
-        if (pendentes.length === 0) {
-            console.log(workerLogLine(`[INTERNAL] Nenhuma passagem pendente para inst=${instituicaoCodigo}`));
-            return;
+        const diasPendentes = extractAffectedDayKeys(pendentes);
+        const diasPassados = diasPendentes.filter((d) => !diaOverlapsLocalToday(d, hojeBounds));
+
+        const passagensHoje = await this.prisma.rEGRegistroPassagem.findMany({
+            where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                REGDataHora: { gte: hojeBounds.inicio, lt: hojeBounds.fim },
+            },
+            select: { PESCodigo: true },
+            distinct: ['PESCodigo'],
+        });
+
+        const hojePessoas = new Set<number>(passagensHoje.map((p) => p.PESCodigo));
+        for (const d of diasPendentes) {
+            if (diaOverlapsLocalToday(d, hojeBounds)) {
+                hojePessoas.add(d.PESCodigo);
+            }
         }
 
-        const diasAfetados = extractAffectedDayKeys(pendentes);
+        const diasHoje: DiaAfetado[] = [...hojePessoas].map((pesCodigo) => ({
+            PESCodigo: pesCodigo,
+            dataLocal: hojeBounds.dataLocal,
+            inicio: hojeBounds.inicio,
+            fim: hojeBounds.fim,
+        }));
+
+        const diasAfetados = [...diasPassados, ...diasHoje];
+
+        if (diasAfetados.length === 0) {
+            console.log(workerLogLine(`[INTERNAL] Nenhum dia afetado para inst=${instituicaoCodigo}`));
+            return;
+        }
 
         const allPassagens = await this.loadPassagensForDayKeys(instituicaoCodigo, diasAfetados);
 
@@ -916,15 +962,84 @@ class RabbitRotinaConsumer {
                 break;
         }
 
-        const { daysRebuilt, totalJanelas, errors } = await this.persistJanelas(
-            instituicaoCodigo,
-            janelas,
-            diasAfetados,
-        );
+        const byPersonDay = groupJanelasByPersonDay(janelas);
+        let daysRebuilt = 0;
+        let totalJanelas = 0;
+        let errors = 0;
+        let janelasCriadas = 0;
+        let janelasAtualizadas = 0;
+        let janelasRemovidas = 0;
+        let colisoesProtegidas = 0;
+
+        for (const dia of diasAfetados) {
+            const isHoje = isSameRpdData(dia.dataLocal, hojeBounds.dataLocal);
+            const dayJanelas = isHoje
+                ? collectJanelasForLocalDay(janelas, dia.PESCodigo, hojeBounds)
+                : (() => {
+                      const key = `${dia.PESCodigo}|${dia.dataLocal.getUTCFullYear()}-${String(dia.dataLocal.getUTCMonth() + 1).padStart(2, '0')}-${String(dia.dataLocal.getUTCDate()).padStart(2, '0')}`;
+                      return (byPersonDay.get(key) ?? []).sort(
+                          (a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice,
+                      );
+                  })();
+
+            try {
+                if (isHoje) {
+                    let stats: ReconciliacaoResult = {
+                        criadas: 0,
+                        atualizadas: 0,
+                        removidas: 0,
+                        colisoesProtegidas: 0,
+                    };
+                    await this.prisma.$transaction(async (tx) => {
+                        stats = await reconciliarDiaAtual(
+                            tx,
+                            instituicaoCodigo,
+                            dia.PESCodigo,
+                            dia.dataLocal,
+                            dayJanelas,
+                            (msg) => console.warn(workerLogLine(`[INTERNAL] ${msg}`)),
+                        );
+
+                        if (isLastRunOfDay) {
+                            await tx.rEGRegistroPassagem.updateMany({
+                                where: {
+                                    INSInstituicaoCodigo: instituicaoCodigo,
+                                    PESCodigo: dia.PESCodigo,
+                                    REGDataHora: { gte: dia.inicio, lt: dia.fim },
+                                },
+                                data: { REGProcessado: true },
+                            });
+                        }
+                    });
+                    janelasCriadas += stats.criadas;
+                    janelasAtualizadas += stats.atualizadas;
+                    janelasRemovidas += stats.removidas;
+                    colisoesProtegidas += stats.colisoesProtegidas;
+                    daysRebuilt++;
+                    totalJanelas += dayJanelas.length;
+                } else {
+                    const result = await this.persistJanelas(
+                        instituicaoCodigo,
+                        janelas,
+                        [dia],
+                    );
+                    daysRebuilt += result.daysRebuilt;
+                    totalJanelas += result.totalJanelas;
+                    errors += result.errors;
+                }
+            } catch (err: any) {
+                console.error(
+                    workerLogLine(
+                        `[INTERNAL] Erro ao persistir RPD pes=${dia.PESCodigo} data=${dia.dataLocal.toISOString()} isHoje=${isHoje}: ${err?.message ?? err}`,
+                    ),
+                );
+                errors++;
+            }
+        }
 
         console.log(
             workerLogLine(
-                `[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: modo=${modo} days_rebuilt=${daysRebuilt} janelas=${totalJanelas} errors=${errors}`,
+                `[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: modo=${modo} isLastRunOfDay=${isLastRunOfDay} days_rebuilt=${daysRebuilt} janelas=${totalJanelas} janelas_criadas=${janelasCriadas} janelas_atualizadas=${janelasAtualizadas} janelas_removidas=${janelasRemovidas} colisoes_protegidas=${colisoesProtegidas} errors=${errors}`,
             ),
         );
     }
@@ -1399,7 +1514,7 @@ function buildContext(
             const { model, method: dbMethod, args } = params;
             if (!realDb[model]) throw new Error(`Access denied to model ${model}`);
             if (typeof realDb[model][dbMethod] !== 'function') throw new Error(`Method ${dbMethod} not found on model ${model}`);
-            return realDb[model][dbMethod](...args);
+            return sanitizeForIpc(await realDb[model][dbMethod](...args));
         }
         if (method === 'hardware.exec') {
             const { equipmentId, method: providerMethod, args } = params;

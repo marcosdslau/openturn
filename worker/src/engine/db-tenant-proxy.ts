@@ -5,6 +5,20 @@ export class DbTenantProxy {
         this.instituicaoCodigo = instituicaoCodigo;
     }
 
+    /** INSInstituicao usa INSCodigo como PK; demais modelos usam INSInstituicaoCodigo. */
+    private tenantWhere(modelName: string): Record<string, number> {
+        return modelName === 'iNSInstituicao'
+            ? { INSCodigo: this.instituicaoCodigo }
+            : { INSInstituicaoCodigo: this.instituicaoCodigo };
+    }
+
+    /** Campo de tenant para injeção em create/createMany (exceto INSInstituicao). */
+    private tenantData(modelName: string): Record<string, number> {
+        return modelName === 'iNSInstituicao'
+            ? {}
+            : { INSInstituicaoCodigo: this.instituicaoCodigo };
+    }
+
     createModelProxy(modelName: string) {
         const model = this.prisma[modelName];
 
@@ -25,7 +39,7 @@ export class DbTenantProxy {
                                 ...params?.where,
                                 AND: [
                                     ...(params?.where?.AND ? (Array.isArray(params.where.AND) ? params.where.AND : [params.where.AND]) : []),
-                                    { INSInstituicaoCodigo: this.instituicaoCodigo },
+                                    this.tenantWhere(modelName),
                                 ],
                             },
                         });
@@ -35,14 +49,14 @@ export class DbTenantProxy {
                     if (['findMany', 'findFirst', 'count', 'deleteMany', 'updateMany'].includes(prop)) {
                         return target[prop]({
                             ...params,
-                            where: { ...params?.where, INSInstituicaoCodigo: this.instituicaoCodigo },
+                            where: { ...params?.where, ...this.tenantWhere(modelName) },
                         });
                     }
 
                     if (prop === 'create') {
                         return target[prop]({
                             ...params,
-                            data: { ...params?.data, INSInstituicaoCodigo: this.instituicaoCodigo },
+                            data: { ...params?.data, ...this.tenantData(modelName) },
                         });
                     }
 
@@ -50,8 +64,8 @@ export class DbTenantProxy {
                         return target[prop]({
                             ...params,
                             data: Array.isArray(params?.data)
-                                ? params.data.map((item: any) => ({ ...item, INSInstituicaoCodigo: this.instituicaoCodigo }))
-                                : { ...params?.data, INSInstituicaoCodigo: this.instituicaoCodigo },
+                                ? params.data.map((item: any) => ({ ...item, ...this.tenantData(modelName) }))
+                                : { ...params?.data, ...this.tenantData(modelName) },
                         });
                     }
 

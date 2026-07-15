@@ -364,7 +364,10 @@ export class RotinaQueueService {
    * Publica um job INTERNAL de sincronização de registros diários para a instituição.
    * Cria ROTExecucaoLog antes de publicar para o worker sempre encontrar o registro na base.
    */
-  async publishRegistroDiarioSyncJob(instituicaoCodigo: number): Promise<string> {
+  async publishRegistroDiarioSyncJob(
+    instituicaoCodigo: number,
+    isLastRunOfDay?: boolean,
+  ): Promise<string> {
     const exeId = randomUUID();
     const now = new Date();
     const jobData: RotinaJobData = {
@@ -373,6 +376,7 @@ export class RotinaQueueService {
       instituicaoCodigo,
       trigger: 'INTERNAL',
       internalKind: 'RPD_AGGREGATION',
+      isLastRunOfDay,
       enqueuedAt: now.toISOString(),
     };
 
@@ -386,7 +390,7 @@ export class RotinaQueueService {
         EXEStatus: StatusExecucao.EM_EXECUCAO,
         EXEInicio: now,
         EXETrigger: 'INTERNAL',
-        EXERequestBody: { internalKind: 'RPD_AGGREGATION' },
+        EXERequestBody: { internalKind: 'RPD_AGGREGATION', isLastRunOfDay },
       },
     });
 

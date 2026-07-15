@@ -506,3 +506,234 @@ export function buildPassagemDayGroups(
     }
     return groups;
 }
+
+// ---------------------------------------------------------------------------
+// Dia local da instituição e reconciliação seletiva (dia atual)
+// ---------------------------------------------------------------------------
+
+/** Limites do dia civil local da instituição (meio-dia UTC para RPDData). */
+export type LocalDayBounds = {
+    dataLocal: Date;
+    inicio: Date;
+    fim: Date;
+};
+
+/** Retorna limites do dia civil local da instituição para um instante UTC. */
+export function getInstitutionLocalDayBounds(nowUtc: Date, fusoHorario: number): LocalDayBounds {
+    const localMs = nowUtc.getTime() + fusoHorario * 3_600_000;
+    const d = new Date(localMs);
+    const y = d.getUTCFullYear();
+    const mo = d.getUTCMonth();
+    const day = d.getUTCDate();
+    const localMidnightUtcMs = Date.UTC(y, mo, day, 0, 0, 0, 0) - fusoHorario * 3_600_000;
+    return {
+        dataLocal: new Date(Date.UTC(y, mo, day, 12, 0, 0, 0)),
+        inicio: new Date(localMidnightUtcMs),
+        fim: new Date(localMidnightUtcMs + 24 * 3_600_000),
+    };
+}
+
+/** Compara dois valores de RPDData (meio-dia UTC) pelo instante. */
+export function isSameRpdData(a: Date, b: Date): boolean {
+    return a.getTime() === b.getTime();
+}
+
+/** Verifica se o intervalo UTC de um DiaAfetado sobrepõe o dia local de hoje. */
+export function diaOverlapsLocalToday(dia: DiaAfetado, bounds: LocalDayBounds): boolean {
+    return dia.inicio < bounds.fim && dia.fim > bounds.inicio;
+}
+
+/**
+ * Coleta e reindexa janelas de uma pessoa cujo horário de referência cai
+ * dentro dos limites do dia local da instituição.
+ */
+export function collectJanelasForLocalDay(
+    janelas: JanelaAgregada[],
+    pesCodigo: number,
+    bounds: LocalDayBounds,
+): JanelaAgregada[] {
+    const filtered = janelas
+        .filter((j) => {
+            if (j.PESCodigo !== pesCodigo) return false;
+            const ref = j.RPDDataEntrada ?? j.RPDDataSaida;
+            if (!ref) return false;
+            return ref >= bounds.inicio && ref < bounds.fim;
+        })
+        .sort((a, b) => {
+            const ta = (a.RPDDataEntrada ?? a.RPDDataSaida)!.getTime();
+            const tb = (b.RPDDataEntrada ?? b.RPDDataSaida)!.getTime();
+            return ta - tb;
+        });
+
+    return filtered.map((j, idx) => ({
+        ...j,
+        dataLocal: bounds.dataLocal,
+        RPDJanelaIndice: idx + 1,
+    }));
+}
+
+/** Linha existente mínima de RPDRegistrosDiarios para reconciliação. */
+export type RpdExistente = {
+    RPDCodigo: number;
+    RPDJanelaIndice: number;
+    RPDStatus: string;
+    RPDDataEntrada: Date | null;
+    RPDDataSaida: Date | null;
+    PERCodigo: number | null;
+};
+
+export type ReconciliacaoResult = {
+    criadas: number;
+    atualizadas: number;
+    removidas: number;
+    colisoesProtegidas: number;
+};
+
+export type ReconciliacaoAcao =
+    | { type: 'create'; janela: JanelaAgregada }
+    | { type: 'update'; rpdCodigo: number; janela: JanelaAgregada }
+    | { type: 'delete'; rpdCodigo: number }
+    | { type: 'collision'; indice: number };
+
+function janelaDadosIguais(existente: RpdExistente, j: JanelaAgregada): boolean {
+    const entradaIgual =
+        (existente.RPDDataEntrada?.getTime() ?? null) === (j.RPDDataEntrada?.getTime() ?? null);
+    const saidaIgual =
+        (existente.RPDDataSaida?.getTime() ?? null) === (j.RPDDataSaida?.getTime() ?? null);
+    const perIgual = (existente.PERCodigo ?? null) === (j.PERCodigo ?? null);
+    return entradaIgual && saidaIgual && perIgual;
+}
+
+/**
+ * Planeja ações de upsert/delete seletivo para o dia atual.
+ * Linhas RPDStatus=MANUAL são protegidas (nunca alteradas nem removidas).
+ */
+export function planReconciliacao(
+    existentes: RpdExistente[],
+    janelasComputadas: JanelaAgregada[],
+): { acoes: ReconciliacaoAcao[]; stats: ReconciliacaoResult } {
+    const protegidosIndices = new Set(
+        existentes.filter((r) => r.RPDStatus === 'MANUAL').map((r) => r.RPDJanelaIndice),
+    );
+    const livresPorIndice = new Map(
+        existentes
+            .filter((r) => r.RPDStatus !== 'MANUAL')
+            .map((r) => [r.RPDJanelaIndice, r]),
+    );
+
+    const acoes: ReconciliacaoAcao[] = [];
+    const indicesComputados = new Set<number>();
+    let colisoesProtegidas = 0;
+    let criadas = 0;
+    let atualizadas = 0;
+
+    const sorted = [...janelasComputadas].sort((a, b) => a.RPDJanelaIndice - b.RPDJanelaIndice);
+
+    for (const j of sorted) {
+        if (j.RPDDataEntrada && j.RPDDataSaida && j.RPDDataEntrada > j.RPDDataSaida) {
+            continue;
+        }
+        if (protegidosIndices.has(j.RPDJanelaIndice)) {
+            colisoesProtegidas++;
+            acoes.push({ type: 'collision', indice: j.RPDJanelaIndice });
+            continue;
+        }
+        indicesComputados.add(j.RPDJanelaIndice);
+        const livre = livresPorIndice.get(j.RPDJanelaIndice);
+        if (livre) {
+            if (!janelaDadosIguais(livre, j)) {
+                acoes.push({ type: 'update', rpdCodigo: livre.RPDCodigo, janela: j });
+                atualizadas++;
+            }
+        } else {
+            acoes.push({ type: 'create', janela: j });
+            criadas++;
+        }
+    }
+
+    let removidas = 0;
+    for (const [indice, row] of livresPorIndice) {
+        if (!indicesComputados.has(indice)) {
+            acoes.push({ type: 'delete', rpdCodigo: row.RPDCodigo });
+            removidas++;
+        }
+    }
+
+    return {
+        acoes,
+        stats: { criadas, atualizadas, removidas, colisoesProtegidas },
+    };
+}
+
+/** Aplica reconciliação seletiva dentro de uma transação Prisma. */
+export async function reconciliarDiaAtual(
+    tx: {
+        rPDRegistrosDiarios: {
+            findMany: (args: any) => Promise<RpdExistente[]>;
+            update: (args: any) => Promise<unknown>;
+            create: (args: any) => Promise<unknown>;
+            delete: (args: any) => Promise<unknown>;
+        };
+    },
+    instituicaoCodigo: number,
+    pesCodigo: number,
+    dataLocal: Date,
+    janelasComputadas: JanelaAgregada[],
+    onCollision?: (msg: string) => void,
+): Promise<ReconciliacaoResult> {
+    const existentes = await tx.rPDRegistrosDiarios.findMany({
+        where: {
+            INSInstituicaoCodigo: instituicaoCodigo,
+            PESCodigo: pesCodigo,
+            RPDData: dataLocal,
+        },
+        select: {
+            RPDCodigo: true,
+            RPDJanelaIndice: true,
+            RPDStatus: true,
+            RPDDataEntrada: true,
+            RPDDataSaida: true,
+            PERCodigo: true,
+        },
+    });
+
+    const { acoes, stats } = planReconciliacao(existentes, janelasComputadas);
+
+    for (const acao of acoes) {
+        switch (acao.type) {
+            case 'collision':
+                onCollision?.(
+                    `Colisão de índice ${acao.indice} com linha MANUAL — pes=${pesCodigo} dia=${dataLocal.toISOString()}, descartando janela computada`,
+                );
+                break;
+            case 'update':
+                await tx.rPDRegistrosDiarios.update({
+                    where: { RPDCodigo: acao.rpdCodigo },
+                    data: {
+                        RPDDataEntrada: acao.janela.RPDDataEntrada,
+                        RPDDataSaida: acao.janela.RPDDataSaida,
+                        PERCodigo: acao.janela.PERCodigo ?? null,
+                    },
+                });
+                break;
+            case 'create':
+                await tx.rPDRegistrosDiarios.create({
+                    data: {
+                        INSInstituicaoCodigo: instituicaoCodigo,
+                        PESCodigo: pesCodigo,
+                        RPDData: dataLocal,
+                        RPDJanelaIndice: acao.janela.RPDJanelaIndice,
+                        RPDDataEntrada: acao.janela.RPDDataEntrada,
+                        RPDDataSaida: acao.janela.RPDDataSaida,
+                        PERCodigo: acao.janela.PERCodigo ?? null,
+                    },
+                });
+                break;
+            case 'delete':
+                await tx.rPDRegistrosDiarios.delete({ where: { RPDCodigo: acao.rpdCodigo } });
+                break;
+        }
+    }
+
+    return stats;
+}

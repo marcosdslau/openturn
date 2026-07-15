@@ -8,6 +8,8 @@ export interface RotinaJobData {
   instituicaoCodigo: number;
   trigger: 'SCHEDULE' | 'WEBHOOK' | 'INTERNAL';
   internalKind?: InternalJobKind;
+  /** Última execução agendada do dia (calculada na publicação do job). */
+  isLastRunOfDay?: boolean;
   requestEnvelope?: any;
   enqueuedAt: string;
 }
