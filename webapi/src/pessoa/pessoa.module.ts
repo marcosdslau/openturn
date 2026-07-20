@@ -9,5 +9,6 @@ import { GenneraPessoaService } from './gennera/gennera-pessoa.service';
   imports: [AuthModule, HardwareModule],
   controllers: [PessoaController],
   providers: [PessoaService, GenneraPessoaService],
+  exports: [GenneraPessoaService],
 })
 export class PessoaModule {}

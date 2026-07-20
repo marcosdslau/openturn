@@ -22,6 +22,7 @@ import { MonitorModule } from './monitor/monitor.module';
 import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
 import { NotificacaoModule } from './notificacao/notificacao.module';
 import { VisitanteModule } from './visitante/visitante.module';
+import { WizardFotoModule } from './wizard-foto/wizard-foto.module';
 
 @Module({
   imports: [
@@ -44,6 +45,7 @@ import { VisitanteModule } from './visitante/visitante.module';
     RegistroDiarioModule,
     NotificacaoModule,
     VisitanteModule,
+    WizardFotoModule,
   ],
   controllers: [AppController],
   providers: [

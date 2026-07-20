@@ -33,7 +33,7 @@ export class BrevoMailService {
       throw new Error('BREVO_API_KEY não configurada');
     }
 
-    const subject = 'Redefinição de senha — SchoolGuard';
+    const subject = `Redefinição de senha — SchoolGuard`;
     const htmlContent = `
 <!DOCTYPE html>
 <html>
@@ -58,6 +58,48 @@ export class BrevoMailService {
       });
     } catch (err) {
       this.logger.error('Falha ao enviar e-mail Brevo', err);
+      throw err;
+    }
+  }
+
+  async sendOtpEmail(toEmail: string, codigo: string): Promise<void> {
+    const fromEmail = process.env.EMAIL_FROM?.trim();
+    const fromName = process.env.EMAIL_FROM_NAME?.trim() || 'SchoolGuard';
+
+    if (!fromEmail) {
+      throw new Error('EMAIL_FROM não configurado');
+    }
+
+    const client = this.getClient();
+    if (!client) {
+      throw new Error('BREVO_API_KEY não configurada');
+    }
+
+    const subject = `[${codigo}] Código de verificação para cadastro de foto`;
+    const htmlContent = `
+<!DOCTYPE html>
+<html>
+<body style="font-family: sans-serif; line-height: 1.5; color: #333;">
+  <p>Olá,</p>
+  <p>Use o código abaixo para continuar o cadastro da sua foto no SchoolGuard.</p>
+  <p style="font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #465fff; margin: 24px 0;">${codigo}</p>
+  <p>O código expira em <strong>10 minutos</strong>.</p>
+  <p>Se você não solicitou, ignore este e-mail.</p>
+</body>
+</html>`;
+    const textContent = `Código de verificação SchoolGuard\n\nSeu código: ${codigo}\n\nVálido por 10 minutos. Se não solicitou, ignore.`;
+
+    try {
+      await client.transactionalEmails.sendTransacEmail({
+        sender: { email: fromEmail, name: fromName },
+        to: [{ email: toEmail }],
+        subject,
+        htmlContent,
+        textContent,
+        tags: ['wizard-foto-otp'],
+      });
+    } catch (err) {
+      this.logger.error('Falha ao enviar e-mail OTP Brevo', err);
       throw err;
     }
   }

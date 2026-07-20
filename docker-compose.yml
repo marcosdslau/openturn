@@ -43,6 +43,7 @@ services:
       JWT_SECRET: openturn_super_secret_key
       REDIS_URL: redis://redis:6379
       PORT: 3000
+      PUBLIC_WEBAPP_URL: http://localhost:3001
     ports:
       - "3000:3000"
     volumes:
