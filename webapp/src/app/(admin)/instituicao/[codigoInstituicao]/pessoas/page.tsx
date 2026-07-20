@@ -11,7 +11,8 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import { Modal } from "@/components/ui/modal";
 import { useModal } from "@/hooks/useModal";
 import { useToast } from "@/context/ToastContext";
-import { AlertIcon, RefreshIcon } from "@/icons";
+import { AlertIcon, RefreshIcon, QrCodeIcon } from "@/icons";
+import QrCodeModal from "@/components/pessoas/QrCodeModal";
 import PessoasFiltros, {
     PESSOA_FILTROS_VAZIOS,
     buildPessoaListQuery,
@@ -72,6 +73,7 @@ export default function PessoasPage() {
     const deactivateModal = useModal();
     const mappingModal = useModal();
     const deleteFromDevicesModal = useModal();
+    const [qrModalOpen, setQrModalOpen] = useState(false);
 
     const [form, setForm] = useState({
         PESNome: "",
@@ -316,6 +318,17 @@ export default function PessoasPage() {
                             className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
                         >
                             <RefreshIcon className="h-5 w-5" />
+                        </button>
+                    )}
+                    {can("pessoa", "read") && (
+                        <button
+                            type="button"
+                            onClick={() => setQrModalOpen(true)}
+                            title="QR Code de autoatendimento de foto"
+                            aria-label="Gerar QR Code para wizard de foto"
+                            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-300 text-gray-600 transition-colors hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800"
+                        >
+                            <QrCodeIcon className="h-5 w-5" />
                         </button>
                     )}
                     {can("pessoa", "create") && (
@@ -674,6 +687,14 @@ export default function PessoasPage() {
                 onSuccess={load}
                 onSyncStateChange={setGenneraSyncProcessing}
             />
+
+            {codigoInstituicao && (
+                <QrCodeModal
+                    isOpen={qrModalOpen}
+                    onClose={() => setQrModalOpen(false)}
+                    codigoInstituicao={codigoInstituicao}
+                />
+            )}
 
             {typeof document !== "undefined" &&
                 genneraSyncProcessing &&

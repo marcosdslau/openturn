@@ -54,6 +54,25 @@ export class GenneraPessoaService {
     return Array.isArray(response.data) ? response.data : [];
   }
 
+  async buscarPessoaPorEmail(
+    instituicaoCodigo: number,
+    email: string,
+  ): Promise<GenneraPersonSearchResult | null> {
+    const { searchClient } = await this.buildClients(instituicaoCodigo);
+    const response = await searchClient.get<GenneraPersonSearchResult[]>(
+      '/persons/search',
+      {
+        params: {
+          type: 'email',
+          idPersonType: 1,
+          email,
+        },
+      },
+    );
+    const arr = Array.isArray(response.data) ? response.data : [];
+    return arr[0] ?? null;
+  }
+
   async sincronizarPessoas(
     instituicaoCodigo: number,
     idPersons: number[] = [],
@@ -251,7 +270,7 @@ export class GenneraPessoaService {
     return this.validateAndEncodePhoto(buffer, contentType, context);
   }
 
-  private async upsertPessoaFromGennera(
+  async upsertPessoaFromGennera(
     instituicaoCodigo: number,
     pessoa: GenneraPersonDetail,
     envioOnline = true,

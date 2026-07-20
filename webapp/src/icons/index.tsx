@@ -59,3 +59,4 @@ export { default as TruckDelivery } from "./truck-delivery.svg";
 export { default as PlayIcon } from "./play.svg";
 export { default as PauseIcon } from "./pause.svg";
 export { default as RefreshIcon } from "./refresh.svg";
+export { default as QrCodeIcon } from "./qr-code.svg";
