@@ -3,32 +3,6 @@ import axios, { AxiosInstance } from 'axios';
 import { ErpFrequencyProvider, ErpFrequencySendResult } from '../../erp-frequency.types';
 import { workerLogLine } from '../../../worker-log';
 
-function computeAbsenceGaps(
-  janelas: { start: Date; end: Date }[],
-  dayStart: Date,
-  dayEnd: Date,
-): { start: Date; end: Date }[] {
-  const sorted = [...janelas].sort(
-    (a, b) => a.start.getTime() - b.start.getTime(),
-  );
-  const gaps: { start: Date; end: Date }[] = [];
-  let cursor = dayStart;
-
-  for (const w of sorted) {
-    if (w.start.getTime() > cursor.getTime()) {
-      gaps.push({ start: cursor, end: w.start });
-    }
-    if (w.end.getTime() > cursor.getTime()) {
-      cursor = w.end;
-    }
-  }
-
-  if (cursor.getTime() < dayEnd.getTime()) {
-    gaps.push({ start: cursor, end: dayEnd });
-  }
-  return gaps;
-}
-
 type ErpConfig = {
   ERPSistema: string;
   ERPUrlBase: string | null;
@@ -130,32 +104,24 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
           continue;
         }
 
-        const windows = groupRpds.map((rpd) => ({
-          start: rpd.RPDDataEntrada!,
-          end: rpd.RPDDataSaida!,
-        }));
         const dayStart = buildUtcFromLocalDay(groupRpds[0].RPDData, '01:00');
         const dayEnd = buildUtcFromLocalDay(groupRpds[0].RPDData, '23:59');
-        const gaps = computeAbsenceGaps(windows, dayStart, dayEnd);
-
-        for (const gap of gaps) {
-          try {
-            await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
-              startDate: gap.start.toISOString(),
-              endDate: gap.end.toISOString(),
-              present: false,
-              justification: '',
-            });
-            enviados++;
-          } catch (err: any) {
-            const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
-            erros++;
-            console.error(
-              workerLogLine(
-                `[GenneraFreq] falta complementar pes=${groupRpds[0].PESCodigo} erro: ${JSON.stringify(errData)}`,
-              ),
-            );
-          }
+        try {
+          await this.client.post(`/persons/${pesIdExterno}/attendances/interval`, {
+            startDate: dayStart.toISOString(),
+            endDate: dayEnd.toISOString(),
+            present: false,
+            justification: '',
+          });
+          enviados++;
+        } catch (err: any) {
+          const errData = err?.response?.data ?? { message: err?.message ?? String(err) };
+          erros++;
+          console.error(
+            workerLogLine(
+              `[GenneraFreq] falta dia todo pes=${groupRpds[0].PESCodigo} erro: ${JSON.stringify(errData)}`,
+            ),
+          );
         }
 
         for (const rpd of groupRpds) {

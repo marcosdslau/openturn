@@ -214,28 +214,20 @@ export class GenneraAttendanceService {
             await this.aplicarResultadoGennera(reg.RPDCodigo, false, { error: 'PESIdExterno não configurado' });
           }
         } else if (todasJanelas.length > 0) {
-          if (lancarAusencias && janelaValidas.length > 0) {
-            const windows = janelaValidas.map((r) => ({
-              start: r.RPDDataEntrada!,
-              end: r.RPDDataSaida!,
-            }));
-            const dayStart = this.buildUtcFromLocalDay(dia, fusoHorario, '01:00');
-            const dayEnd = this.buildUtcFromLocalDay(dia, fusoHorario, '23:59');
-            const gaps = this.computeAbsenceGaps(windows, dayStart, dayEnd);
-
-            for (const gap of gaps) {
-              try {
-                await client.post(`/persons/${pessoa.PESIdExterno}/attendances/interval`, {
-                  startDate: gap.start.toISOString(),
-                  endDate: gap.end.toISOString(),
-                  present: false,
-                  justification: '',
-                });
-              } catch (err: any) {
-                this.logger.warn(
-                  `Falta complementar não lançada pes=${pessoa.PESCodigo} dia=${dia.toISOString()}: ${err?.message}`,
-                );
-              }
+          if (lancarAusencias && janelaValidas.length > 0 && pessoa.PESIdExterno) {
+            try {
+              const dayStart = this.buildUtcFromLocalDay(dia, fusoHorario, '01:00');
+              const dayEnd = this.buildUtcFromLocalDay(dia, fusoHorario, '23:59');
+              await client.post(`/persons/${pessoa.PESIdExterno}/attendances/interval`, {
+                startDate: dayStart.toISOString(),
+                endDate: dayEnd.toISOString(),
+                present: false,
+                justification: '',
+              });
+            } catch (err: any) {
+              this.logger.warn(
+                `Falta dia todo não lançada pes=${pessoa.PESCodigo} dia=${dia.toISOString()}: ${err?.message}`,
+              );
             }
           }
 
@@ -512,32 +504,6 @@ export class GenneraAttendanceService {
         0,
       ),
     );
-  }
-
-  private computeAbsenceGaps(
-    janelas: { start: Date; end: Date }[],
-    dayStart: Date,
-    dayEnd: Date,
-  ): { start: Date; end: Date }[] {
-    const sorted = [...janelas].sort(
-      (a, b) => a.start.getTime() - b.start.getTime(),
-    );
-    const gaps: { start: Date; end: Date }[] = [];
-    let cursor = dayStart;
-
-    for (const w of sorted) {
-      if (w.start.getTime() > cursor.getTime()) {
-        gaps.push({ start: cursor, end: w.start });
-      }
-      if (w.end.getTime() > cursor.getTime()) {
-        cursor = w.end;
-      }
-    }
-
-    if (cursor.getTime() < dayEnd.getTime()) {
-      gaps.push({ start: cursor, end: dayEnd });
-    }
-    return gaps;
   }
 
   private async aplicarResultadoGennera(
