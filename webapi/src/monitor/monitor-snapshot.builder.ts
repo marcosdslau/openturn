@@ -28,6 +28,7 @@ const STATUS_KEYS: StatusExecucaoKey[] = [
   'ERRO',
   'TIMEOUT',
   'CANCELADO',
+  'AGUARDANDO_LOCK_SERIAL',
 ];
 
 function emptyStatusContagem(): StatusContagem {
@@ -37,6 +38,7 @@ function emptyStatusContagem(): StatusContagem {
     ERRO: 0,
     TIMEOUT: 0,
     CANCELADO: 0,
+    AGUARDANDO_LOCK_SERIAL: 0,
   };
 }
 
@@ -202,6 +204,7 @@ export class MonitorSnapshotBuilder {
               ERRO: bigint;
               TIMEOUT: bigint;
               CANCELADO: bigint;
+              AGUARDANDO_LOCK_SERIAL: bigint;
             }[]
           >`
                     SELECT "INSInstituicaoCodigo",
@@ -209,7 +212,8 @@ export class MonitorSnapshotBuilder {
                         COUNT(*) FILTER (WHERE "EXEStatus" = 'SUCESSO'::"StatusExecucao")::bigint AS "SUCESSO",
                         COUNT(*) FILTER (WHERE "EXEStatus" = 'ERRO'::"StatusExecucao")::bigint AS "ERRO",
                         COUNT(*) FILTER (WHERE "EXEStatus" = 'TIMEOUT'::"StatusExecucao")::bigint AS "TIMEOUT",
-                        COUNT(*) FILTER (WHERE "EXEStatus" = 'CANCELADO'::"StatusExecucao")::bigint AS "CANCELADO"
+                        COUNT(*) FILTER (WHERE "EXEStatus" = 'CANCELADO'::"StatusExecucao")::bigint AS "CANCELADO",
+                        COUNT(*) FILTER (WHERE "EXEStatus" = 'AGUARDANDO_LOCK_SERIAL'::"StatusExecucao")::bigint AS "AGUARDANDO_LOCK_SERIAL"
                     FROM "ROTExecucaoLog"
                     WHERE "EXEInicio" >= ${statusStarts[j]}
                     GROUP BY "INSInstituicaoCodigo"
@@ -324,6 +328,7 @@ export class MonitorSnapshotBuilder {
           ERRO: toNum(row.ERRO),
           TIMEOUT: toNum(row.TIMEOUT),
           CANCELADO: toNum(row.CANCELADO),
+          AGUARDANDO_LOCK_SERIAL: toNum(row.AGUARDANDO_LOCK_SERIAL),
         });
       }
       statusByInstWindow.set(j, m);

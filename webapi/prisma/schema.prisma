@@ -468,6 +468,7 @@ enum StatusExecucao {
   ERRO
   TIMEOUT
   CANCELADO
+  AGUARDANDO_LOCK_SERIAL
 }
 
 model ROTRotina {
@@ -522,6 +523,9 @@ model ROTExecucaoLog {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @default(now()) @updatedAt
+
+  @@index([EXEStatus, updatedAt])
 }
 
 model ROTHistoricoVersao {

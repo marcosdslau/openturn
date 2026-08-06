@@ -119,6 +119,7 @@ model INSInstituicao {
   ctlControlidCatraEvents CTLControlidCatraEvent[]
   periodosRegistro        PERPeriodosConfig[]
   notificacoes        NOTNotificacao[]
+  fotoOtps            PESFotoOtp[]
 }
 
 model PESPessoa {
@@ -148,6 +149,7 @@ model PESPessoa {
   passagens            REGRegistroPassagem[]
   registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
+  fotoOtps             PESFotoOtp[]
 }
 
 model NOTNotificacao {
@@ -466,6 +468,7 @@ enum StatusExecucao {
   ERRO
   TIMEOUT
   CANCELADO
+  AGUARDANDO_LOCK_SERIAL
 }
 
 model ROTRotina {
@@ -520,6 +523,9 @@ model ROTExecucaoLog {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @default(now()) @updatedAt
+
+  @@index([EXEStatus, updatedAt])
 }
 
 model ROTHistoricoVersao {
@@ -647,6 +653,20 @@ model AIMSMensagemIa {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+}
+
+model PESFotoOtp {
+  POTCodigo            Int            @id @default(autoincrement())
+  PESCodigo            Int
+  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo])
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  POTCodigoHash        String         @unique
+  POTTentativas        Int            @default(0)
+  POTExpiraEm          DateTime
+  createdAt            DateTime       @default(now())
+
+  @@index([PESCodigo, INSInstituicaoCodigo])
 }
 
 // Tenant - Tabela Contábil de Uso

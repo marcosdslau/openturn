@@ -274,6 +274,8 @@ export default function ExecucoesPage() {
                 return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400";
             case "EM_EXECUCAO":
                 return "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400 animate-pulse";
+            case "AGUARDANDO_LOCK_SERIAL":
+                return "bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-400 animate-pulse";
             default:
                 return "bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-400";
         }
@@ -327,6 +329,7 @@ export default function ExecucoesPage() {
                                 <option value="TIMEOUT">Timeout</option>
                                 <option value="CANCELADO">Cancelado</option>
                                 <option value="EM_EXECUCAO">Em Execução</option>
+                                <option value="AGUARDANDO_LOCK_SERIAL">Aguardando lock serial</option>
                             </select>
                         </div>
                         <div>

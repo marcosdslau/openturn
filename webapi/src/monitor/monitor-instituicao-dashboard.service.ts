@@ -20,6 +20,7 @@ const STATUS_KEYS: StatusExecucaoKey[] = [
   'ERRO',
   'TIMEOUT',
   'CANCELADO',
+  'AGUARDANDO_LOCK_SERIAL',
 ];
 
 function filterRankingsParaInstituicao(

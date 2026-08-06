@@ -31,6 +31,7 @@ import {
     redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
     redisSerialInflightPattern,
+    redisSerialWaitKey,
 } from './redis-keys';
 import {
     aggregateEntradaSaida,
@@ -49,6 +50,7 @@ import {
     type ReconciliacaoResult,
 } from './registro-diario-aggregation.helpers';
 import { ErpFrequencySyncOrchestrator } from './erp-frequency/erp-frequency-sync.orchestrator';
+import { tryAcquireOrEnqueueSerial, releaseSerialSlotAndPopNext } from './serial-wait-lock';
 
 export interface RotinaJobData {
     exeId: string;
@@ -78,6 +80,8 @@ const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
 const SERIAL_BACKOFF_MS = 5000;
+/** Intervalo do tick de reconciliação de locks seriais órfãos (worker morreu com item pop'ado). */
+const SERIAL_RECONCILE_INTERVAL_MS = 30000;
 const CAPACITY_DEFER_MS = Math.max(
     0,
     parseInt(process.env.ROTINA_CAPACITY_DEFER_MS ?? '0', 10),
@@ -240,7 +244,10 @@ class RabbitRotinaConsumer {
     /** null = rotina inexistente no último fetch; chave = redisRotinaParalelismoCacheKey (prefixo DEV|PRD + inst:rot). */
     private readonly rotinaParalelismoCache = new Map<string, boolean | null>();
     private readonly consumerTags = new Map<number, string>();
+    /** Pares "inst:rotina" que já tiveram algum item na fila de espera serial — usado pelo tick de reconciliação. */
+    private readonly knownSerialWaitPairs = new Set<string>();
     private pollTimer: NodeJS.Timeout | null = null;
+    private serialReconcileTimer: NodeJS.Timeout | null = null;
     /** Limpa semáforos Redis de inflight uma vez por processo (worker reiniciado = slots órfãos). */
     private coldStartInflightPurgeDone = false;
     private readonly erpFrequencySync: ErpFrequencySyncOrchestrator;
@@ -285,11 +292,17 @@ class RabbitRotinaConsumer {
                 console.error(workerLogLine('reconcile error:'), err);
             });
         }, POLL_INTERVAL_MS);
+        this.serialReconcileTimer = setInterval(() => {
+            this.reconcileSerialWaitPairs().catch((err) => {
+                console.error(workerLogLine('serial wait reconcile error:'), err);
+            });
+        }, SERIAL_RECONCILE_INTERVAL_MS);
         console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH}, retry prefetch=${RETRY_PREFETCH})`));
     }
 
     async close() {
         if (this.pollTimer) clearInterval(this.pollTimer);
+        if (this.serialReconcileTimer) clearInterval(this.serialReconcileTimer);
         for (const [inst, tag] of this.consumerTags.entries()) {
             if (this.channel) await this.channel.cancel(tag);
             this.consumerTags.delete(inst);
@@ -794,24 +807,32 @@ class RabbitRotinaConsumer {
         let jobSucceeded = false;
         try {
             if (isSerialRotina) {
-                const gotSerial = await this.tryAcquireRotinaSerialSlot(
+                const acquired = await this.tryAcquireOrEnqueueSerial(
                     data.instituicaoCodigo,
                     data.rotinaCodigo,
                     data.exeId,
                 );
-                if (!gotSerial) {
+                if (!acquired) {
+                    // Lock ocupado (ou já há fila de espera — FIFO estrito): a mensagem NÃO
+                    // volta pro RabbitMQ. O exeId já está na lista Redis de espera; aqui só
+                    // marcamos o status no log (fonte de verdade durável) e fazemos ack.
                     try {
                         await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
                     } catch (releaseErr) {
-                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial backoff):`), releaseErr);
+                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial wait):`), releaseErr);
                     }
                     tenantStillHeld = false;
-                    const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
-                    if (republished) {
+                    try {
+                        await this.prisma.rOTExecucaoLog.updateMany({
+                            where: { EXEIdExterno: data.exeId },
+                            data: { EXEStatus: StatusExecucao.AGUARDANDO_LOCK_SERIAL },
+                        });
                         channel.ack(msg);
-                    } else {
-                        // Channel write buffer cheio / publish rejeitado: devolve com requeue
-                        // para que outro consumer (ou este mesmo) tente de novo, sem perda.
+                    } catch (updateErr) {
+                        // exeId já está na lista Redis de espera; se o update no Postgres falhar,
+                        // não fazemos ack — devolve pro broker (fallback ao comportamento antigo).
+                        // Risco residual de duplicidade é mitigado pelo guard de idempotência do dreno.
+                        console.error(workerLogLine(`Failed to mark ${data.exeId} as AGUARDANDO_LOCK_SERIAL — devolvendo para o broker:`), updateErr);
                         channel.nack(msg, false, true);
                     }
                     return;
@@ -830,7 +851,17 @@ class RabbitRotinaConsumer {
         } finally {
             if (serialAcquired) {
                 try {
-                    await this.releaseRotinaSerialSlot(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                    const nextExeId = await this.releaseSerialSlotAndPopNext(
+                        data.instituicaoCodigo,
+                        data.rotinaCodigo,
+                        data.exeId,
+                    );
+                    if (nextExeId) {
+                        // Não bloqueia o ack da mensagem atual — dreno roda em background.
+                        this.drainSerialWaitLoop(data.instituicaoCodigo, data.rotinaCodigo, nextExeId).catch((err) => {
+                            console.error(workerLogLine(`Drain serial loop error (inst=${data.instituicaoCodigo}, rotina=${data.rotinaCodigo}):`), err);
+                        });
+                    }
                 } catch (releaseErr) {
                     console.error(workerLogLine(`Failed to release serial slot for ${data.exeId}:`), releaseErr);
                 }
@@ -1337,41 +1368,213 @@ class RabbitRotinaConsumer {
         return redisSerialInflightZkey(instituicaoCodigo, rotinaCodigo);
     }
 
-    /** Uma execução por rotina (quando ROTPermiteParalelismo = false): ZSET com limite 1 e lease. */
-    private async tryAcquireRotinaSerialSlot(
+    /**
+     * Uma execução por rotina (quando ROTPermiteParalelismo = false): ZSET com limite 1 e lease.
+     * Se o lock estiver ocupado OU já houver itens na lista de espera, o exeId é enfileirado
+     * (RPUSH) em vez de retornar apenas "ocupado" — isso garante FIFO estrito: uma mensagem
+     * nova nunca "pula a fila" de quem já está esperando (sem essa checagem de LLEN, mensagens
+     * novas poderiam continuar sendo processadas indefinidamente enquanto o backlog antigo
+     * nunca drena). Retorna `true` só quando o lock foi de fato adquirido.
+     */
+    private async tryAcquireOrEnqueueSerial(
         instituicaoCodigo: number,
         rotinaCodigo: number,
         exeId: string,
     ): Promise<boolean> {
         const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
-        const now = Date.now();
-        const until = now + INFLIGHT_LEASE_MS;
-        const result = await this.redis.eval(
-            `local zkey = KEYS[1]
-             local now = tonumber(ARGV[1])
-             local maxv = tonumber(ARGV[2])
-             local exe = ARGV[3]
-             local untilScore = tonumber(ARGV[4])
-             redis.call('ZREMRANGEBYSCORE', zkey, '-inf', now)
-             local n = redis.call('ZCARD', zkey)
-             if n < maxv then
-               redis.call('ZADD', zkey, untilScore, exe)
-               return 1
-             end
-             return 0`,
-            1,
-            zkey,
-            String(now),
-            '1',
-            exeId,
-            String(until),
-        );
-        return Number(result) === 1;
+        const waitkey = redisSerialWaitKey(instituicaoCodigo, rotinaCodigo);
+        const acquired = await tryAcquireOrEnqueueSerial(this.redis, zkey, waitkey, exeId, INFLIGHT_LEASE_MS);
+        if (!acquired) {
+            this.knownSerialWaitPairs.add(`${instituicaoCodigo}:${rotinaCodigo}`);
+        }
+        return acquired;
     }
 
-    private async releaseRotinaSerialSlot(instituicaoCodigo: number, rotinaCodigo: number, exeId: string) {
+    /**
+     * Libera o slot do exeId informado e, no mesmo passo atômico, promove o próximo
+     * item da lista de espera (se houver e o slot ficar livre). Qualquer instância do
+     * worker pode ganhar essa corrida — não precisa ser a mesma que enfileirou.
+     * Retorna o exeId promovido (já com o lock concedido), ou `null` se não havia nada
+     * esperando.
+     */
+    private async releaseSerialSlotAndPopNext(
+        instituicaoCodigo: number,
+        rotinaCodigo: number,
+        releasedExeId: string,
+    ): Promise<string | null> {
         const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
-        await this.redis.eval(`redis.call('ZREM', KEYS[1], ARGV[1])`, 1, zkey, exeId);
+        const waitkey = redisSerialWaitKey(instituicaoCodigo, rotinaCodigo);
+        return releaseSerialSlotAndPopNext(this.redis, zkey, waitkey, releasedExeId, INFLIGHT_LEASE_MS);
+    }
+
+    /**
+     * Executa um job serial drenado da fila de espera (sem `ConsumeMessage` — não há ack a
+     * fazer). Reusa {@link processJob}; falhas são reportadas ao chamador via retorno booleano.
+     */
+    private async runSerialJob(data: RotinaJobData): Promise<boolean> {
+        try {
+            await this.clearPendingMarker(data.exeId);
+            await this.processJob(data);
+            return true;
+        } catch (error: any) {
+            console.error(workerLogLine(`Job ${data.exeId} error (drain):`), error?.message ?? error);
+            return false;
+        }
+    }
+
+    /** Tenta adquirir o slot de capacidade da instituição em loop, sem desistir (mesmo espírito de "rotina serial nunca é descartada"). */
+    private async acquireTenantSlotBlocking(instituicaoCodigo: number, exeId: string): Promise<void> {
+        const limit = this.tenantLimits.get(instituicaoCodigo) ?? await this.loadTenantLimit(instituicaoCodigo);
+        let attempts = 0;
+        while (!(await this.tryAcquireTenantSlot(instituicaoCodigo, limit, exeId))) {
+            attempts++;
+            if (attempts % 20 === 0) {
+                console.warn(workerLogLine(
+                    `Drain serial: exeId=${exeId} aguardando slot de capacidade da instituição ${instituicaoCodigo} há ${attempts * 250}ms.`,
+                ));
+            }
+            await sleep(250);
+        }
+    }
+
+    /**
+     * Falha real de processamento (exceção) num job drenado da fila de espera serial. Não há
+     * `ConsumeMessage` disponível aqui (o dreno não passa pelo `onMessage`), então publica uma
+     * mensagem sintética direto na fila global de retry, reaproveitando o mesmo mecanismo de
+     * "serial defer" (backoff, sem contar como falha de retry) já usado para mensagens vivas —
+     * mantém rotinas serial girando indefinidamente até sucesso/cancelamento, sem misturar
+     * "falha real" com a fila de espera de contenção de lock (que é só para quem está esperando
+     * o slot, não para retry de erro).
+     */
+    private republishSerialFailureForRetry(data: RotinaJobData): boolean {
+        if (!this.channel) return false;
+        const headers: Record<string, unknown> = {
+            [SERIAL_DEFERRED_HEADER]: true,
+            [SERIAL_INST_HEADER]: data.instituicaoCodigo,
+        };
+        const content = Buffer.from(JSON.stringify(data));
+        const properties: Options.Publish = {
+            persistent: true,
+            headers,
+            messageId: data.exeId,
+            correlationId: data.exeId,
+            contentType: 'application/json',
+            timestamp: Date.now(),
+        };
+        return this.channel.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, content, properties);
+    }
+
+    /**
+     * Loop iterativo (não recursivo) de dreno da fila de espera serial. Reconstrói o job a
+     * partir do `ROTExecucaoLog` (fonte de verdade durável — não do Redis) e processa um item
+     * por vez, encadeando com {@link releaseSerialSlotAndPopNext} até a lista esvaziar.
+     */
+    private async drainSerialWaitLoop(
+        instituicaoCodigo: number,
+        rotinaCodigo: number,
+        firstExeId: string,
+    ): Promise<void> {
+        let nextExeId: string | null = firstExeId;
+        while (nextExeId) {
+            const exeId = nextExeId;
+            try {
+                const log = await this.prisma.rOTExecucaoLog.findUnique({
+                    where: { EXEIdExterno: exeId },
+                });
+                if (!log) {
+                    console.warn(workerLogLine(`Drain serial: exeId=${exeId} sem ROTExecucaoLog — ignorando.`));
+                } else if (
+                    log.EXEStatus === StatusExecucao.SUCESSO ||
+                    log.EXEStatus === StatusExecucao.ERRO ||
+                    log.EXEStatus === StatusExecucao.CANCELADO ||
+                    log.EXEStatus === StatusExecucao.TIMEOUT
+                ) {
+                    // Guard de idempotência: proteção contra o risco residual de duplicidade
+                    // (RPUSH no Redis confirmado + update de status no Postgres falhou).
+                    console.warn(workerLogLine(`Drain serial: exeId=${exeId} já terminal (${log.EXEStatus}) — pulando.`));
+                } else if (log.ROTCodigo == null) {
+                    console.warn(workerLogLine(`Drain serial: exeId=${exeId} sem ROTCodigo — ignorando.`));
+                } else {
+                    const data: RotinaJobData = {
+                        exeId: log.EXEIdExterno,
+                        rotinaCodigo: log.ROTCodigo,
+                        instituicaoCodigo: log.INSInstituicaoCodigo,
+                        trigger: (log.EXETrigger as RotinaJobData['trigger']) ?? 'SCHEDULE',
+                        requestEnvelope: {
+                            body: log.EXERequestBody,
+                            params: log.EXERequestParams,
+                            path: log.EXERequestPath,
+                        },
+                        enqueuedAt: new Date().toISOString(),
+                    };
+                    await this.acquireTenantSlotBlocking(data.instituicaoCodigo, data.exeId);
+                    let success = false;
+                    try {
+                        await this.prisma.rOTExecucaoLog.updateMany({
+                            where: { EXEIdExterno: data.exeId },
+                            data: { EXEStatus: StatusExecucao.EM_EXECUCAO },
+                        });
+                        success = await this.runSerialJob(data);
+                    } finally {
+                        try {
+                            await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                        } catch (releaseErr) {
+                            console.error(workerLogLine(`Failed to release tenant slot (drain) for ${data.exeId}:`), releaseErr);
+                        }
+                    }
+                    if (!success) {
+                        try {
+                            this.republishSerialFailureForRetry(data);
+                        } catch (err) {
+                            console.error(workerLogLine(`Failed to republish failed drained job ${data.exeId}:`), err);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(workerLogLine(`Drain serial: erro processando exeId=${exeId}:`), err);
+            }
+            try {
+                nextExeId = await this.releaseSerialSlotAndPopNext(instituicaoCodigo, rotinaCodigo, exeId);
+            } catch (releaseErr) {
+                console.error(workerLogLine(`Failed to release+pop serial slot for ${exeId}:`), releaseErr);
+                nextExeId = null;
+            }
+        }
+    }
+
+    /**
+     * Hardening: se o processo morrer entre "pop da fila de espera + ZADD do lock" e
+     * "terminar de processar", o lock fica órfão até expirar via lease (potencialmente
+     * até {@link INFLIGHT_LEASE_MS}). Esse tick reduz essa janela verificando, para cada
+     * par (instituição, rotina) que já teve fila de espera, se o lock expirou e há itens
+     * parados — se sim, promove e drena, sem esperar uma mensagem "viva" chegar.
+     */
+    private async reconcileSerialWaitPairs(): Promise<void> {
+        for (const pairKey of this.knownSerialWaitPairs) {
+            const [instStr, rotinaStr] = pairKey.split(':');
+            const instituicaoCodigo = Number(instStr);
+            const rotinaCodigo = Number(rotinaStr);
+            if (!Number.isFinite(instituicaoCodigo) || !Number.isFinite(rotinaCodigo)) continue;
+            try {
+                // Não libera nada de fato (exeId inexistente) — só verifica se o lock está
+                // livre/expirado e promove o próximo item da lista, se houver.
+                const nextExeId = await this.releaseSerialSlotAndPopNext(
+                    instituicaoCodigo,
+                    rotinaCodigo,
+                    '__serial_reconcile_noop__',
+                );
+                if (nextExeId) {
+                    console.warn(workerLogLine(
+                        `Reconcile serial: lock órfão detectado inst=${instituicaoCodigo} rotina=${rotinaCodigo} — promovendo exeId=${nextExeId}.`,
+                    ));
+                    this.drainSerialWaitLoop(instituicaoCodigo, rotinaCodigo, nextExeId).catch((err) => {
+                        console.error(workerLogLine(`Drain serial loop error (reconcile, inst=${instituicaoCodigo}, rotina=${rotinaCodigo}):`), err);
+                    });
+                }
+            } catch (err) {
+                console.error(workerLogLine(`Reconcile serial: erro no par ${pairKey}:`), err);
+            }
+        }
     }
 
     /**
