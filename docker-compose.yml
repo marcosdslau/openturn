@@ -31,6 +31,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: openturn-redis-commander
+    restart: always
+    environment:
+      REDIS_HOSTS: local:redis:6379
+      HTTP_USER: admin
+      HTTP_PASSWORD: openturn_redis_admin
+    ports:
+      - "8081:8081"
+    depends_on:
+      redis:
+        condition: service_healthy
+
   api:
     build:
       context: ./webapi
