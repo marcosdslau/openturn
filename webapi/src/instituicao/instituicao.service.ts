@@ -46,6 +46,9 @@ export class InstituicaoService {
       INSControlidMonitorRotinaAtiva: false,
       INSControlidMonitorRotinaCodigo: null,
       INSRotinaPessoasCodigo: null,
+      ...(dto.INSDataGoLive != null && {
+        INSDataGoLive: new Date(dto.INSDataGoLive),
+      }),
     };
     const instituicao = await this.prisma.iNSInstituicao.create({ data });
     await this.publishQueueRefresh(instituicao, 'created');
@@ -95,6 +98,10 @@ export class InstituicaoService {
     await this.findOne(id);
 
     const data: Record<string, unknown> = { ...dto };
+
+    if (dto.INSDataGoLive != null) {
+      data.INSDataGoLive = new Date(dto.INSDataGoLive);
+    }
 
     if (dto.INSControlidMonitorRotinaAtiva === false) {
       data.INSControlidMonitorRotinaCodigo = null;

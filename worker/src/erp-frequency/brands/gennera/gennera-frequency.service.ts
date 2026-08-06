@@ -1,6 +1,11 @@
 import { PrismaClient, Prisma, RPDStatus } from '@prisma/client';
 import axios, { AxiosInstance } from 'axios';
-import { ErpFrequencyProvider, ErpFrequencySendResult } from '../../erp-frequency.types';
+import {
+  ErpFrequencyProvider,
+  ErpFrequencySendResult,
+  ImplantacaoFiltro,
+} from '../../erp-frequency.types';
+import { resolveAllowedPessoaCodigos } from '../../implantacao.util';
 import { workerLogLine } from '../../../worker-log';
 
 type ErpConfig = {
@@ -31,7 +36,10 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
     });
   }
 
-  async sendPendingFrequencies(instituicaoCodigo: number): Promise<ErpFrequencySendResult> {
+  async sendPendingFrequencies(
+    instituicaoCodigo: number,
+    filtro?: ImplantacaoFiltro,
+  ): Promise<ErpFrequencySendResult> {
     const inst = await this.prisma.iNSInstituicao.findUnique({
       where: { INSCodigo: instituicaoCodigo },
       select: {
@@ -47,12 +55,23 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
     const fusoHorario = inst?.INSFusoHorario ?? -3;
     const lancarAusencias = inst?.INSLancFreqAusenciaRegistro === true;
 
+    // Implantação (turmas pioneiras): quando ativa, restringe aos PESCodigo das
+    // turmas configuradas (null = sem restrição). Quando desativada, o piso de
+    // Go-Live (RPDData >= dataGoLive) é aplicado diretamente na query abaixo.
+    const allowedPessoaCodigos = await resolveAllowedPessoaCodigos(
+      this.prisma,
+      instituicaoCodigo,
+      filtro,
+    );
+
     const rpds = await this.prisma.rPDRegistrosDiarios.findMany({
       where: {
         INSInstituicaoCodigo: instituicaoCodigo,
         RPDStatus: { in: [RPDStatus.PENDENTE, RPDStatus.MANUAL, RPDStatus.ERRO] },
         RPDDataEntrada: { not: null },
         RPDDataSaida: { not: null },
+        ...(allowedPessoaCodigos !== null && { PESCodigo: { in: allowedPessoaCodigos } }),
+        ...(!filtro?.ativo && filtro?.dataGoLive && { RPDData: { gte: filtro.dataGoLive } }),
       },
       include: {
         pessoa: { select: { PESIdExterno: true } },
@@ -184,7 +203,11 @@ export class GenneraFrequencyService implements ErpFrequencyProvider {
       );
 
       const matriculasAtivas = await this.prisma.mATMatricula.findMany({
-        where: { INSInstituicaoCodigo: instituicaoCodigo, MATAtivo: true },
+        where: {
+          INSInstituicaoCodigo: instituicaoCodigo,
+          MATAtivo: true,
+          ...(allowedPessoaCodigos !== null && { PESCodigo: { in: allowedPessoaCodigos } }),
+        },
         select: {
           PESCodigo: true,
           pessoa: { select: { PESIdExterno: true } },

@@ -10,7 +10,7 @@ import InputField from "@/components/form/input/InputField";
 import Select from "@/components/form/Select";
 import Switch from "@/components/form/switch/Switch";
 import Button from "@/components/ui/button/Button";
-import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon } from "@/icons";
+import { PlusIcon, TrashBinIcon, EyeIcon, EyeCloseIcon, ChevronDownIcon } from "@/icons";
 import Alert from "@/components/ui/alert/Alert";
 import LimiarFacialSlider from "@/components/form/LimiarFacialSlider";
 import { CronBuilder } from "@/components/rotinas/CronBuilder";
@@ -42,6 +42,22 @@ interface Instituicao {
     INSSyncFreqEducacional?: boolean;
     INSTempoFreqEducacional?: string;
     INSLancFreqAusenciaRegistro?: boolean;
+    INSImplantacao?: boolean;
+    INSDataGoLive?: string;
+}
+
+interface CursoImplantacaoItem {
+    CIMCodigo: number;
+    CIMCurso: string;
+    CIMSerie: string;
+    CIMTurma: string;
+}
+
+interface TurmaOpcao {
+    curso: string;
+    serie: string;
+    turma: string;
+    alunosAtivos: number;
 }
 
 interface RotinaListItem {
@@ -113,6 +129,13 @@ export default function InstitutionERPPage() {
     const [tempoFreqEducacional, setTempoFreqEducacional] = useState("58 23 * * *");
     const [lancFreqAusenciaRegistro, setLancFreqAusenciaRegistro] = useState(false);
 
+    // Implantação — turmas pioneiras
+    const [insImplantacao, setInsImplantacao] = useState(false);
+    const [insDataGoLive, setInsDataGoLive] = useState("");
+    const [turmasSelecionadas, setTurmasSelecionadas] = useState<Set<string>>(new Set());
+    const [turmasDisponiveis, setTurmasDisponiveis] = useState<TurmaOpcao[]>([]);
+    const [turmasExpandido, setTurmasExpandido] = useState(false);
+
     // Aglutinação de registros diários
     const [aglutinacaoTipo, setAglutinacaoTipo] = useState<TipoAglutinacaoRegistro>("entrada_saida");
     const [aglutinacaoAutoCompletePeriodo, setAglutinacaoAutoCompletePeriodo] = useState(false);
@@ -127,7 +150,7 @@ export default function InstitutionERPPage() {
     const loadData = useCallback(async () => {
         setLoading(true);
         try {
-            const [instRes, configRes, connStatus, rotinasRes, periodosRes] = await Promise.all([
+            const [instRes, configRes, connStatus, rotinasRes, periodosRes, cimListRes, cimOpcoesRes] = await Promise.all([
                 apiGet<
                     Instituicao & { INSLogsAutoExcluir: boolean; INSLogsDiasRetencao: number }
                 >(`/instituicoes/${id}`),
@@ -135,6 +158,8 @@ export default function InstitutionERPPage() {
                 apiGet<ConnectorStatus>(`/instituicao/${id}/connector/status`).catch(() => ({ paired: false })),
                 apiGet<RotinaListItem[]>(`/instituicao/${id}/rotina`).catch(() => []),
                 apiGet<PeriodoRegistro[]>(`/instituicao/${id}/periodos-registro`).catch(() => []),
+                apiGet<CursoImplantacaoItem[]>(`/instituicao/${id}/cursos-implantacao`).catch(() => []),
+                apiGet<TurmaOpcao[]>(`/instituicao/${id}/cursos-implantacao/opcoes`).catch(() => []),
             ]);
             setConnector(connStatus);
 
@@ -166,6 +191,20 @@ export default function InstitutionERPPage() {
             setSyncFreqEducacional(!!(instRes as any).INSSyncFreqEducacional);
             setTempoFreqEducacional((instRes as any).INSTempoFreqEducacional ?? "58 23 * * *");
             setLancFreqAusenciaRegistro(!!(instRes as any).INSLancFreqAusenciaRegistro);
+            setInsImplantacao(!!instRes.INSImplantacao);
+            setInsDataGoLive(
+                instRes.INSDataGoLive
+                    ? new Date(instRes.INSDataGoLive).toISOString().slice(0, 10)
+                    : new Date().toISOString().slice(0, 10),
+            );
+            setTurmasSelecionadas(
+                new Set(
+                    (Array.isArray(cimListRes) ? cimListRes : []).map(
+                        (c) => `${c.CIMCurso}|${c.CIMSerie}|${c.CIMTurma}`,
+                    ),
+                ),
+            );
+            setTurmasDisponiveis(Array.isArray(cimOpcoesRes) ? cimOpcoesRes : []);
             setAglutinacaoTipo(((instRes as any).INSAglutinacaoRegistros as TipoAglutinacaoRegistro) ?? "entrada_saida");
             setAglutinacaoAutoCompletePeriodo(!!(instRes as any).INSAglutinacaoAutoCompletePeriodo);
             setPeriodos(Array.isArray(periodosRes) ? periodosRes : []);
@@ -209,6 +248,15 @@ export default function InstitutionERPPage() {
         const next = [...headers];
         next[index][field] = val;
         setHeaders(next);
+    };
+
+    const toggleTurma = (key: string) => {
+        setTurmasSelecionadas((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
     };
 
     const handleSave = async (e: React.FormEvent) => {
@@ -264,9 +312,18 @@ export default function InstitutionERPPage() {
                 INSLancFreqAusenciaRegistro: lancFreqAusenciaRegistro,
                 INSAglutinacaoRegistros: aglutinacaoTipo,
                 INSAglutinacaoAutoCompletePeriodo: aglutinacaoAutoCompletePeriodo,
+                INSImplantacao: insImplantacao,
+                INSDataGoLive: insDataGoLive || null,
             });
 
-            await Promise.all([erpPromise, instPromise]);
+            const cimPromise = apiPut(`/instituicao/${id}/cursos-implantacao`, {
+                combinacoes: [...turmasSelecionadas].map((key) => {
+                    const [curso, serie, turma] = key.split("|");
+                    return { curso, serie, turma };
+                }),
+            });
+
+            await Promise.all([erpPromise, instPromise, cimPromise]);
 
             setSuccess(true);
             setTimeout(() => setSuccess(false), 3000);
@@ -707,6 +764,104 @@ export default function InstitutionERPPage() {
                                 <span className="font-mono">min hora dia mês dia-semana</span>. Default:{" "}
                                 <span className="font-mono">58 23 * * *</span> (23:58 todo dia).
                             </p>
+                        </div>
+                    </div>
+                </ComponentCard>
+
+                {/* Implantação — turmas pioneiras */}
+                <ComponentCard
+                    title="Implantação — Turmas Pioneiras"
+                    desc="Durante a implantação, restrinja o envio de frequências ao ERP apenas às turmas selecionadas abaixo. Enquanto ativo, turmas fora da lista não são enviadas ao ERP (mas continuam sendo registradas normalmente)."
+                >
+                    <div className="space-y-4">
+                        <label className="flex cursor-pointer items-start gap-3">
+                            <input
+                                type="checkbox"
+                                checked={insImplantacao}
+                                onChange={(e) => setInsImplantacao(e.target.checked)}
+                                className="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-brand-500 focus:ring-brand-500 dark:border-gray-700 dark:bg-gray-800"
+                            />
+                            <span className="text-sm leading-snug text-gray-700 dark:text-gray-300">
+                                Instituição em período de implantação
+                            </span>
+                        </label>
+
+                        {insImplantacao && turmasSelecionadas.size === 0 && (
+                            <Alert
+                                variant="warning"
+                                title="Nenhuma turma selecionada"
+                                message="Com a implantação ativa e nenhuma turma marcada, o envio ao ERP fica bloqueado para todos os alunos."
+                            />
+                        )}
+
+                        {/* Data de Go-Live — sempre visível/editável, independente do checkbox acima.
+                            Só tem efeito quando "Instituição em período de implantação" está desmarcado:
+                            nesse modo, a sincronização só considera RPDs com data >= este valor. */}
+                        <div className="max-w-xs">
+                            <Label>Data de Go-Live</Label>
+                            <InputField
+                                type="date"
+                                value={insDataGoLive}
+                                onChange={(e: any) => setInsDataGoLive(e.target.value)}
+                            />
+                            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                Quando a implantação estiver <strong>desativada</strong>, a sincronização ao
+                                ERP só considera registros a partir desta data (evita reenviar de uma vez o
+                                backlog acumulado durante a implantação). Não afeta o filtro de turmas
+                                pioneiras enquanto a implantação está ativa.
+                            </p>
+                        </div>
+
+                        <div className={!insImplantacao ? "opacity-50 pointer-events-none" : ""}>
+                            <div className="overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
+                                <button
+                                    type="button"
+                                    onClick={() => setTurmasExpandido((v) => !v)}
+                                    className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left"
+                                >
+                                    <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                                        Turmas{" "}
+                                        {turmasSelecionadas.size > 0
+                                            ? `(${turmasSelecionadas.size} selecionada${turmasSelecionadas.size > 1 ? "s" : ""})`
+                                            : "(nenhuma selecionada)"}
+                                    </span>
+                                    <ChevronDownIcon
+                                        className={`h-5 w-5 shrink-0 text-gray-400 transition-transform duration-200 ${
+                                            turmasExpandido ? "rotate-180" : ""
+                                        }`}
+                                    />
+                                </button>
+
+                                {turmasExpandido && (
+                                    <div className="border-t border-gray-200 p-3 dark:border-gray-700">
+                                        {turmasDisponiveis.length === 0 ? (
+                                            <p className="text-sm text-gray-400 italic">
+                                                Nenhuma turma encontrada nas matrículas desta instituição.
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-1 max-h-96 overflow-y-auto">
+                                                {turmasDisponiveis.map((t) => {
+                                                    const key = `${t.curso}|${t.serie}|${t.turma}`;
+                                                    return (
+                                                        <label key={key} className="flex items-center gap-3 py-1 cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={turmasSelecionadas.has(key)}
+                                                                onChange={() => toggleTurma(key)}
+                                                                className="h-4 w-4 rounded border-gray-300 text-brand-500 focus:ring-brand-500"
+                                                            />
+                                                            <span className="text-sm text-gray-700 dark:text-gray-300">
+                                                                {t.curso} — {t.serie} — {t.turma}
+                                                            </span>
+                                                            <span className="text-xs text-gray-400">({t.alunosAtivos} alunos ativos)</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
                 </ComponentCard>
