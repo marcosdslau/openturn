@@ -1,12 +1,12 @@
 import * as amqp from 'amqplib';
 import type { ConsumeMessage, Options } from 'amqplib';
 import { PrismaClient, StatusExecucao } from '@prisma/client';
-import Redis from 'ioredis';
 import type { RedisOptions } from 'ioredis';
 import { join } from 'path';
 import { DbTenantProxy } from './engine/db-tenant-proxy';
 import { WorkerProcessManager } from './engine/process-manager';
 import { sanitizeForIpc } from './engine/sanitize-for-ipc';
+import { createRedisClient } from './redis-connection';
 import {
     getRabbitUrl,
     getMainQueueName,
@@ -30,8 +30,15 @@ import {
     redisRotinaParalelismoCacheInstPrefix,
     redisRotinaParalelismoCacheKey,
     redisSerialInflightZkey,
-    redisSerialInflightPattern,
     redisSerialWaitKey,
+    redisSerialProcessingKey,
+    redisSerialAttemptsKey,
+    redisSerialPairsKey,
+    redisSerialWaitPattern,
+    redisSerialProcessingPattern,
+    redisSerialWaitRegex,
+    redisSerialProcessingRegex,
+    redisRunningLockKey,
 } from './redis-keys';
 import {
     aggregateEntradaSaida,
@@ -50,7 +57,15 @@ import {
     type ReconciliacaoResult,
 } from './registro-diario-aggregation.helpers';
 import { ErpFrequencySyncOrchestrator } from './erp-frequency/erp-frequency-sync.orchestrator';
-import { tryAcquireOrEnqueueSerial, releaseSerialSlotAndPopNext } from './serial-wait-lock';
+import {
+    tryAcquireOrEnqueueSerial,
+    releaseSerialSlotAndPopNext,
+    requeueAtHeadAndClaimNext,
+    failSerialAttemptAndClaimNext,
+    getSerialAttempts,
+    reclaimOrphanSerialClaims,
+} from './serial-wait-lock';
+import { LeaseHeartbeat } from './serial-lease-heartbeat';
 
 export interface RotinaJobData {
     exeId: string;
@@ -80,7 +95,7 @@ const MAX_RETRIES = 3;
 const RETRY_HEADER = 'x-rotina-retry-count';
 const POLL_INTERVAL_MS = 120000;
 const SERIAL_BACKOFF_MS = 5000;
-/** Intervalo do tick de reconciliação de locks seriais órfãos (worker morreu com item pop'ado). */
+/** Intervalo do tick de reconciliação/recuperação do estado serial (locks órfãos, claims presos, backlog). */
 const SERIAL_RECONCILE_INTERVAL_MS = 30000;
 const CAPACITY_DEFER_MS = Math.max(
     0,
@@ -98,14 +113,52 @@ const RETRY_PREFETCH = Math.max(
     parseInt(process.env.ROTINA_RETRY_PREFETCH ?? '20', 10),
 );
 const CAPACITY_DEFERRED_HEADER = 'x-capacity-deferred';
-/** Em conjunto com {@link SERIAL_INST_HEADER}: postergação serial não incrementa {@link RETRY_HEADER}. */
+/** Em conjunto com {@link SERIAL_INST_HEADER}: postergação serial não incrementa {@link RETRY_HEADER}. Mantido só para compatibilidade com mensagens já em trânsito antes do deploy — código novo não produz mais este header (ver `failSerialAttemptAndClaimNext`). */
 const SERIAL_DEFERRED_HEADER = 'x-serial-delayed';
 const SERIAL_INST_HEADER = 'x-serial-inst';
-/** Vaga no semáforo por instituição expira sozinha se o worker morrer após ZADD (ZSET score = deadline). */
+/**
+ * Vaga no semáforo (por instituição e no lock serial) expira sozinha se o worker morrer —
+ * ZSET score = deadline. Curto de propósito (default 120s): habilita 3 instâncias de worker
+ * sem que um restart de uma instância prenda o lock de outra por horas. Jobs legitimamente
+ * mais longos que isso são cobertos por {@link LeaseHeartbeat}, que renova o score periodicamente
+ * enquanto o job roda de verdade.
+ */
 const INFLIGHT_LEASE_MS = Math.max(
     60_000,
-    parseInt(process.env.ROTINA_INFLIGHT_LEASE_SEC || String(3600), 10) * 1000,
+    parseInt(process.env.ROTINA_INFLIGHT_LEASE_SEC || String(120), 10) * 1000,
 );
+/**
+ * Teto absoluto de tempo para `processJob` (incluindo consultas Prisma/Redis fora do processo
+ * filho) — garante que a entrega do RabbitMQ é sempre resolvida (ack/nack) com folga antes do
+ * `consumer_timeout` do broker (30min por padrão), mesmo se algo travar fora do timeout próprio
+ * do `WorkerProcessManager`. Se sua instalação tem rotinas legitimamente mais longas que isso,
+ * aumente via `ROTINA_JOB_HARD_TIMEOUT_MS`.
+ */
+const ROTINA_JOB_HARD_TIMEOUT_MS = Math.max(
+    30_000,
+    parseInt(process.env.ROTINA_JOB_HARD_TIMEOUT_MS ?? '1500000', 10),
+);
+/** Teto de espera por uma vaga de capacidade do tenant durante o dreno serial — evita loop infinito. */
+const TENANT_SLOT_WAIT_MS = Math.max(
+    1000,
+    parseInt(process.env.ROTINA_TENANT_SLOT_WAIT_MS ?? '60000', 10),
+);
+/** Tentativas máximas de uma rotina serial antes de finalizar como ERRO/DLQ e liberar a fila. */
+const SERIAL_MAX_ATTEMPTS = Math.max(
+    1,
+    parseInt(process.env.ROTINA_SERIAL_MAX_ATTEMPTS ?? '5', 10),
+);
+const SERIAL_RETRY_BACKOFF_BASE_MS = Math.max(
+    100,
+    parseInt(process.env.ROTINA_SERIAL_RETRY_BACKOFF_MS ?? '5000', 10),
+);
+const SERIAL_RETRY_BACKOFF_CAP_MS = 60_000;
+/** TTL do contador de tentativas serial no Redis — folga generosa sobre o pior caso de backoff acumulado. */
+const SERIAL_ATTEMPTS_TTL_SEC = 3600;
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
+/** TTL do lock distribuído de execução (idempotência entre as N instâncias do worker) — cobre o teto de tempo por job com folga. */
+const RUNNING_LOCK_TTL_MS = ROTINA_JOB_HARD_TIMEOUT_MS + 60_000;
 
 const ALLOWED_MODELS = [
     'pESPessoa', 'mATMatricula', 'rEGRegistroPassagem',
@@ -232,25 +285,44 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/** Status finais de `ROTExecucaoLog` — usado como guard de idempotência contra redelivery/duplicidade. */
+function isTerminalStatus(status: StatusExecucao): boolean {
+    return (
+        status === StatusExecucao.SUCESSO ||
+        status === StatusExecucao.ERRO ||
+        status === StatusExecucao.CANCELADO ||
+        status === StatusExecucao.TIMEOUT
+    );
+}
+
+type OnMessageOutcome =
+    | { type: 'success' }
+    | { type: 'duplicate' }
+    | { type: 'enqueued'; ok: boolean }
+    | { type: 'failure' };
+
+type SettleAction = 'ack' | 'nack-requeue' | 'nack-discard';
+
 class RabbitRotinaConsumer {
     private connection: amqp.ChannelModel | null = null;
     private channel: amqp.Channel | null = null;
     /** Canal só para a fila global de retry (evita prefetch global bloquear republish). */
     private retryChannel: amqp.Channel | null = null;
-    private readonly redis = new Redis(this.redisOptions);
-    private readonly redisSub = new Redis(this.redisOptions);
+    private readonly redis = createRedisClient(this.redisOptions, 'main');
+    private readonly redisSub = createRedisClient(this.redisOptions, 'sub');
     private readonly tenantLimits = new Map<number, number>();
     private readonly tenantStatus = new Map<number, { ativo: boolean; workerAtivo: boolean }>();
     /** null = rotina inexistente no último fetch; chave = redisRotinaParalelismoCacheKey (prefixo DEV|PRD + inst:rot). */
     private readonly rotinaParalelismoCache = new Map<string, boolean | null>();
     private readonly consumerTags = new Map<number, string>();
-    /** Pares "inst:rotina" que já tiveram algum item na fila de espera serial — usado pelo tick de reconciliação. */
-    private readonly knownSerialWaitPairs = new Set<string>();
     private pollTimer: NodeJS.Timeout | null = null;
     private serialReconcileTimer: NodeJS.Timeout | null = null;
-    /** Limpa semáforos Redis de inflight uma vez por processo (worker reiniciado = slots órfãos). */
-    private coldStartInflightPurgeDone = false;
     private readonly erpFrequencySync: ErpFrequencySyncOrchestrator;
+    /** Identifica esta instância do worker nos locks distribuídos (idempotência entre instâncias). */
+    private readonly workerId = `${process.pid}:${Math.random().toString(36).slice(2, 10)}`;
+    private reconnecting = false;
+    private reconnectAttempts = 0;
+    private shuttingDown = false;
 
     constructor(
         private readonly prisma: PrismaClient,
@@ -262,11 +334,103 @@ class RabbitRotinaConsumer {
     }
 
     async start() {
+        await this.connectRabbit();
+        await this.startCancelListener();
+        await this.startRefreshListener();
+        await this.setupGlobalTopology();
+        // IMPORTANTE: criar/bindar as filas das instituições ANTES de iniciar o retry consumer.
+        // O retry consumer re-publica mensagens em `getJobsExchange` com routing key = inst;
+        // se a fila da instituição não estiver bound, o broker descarta silenciosamente
+        // (mesmo com `mandatory: true`, perderíamos a oportunidade de roteamento direto).
+        await this.reconcileInstitutions();
+        await this.startGlobalRetryConsumer();
+        await this.recoverSerialState();
+        this.pollTimer = setInterval(() => {
+            this.reconcileInstitutions().catch((err) => {
+                console.error(workerLogLine('reconcile error:'), err);
+            });
+        }, POLL_INTERVAL_MS);
+        this.serialReconcileTimer = setInterval(() => {
+            this.recoverSerialState().catch((err) => {
+                console.error(workerLogLine('serial state recovery error:'), err);
+            });
+        }, SERIAL_RECONCILE_INTERVAL_MS);
+        console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH}, retry prefetch=${RETRY_PREFETCH})`));
+    }
+
+    async close() {
+        this.shuttingDown = true;
+        if (this.pollTimer) clearInterval(this.pollTimer);
+        if (this.serialReconcileTimer) clearInterval(this.serialReconcileTimer);
+        for (const [inst, tag] of this.consumerTags.entries()) {
+            if (this.channel) {
+                try {
+                    await this.channel.cancel(tag);
+                } catch {
+                    /* canal pode já estar fechado/quebrado */
+                }
+            }
+            this.consumerTags.delete(inst);
+        }
+        try {
+            await this.redisSub.unsubscribe(
+                channelInstituicaoRefresh(),
+                channelRotinaRefresh(),
+                channelCancel(),
+            );
+        } catch {
+            /* ignore */
+        }
+        await this.redisSub.quit();
+        await this.redis.quit();
+        if (this.retryChannel) {
+            try { await this.retryChannel.close(); } catch { /* ignore */ }
+        }
+        if (this.channel) {
+            try { await this.channel.close(); } catch { /* ignore */ }
+        }
+        if (this.connection) {
+            try { await this.connection.close(); } catch { /* ignore */ }
+        }
+    }
+
+    /**
+     * Cria a conexão AMQP e os dois canais, com handlers de `error`/`close` obrigatórios.
+     * Sem eles, o `'error'` emitido pela conexão (ex.: 406 PRECONDITION-FAILED por
+     * `consumer_timeout`) não tinha nenhum listener e derrubava o processo Node inteiro
+     * (`node:events:486 throw er`) — matando as N instâncias PM2/Windows Service de uma vez.
+     */
+    private async connectRabbit(): Promise<void> {
         this.connection = await amqp.connect(getRabbitUrl());
+        this.connection.on('error', (err: Error) => {
+            console.error(workerLogLine('Rabbit connection error:'), err?.message ?? err);
+        });
+        this.connection.on('close', () => {
+            if (this.shuttingDown) return;
+            console.warn(workerLogLine('Rabbit connection closed — agendando reconexão.'));
+            this.scheduleReconnect();
+        });
+
         this.channel = await this.connection.createChannel();
+        this.channel.on('error', (err: Error) => {
+            console.error(workerLogLine('Rabbit main channel error:'), err?.message ?? err);
+        });
+        this.channel.on('close', () => {
+            if (this.shuttingDown) return;
+            console.warn(workerLogLine('Rabbit main channel closed — agendando reconexão.'));
+            this.scheduleReconnect();
+        });
         await this.channel.prefetch(MIN_PREFETCH, true);
 
         this.retryChannel = await this.connection.createChannel();
+        this.retryChannel.on('error', (err: Error) => {
+            console.error(workerLogLine('Rabbit retry channel error:'), err?.message ?? err);
+        });
+        this.retryChannel.on('close', () => {
+            if (this.shuttingDown) return;
+            console.warn(workerLogLine('Rabbit retry channel closed — agendando reconexão.'));
+            this.scheduleReconnect();
+        });
         // Configurável via ROTINA_RETRY_PREFETCH (default 20). Como `republishDeferredThroughGlobalRetry`
         // não usa mais `expiration`, mensagens que ficam na fila aguardando o consumer NÃO são
         // descartadas pelo broker — só esperam sua vez. Prefetch baixo espaça as tentativas.
@@ -277,46 +441,49 @@ class RabbitRotinaConsumer {
         this.retryChannel.on('return', (returned) => {
             this.handleReturnedRetryPublish(returned);
         });
-
-        await this.setupGlobalTopology();
-        await this.startCancelListener();
-        await this.startRefreshListener();
-        // IMPORTANTE: criar/bindar as filas das instituições ANTES de iniciar o retry consumer.
-        // O retry consumer re-publica mensagens em `getJobsExchange` com routing key = inst;
-        // se a fila da instituição não estiver bound, o broker descarta silenciosamente
-        // (mesmo com `mandatory: true`, perderíamos a oportunidade de roteamento direto).
-        await this.reconcileInstitutions();
-        await this.startGlobalRetryConsumer();
-        this.pollTimer = setInterval(() => {
-            this.reconcileInstitutions().catch((err) => {
-                console.error(workerLogLine('reconcile error:'), err);
-            });
-        }, POLL_INTERVAL_MS);
-        this.serialReconcileTimer = setInterval(() => {
-            this.reconcileSerialWaitPairs().catch((err) => {
-                console.error(workerLogLine('serial wait reconcile error:'), err);
-            });
-        }, SERIAL_RECONCILE_INTERVAL_MS);
-        console.log(workerLogLine(`Rabbit consumer started (initial prefetch=${MIN_PREFETCH}, retry prefetch=${RETRY_PREFETCH})`));
     }
 
-    async close() {
-        if (this.pollTimer) clearInterval(this.pollTimer);
-        if (this.serialReconcileTimer) clearInterval(this.serialReconcileTimer);
-        for (const [inst, tag] of this.consumerTags.entries()) {
-            if (this.channel) await this.channel.cancel(tag);
-            this.consumerTags.delete(inst);
+    /** Idempotente: múltiplos `close`/`error` (conexão + 2 canais) não geram reconexões concorrentes. */
+    private scheduleReconnect(): void {
+        if (this.reconnecting || this.shuttingDown) return;
+        this.reconnecting = true;
+        this.consumerTags.clear();
+        const oldConnection = this.connection;
+        this.channel = null;
+        this.retryChannel = null;
+        this.connection = null;
+        if (oldConnection) {
+            oldConnection.close().catch(() => {
+                /* conexão já pode estar fechada/quebrada */
+            });
         }
-        await this.redisSub.unsubscribe(
-            channelInstituicaoRefresh(),
-            channelRotinaRefresh(),
-            channelCancel(),
-        );
-        await this.redisSub.quit();
-        await this.redis.quit();
-        if (this.retryChannel) await this.retryChannel.close();
-        if (this.channel) await this.channel.close();
-        if (this.connection) await this.connection.close();
+        const delay = Math.min(RECONNECT_BASE_MS * 2 ** Math.min(this.reconnectAttempts, 5), RECONNECT_MAX_MS);
+        this.reconnectAttempts++;
+        console.warn(workerLogLine(`Reconectando ao RabbitMQ em ${delay}ms (tentativa ${this.reconnectAttempts})...`));
+        setTimeout(() => {
+            this.reconnectRabbit()
+                .then(() => {
+                    this.reconnectAttempts = 0;
+                    this.reconnecting = false;
+                    console.log(workerLogLine('Reconectado ao RabbitMQ com sucesso.'));
+                })
+                .catch((err) => {
+                    console.error(workerLogLine('Falha ao reconectar ao RabbitMQ:'), err);
+                    this.reconnecting = false;
+                    this.scheduleReconnect();
+                });
+        }, delay);
+    }
+
+    private async reconnectRabbit(): Promise<void> {
+        await this.connectRabbit();
+        await this.setupGlobalTopology();
+        await this.reconcileInstitutions();
+        await this.startGlobalRetryConsumer();
+        // Qualquer item que ficou em `processing`/com lock órfão durante a queda volta a
+        // andar sozinho aqui — sem isso, dependia de uma mensagem "viva" chegar para o
+        // mesmo par (instituição, rotina), que é exatamente o sintoma relatado em produção.
+        await this.recoverSerialState();
     }
 
     private async setupGlobalTopology() {
@@ -361,6 +528,9 @@ class RabbitRotinaConsumer {
             `serial=${hasSerial} capacity=${hasCapacity} retryCount=${retryHdr}`,
         ));
 
+        // Compatibilidade com mensagens já em trânsito antes do deploy desta versão — código
+        // novo não produz mais SERIAL_DEFERRED_HEADER (rotinas serial usam exclusivamente o
+        // caminho Redis wait/processing + attempts, ver `failSerialAttemptAndClaimNext`).
         const isSerialDelay = this.deferMarkerTruthy(msg.properties.headers, SERIAL_DEFERRED_HEADER);
         if (isSerialDelay) {
             await sleep(SERIAL_BACKOFF_MS);
@@ -418,7 +588,7 @@ class RabbitRotinaConsumer {
         const prev = Number(msg.properties.headers?.[RETRY_HEADER] ?? 0);
         const nextRetry = prev + 1;
         if (nextRetry > MAX_RETRIES) {
-            await this.sendToFinalDlq(msg, data, 'Máximo de tentativas atingido (retry global)');
+            this.sendToFinalDlq(msg.content, msg.properties.headers, data.exeId, 'Máximo de tentativas atingido (retry global)');
             ch.ack(msg);
             if (data.trigger !== 'INTERNAL') {
                 await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
@@ -580,13 +750,6 @@ class RabbitRotinaConsumer {
             `Reconcile instituições: ativas=${instituicoes.length} (${instituicoes.map((i) => i.INSCodigo).sort((a, b) => a - b).join(',')})`,
         ));
 
-        if (!this.coldStartInflightPurgeDone) {
-            for (const inst of instituicoes) {
-                await this.purgeInstitutionInflightOnColdStart(inst.INSCodigo);
-            }
-            this.coldStartInflightPurgeDone = true;
-        }
-
         const activeSet = new Set<number>();
         for (const instituicao of instituicoes) {
             activeSet.add(instituicao.INSCodigo);
@@ -628,7 +791,14 @@ class RabbitRotinaConsumer {
         const queue = getMainQueueName(instituicao.INSCodigo);
         const result = await this.channel.consume(
             queue,
-            (msg) => this.onMessage(msg),
+            (msg) => {
+                // Defesa em profundidade: `onMessage` já garante settle único internamente,
+                // mas um throw síncrono antes do seu próprio try/catch (não deveria acontecer,
+                // mas se acontecer) não pode virar unhandled rejection.
+                this.onMessage(msg).catch((err) => {
+                    console.error(workerLogLine('onMessage unhandled error:'), err);
+                });
+            },
             { noAck: false },
         );
         this.consumerTags.set(instituicao.INSCodigo, result.consumerTag);
@@ -658,105 +828,290 @@ class RabbitRotinaConsumer {
         console.log(workerLogLine(`Prefetch adjusted to ${prefetch} (total institution slots: ${totalSlots})`));
     }
 
-    private async onMessage(msg: ConsumeMessage | null) {
+    /**
+     * Corre uma promise contra um teto absoluto de tempo — garante que a entrega do RabbitMQ
+     * é sempre resolvida (ack/nack) mesmo se algo travar fora do timeout próprio do processo
+     * filho (ex.: uma consulta Prisma presa por esgotamento do pool de conexões). Não cancela
+     * de fato a promise original (ela continua rodando em segundo plano até settlar sozinha);
+     * o objetivo é só limitar quanto tempo `onMessage` fica sem decidir ack/nack.
+     */
+    private async withHardTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+        let timer: NodeJS.Timeout | undefined;
+        const timeoutPromise = new Promise<never>((_, reject) => {
+            timer = setTimeout(() => {
+                reject(new Error(
+                    `Hard timeout de ${ROTINA_JOB_HARD_TIMEOUT_MS}ms excedido: ${label}. ` +
+                    'Se a rotina é legitimamente mais longa que isso, aumente ROTINA_JOB_HARD_TIMEOUT_MS.',
+                ));
+            }, ROTINA_JOB_HARD_TIMEOUT_MS);
+        });
+        try {
+            return await Promise.race([promise, timeoutPromise]);
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+
+    private async onMessage(msg: ConsumeMessage | null): Promise<void> {
         if (!msg || !this.channel) return;
         const channel = this.channel;
 
-        let data: RotinaJobData;
+        let settled = false;
+        const settle = (action: SettleAction) => {
+            if (settled) return;
+            settled = true;
+            try {
+                if (action === 'ack') channel.ack(msg);
+                else if (action === 'nack-requeue') channel.nack(msg, false, true);
+                else channel.nack(msg, false, false);
+            } catch (err) {
+                console.error(workerLogLine(`Failed to settle message (${action}):`), err);
+            }
+        };
+
         try {
-            data = JSON.parse(msg.content.toString()) as RotinaJobData;
-        } catch {
-            channel.ack(msg);
-            return;
-        }
+            let data: RotinaJobData;
+            try {
+                data = JSON.parse(msg.content.toString()) as RotinaJobData;
+            } catch {
+                settle('ack');
+                return;
+            }
 
-        const workerOk = await this.isInstitutionWorkerConsuming(data.instituicaoCodigo);
-        if (!workerOk) {
-            channel.nack(msg, false, true);
-            return;
-        }
+            const workerOk = await this.isInstitutionWorkerConsuming(data.instituicaoCodigo);
+            if (!workerOk) {
+                settle('nack-requeue');
+                return;
+            }
 
-        // Rotinas serial (ROTPermiteParalelismo=false) NUNCA podem ser descartadas por
-        // esgotamento de tentativas: precisam ficar girando até processar com sucesso ou
-        // serem canceladas explicitamente. INTERNAL não tem rotina, então é tratado depois.
-        const rotinaMeta =
-            data.trigger !== 'INTERNAL'
-                ? await this.loadRotinaParalelismoMeta(
-                      data.instituicaoCodigo,
-                      data.rotinaCodigo,
-                  )
-                : null;
-        const isSerialRotina = rotinaMeta?.ROTPermiteParalelismo === false;
+            // Rotinas serial (ROTPermiteParalelismo=false) NUNCA podem ser descartadas por
+            // esgotamento de tentativas do AMQP: a partir do primeiro enfileiramento no Redis,
+            // toda a responsabilidade de retry passa a ser do par attempts/wait list — este
+            // contador de headers do Rabbit deixa de se aplicar a elas.
+            const rotinaMeta =
+                data.trigger !== 'INTERNAL'
+                    ? await this.loadRotinaParalelismoMeta(
+                          data.instituicaoCodigo,
+                          data.rotinaCodigo,
+                      )
+                    : null;
+            const isSerialRotina = rotinaMeta?.ROTPermiteParalelismo === false;
 
-        const retryCount = this.getRetryCount(msg);
-        if (retryCount >= MAX_RETRIES) {
-            if (isSerialRotina) {
-                // Rotina serial atingiu MAX_RETRIES devido a falhas reais de processJob
-                // (ex.: equipamento offline). Resetar contador e re-deferir em loop.
-                console.warn(workerLogLine(
-                    `Job ${data.exeId} (rotina serial=${data.rotinaCodigo}) atingiu MAX_RETRIES — resetando e re-deferindo.`,
-                ));
-                const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
-                if (republished) {
-                    channel.ack(msg);
-                } else {
-                    channel.nack(msg, false, true);
+            const retryCount = this.getRetryCount(msg);
+            if (!isSerialRotina && retryCount >= MAX_RETRIES) {
+                this.sendToFinalDlq(msg.content, msg.properties.headers, data.exeId, 'Max retries reached');
+                settle('ack');
+                if (data.trigger !== 'INTERNAL') {
+                    await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
                 }
                 return;
             }
-            await this.sendToFinalDlq(msg, data, 'Max retries reached');
-            channel.ack(msg);
-            if (data.trigger !== 'INTERNAL') {
-                await updateExecLog(this.prisma, data.exeId, StatusExecucao.ERRO, 'Máximo de tentativas atingido');
+
+            const exec = await this.prisma.rOTExecucaoLog.findFirst({
+                where: { EXEIdExterno: data.exeId },
+                select: { EXEStatus: true },
+            });
+            if (!exec) {
+                // Com createMany antes da publicação isso não deveria acontecer; ainda assim,
+                // se houver lag de réplica/transação não comitada, joga para a DLX para retry
+                // com backoff. Após MAX_RETRIES o consumer da retry envia para DLQ final.
+                console.warn(workerLogLine(
+                    `Job ${data.exeId} sem ROTExecucaoLog — devolvendo para retry (DLX).`,
+                ));
+                settle('nack-discard');
+                return;
             }
-            return;
-        }
-
-        const exec = await this.prisma.rOTExecucaoLog.findFirst({
-            where: { EXEIdExterno: data.exeId },
-            select: { EXEStatus: true },
-        });
-        if (!exec) {
-            // Com createMany antes da publicação isso não deveria acontecer; ainda assim,
-            // se houver lag de réplica/transação não comitada, joga para a DLX para retry
-            // com backoff. Após MAX_RETRIES o consumer da retry envia para DLQ final.
-            console.warn(workerLogLine(
-                `Job ${data.exeId} sem ROTExecucaoLog — devolvendo para retry (DLX).`,
-            ));
-            channel.nack(msg, false, false);
-            return;
-        }
-        if (exec.EXEStatus === StatusExecucao.CANCELADO) {
-            channel.ack(msg);
-            return;
-        }
-
-        const tenantLimit = this.tenantLimits.get(data.instituicaoCodigo) ?? await this.loadTenantLimit(data.instituicaoCodigo);
-        const acquired = await this.tryAcquireTenantSlot(
-            data.instituicaoCodigo,
-            tenantLimit,
-            data.exeId,
-        );
-        if (!acquired) {
-            const republished =
-                CAPACITY_DEFER_MS > 0
-                    ? this.republishWithCapacityDefer(channel, msg, data.instituicaoCodigo)
-                    : this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
-            if (republished) {
-                channel.ack(msg);
-            } else {
-                channel.nack(msg, false, true);
+            if (isTerminalStatus(exec.EXEStatus)) {
+                // Guard de idempotência: cobre redelivery da mesma mensagem (ex.: após
+                // reconexão do canal por 406) cujo resultado já foi definitivamente decidido.
+                console.warn(workerLogLine(
+                    `Job ${data.exeId} já em status terminal (${exec.EXEStatus}) — ack sem reprocessar.`,
+                ));
+                settle('ack');
+                return;
             }
-            return;
-        }
 
-        if (data.trigger === 'INTERNAL') {
-            const kind = data.internalKind ?? 'RPD_AGGREGATION';
-            let internalOk = false;
-            let internalError: string | undefined;
-            const startedAt = Date.now();
+            const tenantLimit = this.tenantLimits.get(data.instituicaoCodigo) ?? await this.loadTenantLimit(data.instituicaoCodigo);
+            const acquired = await this.tryAcquireTenantSlot(
+                data.instituicaoCodigo,
+                tenantLimit,
+                data.exeId,
+            );
+            if (!acquired) {
+                const republished =
+                    CAPACITY_DEFER_MS > 0
+                        ? this.republishWithCapacityDefer(channel, msg, data.instituicaoCodigo)
+                        : this.republishToTenantMainQueue(channel, msg, data.instituicaoCodigo);
+                settle(republished ? 'ack' : 'nack-requeue');
+                return;
+            }
+
+            if (data.trigger === 'INTERNAL') {
+                const internalOk = await this.runInternalJob(data);
+                settle(internalOk ? 'ack' : 'nack-discard');
+                return;
+            }
+
+            let tenantStillHeld = true;
+            let serialAcquired = false;
+            let outcome: OnMessageOutcome = { type: 'failure' };
+            let runningLockAcquired = false;
+            const heartbeats: LeaseHeartbeat[] = [];
+
             try {
-                await this.clearPendingMarker(data.exeId);
+                runningLockAcquired = await this.acquireRunningLock(data.exeId);
+                if (!runningLockAcquired) {
+                    // Outra instância do worker já está processando este exeId (corrida entre
+                    // instâncias, ou redelivery concorrente) — não roda de novo.
+                    console.warn(workerLogLine(
+                        `Job ${data.exeId} já em execução em outra instância — ack sem reprocessar.`,
+                    ));
+                    outcome = { type: 'duplicate' };
+                } else {
+                    const tenantHeartbeat = new LeaseHeartbeat(
+                        this.redis,
+                        redisInflightZkey(data.instituicaoCodigo),
+                        data.exeId,
+                        INFLIGHT_LEASE_MS,
+                    );
+                    tenantHeartbeat.start();
+                    heartbeats.push(tenantHeartbeat);
+
+                    let canRun = true;
+                    if (isSerialRotina) {
+                        const { zkey, waitkey, processingkey } = this.serialKeys(data.instituicaoCodigo, data.rotinaCodigo);
+                        const acquiredSerial = await tryAcquireOrEnqueueSerial(
+                            this.redis, zkey, waitkey, processingkey, data.exeId, INFLIGHT_LEASE_MS,
+                        );
+                        await this.rememberSerialPair(data.instituicaoCodigo, data.rotinaCodigo);
+                        if (!acquiredSerial) {
+                            // Lock ocupado (ou já há fila de espera — FIFO estrito): a mensagem
+                            // NÃO volta pro RabbitMQ. O exeId já está na lista Redis de espera;
+                            // aqui só marcamos o status no log (fonte de verdade durável).
+                            canRun = false;
+                            try {
+                                await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                            } catch (releaseErr) {
+                                console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial wait):`), releaseErr);
+                            }
+                            tenantStillHeld = false;
+                            try {
+                                await this.prisma.rOTExecucaoLog.updateMany({
+                                    where: { EXEIdExterno: data.exeId },
+                                    data: { EXEStatus: StatusExecucao.AGUARDANDO_LOCK_SERIAL },
+                                });
+                                outcome = { type: 'enqueued', ok: true };
+                            } catch (updateErr) {
+                                // exeId já está na lista Redis de espera; se o update no Postgres
+                                // falhar, devolve pro broker (fallback ao comportamento antigo).
+                                // Risco residual de duplicidade é mitigado pelo guard de status
+                                // terminal + lock distribuído de execução.
+                                console.error(workerLogLine(`Failed to mark ${data.exeId} as AGUARDANDO_LOCK_SERIAL — devolvendo para o broker:`), updateErr);
+                                outcome = { type: 'enqueued', ok: false };
+                            }
+                        } else {
+                            serialAcquired = true;
+                            const serialHeartbeat = new LeaseHeartbeat(this.redis, zkey, data.exeId, INFLIGHT_LEASE_MS);
+                            serialHeartbeat.start();
+                            heartbeats.push(serialHeartbeat);
+                        }
+                    }
+
+                    if (canRun) {
+                        await this.clearPendingMarker(data.exeId);
+                        const jobResult = await this.withHardTimeout(this.processJob(data), `processJob exeId=${data.exeId}`);
+                        // Rotinas paralelas preservam o comportamento histórico: uma vez que
+                        // processJob roda sem lançar exceção, a mensagem é sempre ack'ada
+                        // (falha de negócio já foi persistida como ERRO pelo próprio processJob;
+                        // não há mecanismo de retry por falha de negócio para elas). Rotinas
+                        // serial passam a exigir sucesso de fato para não entrar no caminho de
+                        // retry-na-cabeça-da-fila — essa é a mudança pedida (ex.: equipamento
+                        // offline deve contar como tentativa falha).
+                        const succeeded = isSerialRotina ? jobResult.success : true;
+                        outcome = succeeded ? { type: 'success' } : { type: 'failure' };
+                    }
+                }
+            } catch (error: any) {
+                console.error(
+                    workerLogLine(`Job ${data.exeId} error:`),
+                    error?.message ?? error,
+                );
+                outcome = { type: 'failure' };
+            } finally {
+                for (const hb of heartbeats) hb.stop();
+                if (runningLockAcquired) {
+                    try {
+                        await this.releaseRunningLock(data.exeId);
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release running lock for ${data.exeId}:`), releaseErr);
+                    }
+                }
+                if (serialAcquired) {
+                    try {
+                        if (outcome.type === 'success') {
+                            const nextExeId = await this.releaseSerialSlotAndPopNext(
+                                data.instituicaoCodigo,
+                                data.rotinaCodigo,
+                                data.exeId,
+                            );
+                            if (nextExeId) this.startDrainInBackground(data.instituicaoCodigo, data.rotinaCodigo, nextExeId);
+                        } else {
+                            const failOutcome = await this.failSerialAttempt(data.instituicaoCodigo, data.rotinaCodigo, data.exeId);
+                            if (failOutcome.exhausted) {
+                                await this.finalizeSerialExhausted(msg, data, failOutcome.attempts);
+                            } else {
+                                await this.prisma.rOTExecucaoLog.updateMany({
+                                    where: { EXEIdExterno: data.exeId },
+                                    data: { EXEStatus: StatusExecucao.AGUARDANDO_LOCK_SERIAL },
+                                }).catch((err) => console.error(workerLogLine(`Failed to mark ${data.exeId} as AGUARDANDO_LOCK_SERIAL (retry):`), err));
+                            }
+                            if (failOutcome.nextExeId) this.startDrainInBackground(data.instituicaoCodigo, data.rotinaCodigo, failOutcome.nextExeId);
+                        }
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release serial slot for ${data.exeId}:`), releaseErr);
+                    }
+                }
+                if (tenantStillHeld) {
+                    try {
+                        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId}:`), releaseErr);
+                    }
+                }
+            }
+
+            switch (outcome.type) {
+                case 'success':
+                case 'duplicate':
+                    settle('ack');
+                    break;
+                case 'enqueued':
+                    settle(outcome.ok ? 'ack' : 'nack-requeue');
+                    break;
+                case 'failure':
+                    // Rotina serial: responsabilidade já transferida integralmente para o
+                    // Redis/Postgres (recolocada na cabeça da fila ou finalizada/DLQ) — a
+                    // mensagem original do Rabbit está encerrada aqui de qualquer forma.
+                    settle(isSerialRotina ? 'ack' : 'nack-discard');
+                    break;
+            }
+        } catch (unexpected: any) {
+            // Qualquer exceção não prevista antes de chegar num `settle(...)` explícito acima
+            // (ex.: falha do Prisma/Redis num passo de setup) — devolve ao broker em vez de
+            // deixar a entrega pendurada até o `consumer_timeout`.
+            console.error(workerLogLine('onMessage unexpected error:'), unexpected?.message ?? unexpected);
+            settle('nack-requeue');
+        }
+    }
+
+    private async runInternalJob(data: RotinaJobData): Promise<boolean> {
+        const kind = data.internalKind ?? 'RPD_AGGREGATION';
+        let internalOk = false;
+        let internalError: string | undefined;
+        const startedAt = Date.now();
+        try {
+            await this.clearPendingMarker(data.exeId);
+            await this.withHardTimeout((async () => {
                 switch (kind) {
                     case 'RPD_AGGREGATION':
                         await this.processRegistroDiarioAggregation(
@@ -770,125 +1125,32 @@ class RabbitRotinaConsumer {
                     default:
                         console.warn(workerLogLine(`INTERNAL kind desconhecido: ${kind}`));
                 }
-                internalOk = true;
-            } catch (err: any) {
-                internalError = err?.message ?? String(err);
-                console.error(workerLogLine(`INTERNAL job ${data.exeId} (kind=${kind}) error:`), internalError);
-            } finally {
-                try {
-                    await this.prisma.rOTExecucaoLog.updateMany({
-                        where: { EXEIdExterno: data.exeId },
-                        data: {
-                            EXEStatus: internalOk ? StatusExecucao.SUCESSO : StatusExecucao.ERRO,
-                            EXEFim: new Date(),
-                            EXEDuracaoMs: Date.now() - startedAt,
-                            EXEErro: internalOk ? null : internalError,
-                        },
-                    });
-                } catch (updateErr) {
-                    console.error(workerLogLine(`Failed to update execution log for INTERNAL ${data.exeId}:`), updateErr);
-                }
-                try {
-                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                } catch (releaseErr) {
-                    console.error(workerLogLine(`Failed to release tenant slot for INTERNAL ${data.exeId}:`), releaseErr);
-                }
-            }
-            if (internalOk) {
-                channel.ack(msg);
-            } else {
-                channel.nack(msg, false, false);
-            }
-            return;
-        }
-
-        let tenantStillHeld = true;
-        let serialAcquired = false;
-        let jobSucceeded = false;
-        try {
-            if (isSerialRotina) {
-                const acquired = await this.tryAcquireOrEnqueueSerial(
-                    data.instituicaoCodigo,
-                    data.rotinaCodigo,
-                    data.exeId,
-                );
-                if (!acquired) {
-                    // Lock ocupado (ou já há fila de espera — FIFO estrito): a mensagem NÃO
-                    // volta pro RabbitMQ. O exeId já está na lista Redis de espera; aqui só
-                    // marcamos o status no log (fonte de verdade durável) e fazemos ack.
-                    try {
-                        await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                    } catch (releaseErr) {
-                        console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId} (serial wait):`), releaseErr);
-                    }
-                    tenantStillHeld = false;
-                    try {
-                        await this.prisma.rOTExecucaoLog.updateMany({
-                            where: { EXEIdExterno: data.exeId },
-                            data: { EXEStatus: StatusExecucao.AGUARDANDO_LOCK_SERIAL },
-                        });
-                        channel.ack(msg);
-                    } catch (updateErr) {
-                        // exeId já está na lista Redis de espera; se o update no Postgres falhar,
-                        // não fazemos ack — devolve pro broker (fallback ao comportamento antigo).
-                        // Risco residual de duplicidade é mitigado pelo guard de idempotência do dreno.
-                        console.error(workerLogLine(`Failed to mark ${data.exeId} as AGUARDANDO_LOCK_SERIAL — devolvendo para o broker:`), updateErr);
-                        channel.nack(msg, false, true);
-                    }
-                    return;
-                }
-                serialAcquired = true;
-            }
-
-            await this.clearPendingMarker(data.exeId);
-            await this.processJob(data);
-            jobSucceeded = true;
-        } catch (error: any) {
-            console.error(
-                workerLogLine(`Job ${data.exeId} error:`),
-                error?.message ?? error,
-            );
+            })(), `INTERNAL exeId=${data.exeId} kind=${kind}`);
+            internalOk = true;
+        } catch (err: any) {
+            internalError = err?.message ?? String(err);
+            console.error(workerLogLine(`INTERNAL job ${data.exeId} (kind=${kind}) error:`), internalError);
         } finally {
-            if (serialAcquired) {
-                try {
-                    const nextExeId = await this.releaseSerialSlotAndPopNext(
-                        data.instituicaoCodigo,
-                        data.rotinaCodigo,
-                        data.exeId,
-                    );
-                    if (nextExeId) {
-                        // Não bloqueia o ack da mensagem atual — dreno roda em background.
-                        this.drainSerialWaitLoop(data.instituicaoCodigo, data.rotinaCodigo, nextExeId).catch((err) => {
-                            console.error(workerLogLine(`Drain serial loop error (inst=${data.instituicaoCodigo}, rotina=${data.rotinaCodigo}):`), err);
-                        });
-                    }
-                } catch (releaseErr) {
-                    console.error(workerLogLine(`Failed to release serial slot for ${data.exeId}:`), releaseErr);
-                }
+            try {
+                await this.prisma.rOTExecucaoLog.updateMany({
+                    where: { EXEIdExterno: data.exeId },
+                    data: {
+                        EXEStatus: internalOk ? StatusExecucao.SUCESSO : StatusExecucao.ERRO,
+                        EXEFim: new Date(),
+                        EXEDuracaoMs: Date.now() - startedAt,
+                        EXEErro: internalOk ? null : internalError,
+                    },
+                });
+            } catch (updateErr) {
+                console.error(workerLogLine(`Failed to update execution log for INTERNAL ${data.exeId}:`), updateErr);
             }
-            if (tenantStillHeld) {
-                try {
-                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                } catch (releaseErr) {
-                    console.error(workerLogLine(`Failed to release tenant slot for ${data.exeId}:`), releaseErr);
-                }
+            try {
+                await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+            } catch (releaseErr) {
+                console.error(workerLogLine(`Failed to release tenant slot for INTERNAL ${data.exeId}:`), releaseErr);
             }
         }
-
-        if (jobSucceeded) {
-            channel.ack(msg);
-        } else if (isSerialRotina) {
-            // Rotina serial não pode ser descartada por MAX_RETRIES. Republica como
-            // serial defer (que não incrementa RETRY_HEADER) para nova tentativa.
-            const republished = this.republishWithDelay(channel, msg, data.instituicaoCodigo);
-            if (republished) {
-                channel.ack(msg);
-            } else {
-                channel.nack(msg, false, true);
-            }
-        } else {
-            channel.nack(msg, false, false);
-        }
+        return internalOk;
     }
 
     /**
@@ -1176,7 +1438,7 @@ class RabbitRotinaConsumer {
     }
 
     /** Um log EM_EXECUCAO + exeId único: redelivery Rabbit reusa a mesma linha até SUCESSO/ERRO/TIMEOUT/CANCELADO. */
-    private async processJob(jobData: RotinaJobData) {
+    private async processJob(jobData: RotinaJobData): Promise<{ success: boolean }> {
         const { exeId, rotinaCodigo, instituicaoCodigo, requestEnvelope } = jobData;
         console.log(workerLogLine(`Processing job ${exeId} (rotina=${rotinaCodigo}, trigger=${jobData.trigger})`));
         const rotina = await this.prisma.rOTRotina.findFirst({
@@ -1234,6 +1496,8 @@ class RabbitRotinaConsumer {
         }));
 
         console.log(workerLogLine(`Job ${exeId} completed`));
+
+        return { success: finalStatus === StatusExecucao.SUCESSO };
     }
 
     private async isInstitutionWorkerConsuming(instituicaoCodigo: number): Promise<boolean> {
@@ -1308,26 +1572,6 @@ class RabbitRotinaConsumer {
         }
     }
 
-    /** Limite por instituição via ZSET: membros expirados liberam vaga sem DECR manual. */
-    private async purgeInstitutionInflightOnColdStart(instituicaoCodigo: number) {
-        const tenantZkey = redisInflightZkey(instituicaoCodigo);
-        const tenantMembers = await this.redis.zcard(tenantZkey);
-        const serialPattern = redisSerialInflightPattern(instituicaoCodigo);
-        const serialKeys = await this.redis.keys(serialPattern);
-        if (tenantMembers > 0) {
-            await this.redis.del(tenantZkey);
-        }
-        if (serialKeys.length > 0) {
-            await this.redis.del(...serialKeys);
-        }
-        if (tenantMembers > 0 || serialKeys.length > 0) {
-            console.warn(workerLogLine(
-                `Cold start: inflight Redis limpo inst=${instituicaoCodigo} ` +
-                `(tenant=${tenantMembers}, serialZsets=${serialKeys.length})`,
-            ));
-        }
-    }
-
     private async tryAcquireTenantSlot(
         instituicaoCodigo: number,
         limit: number,
@@ -1368,26 +1612,22 @@ class RabbitRotinaConsumer {
         return redisSerialInflightZkey(instituicaoCodigo, rotinaCodigo);
     }
 
-    /**
-     * Uma execução por rotina (quando ROTPermiteParalelismo = false): ZSET com limite 1 e lease.
-     * Se o lock estiver ocupado OU já houver itens na lista de espera, o exeId é enfileirado
-     * (RPUSH) em vez de retornar apenas "ocupado" — isso garante FIFO estrito: uma mensagem
-     * nova nunca "pula a fila" de quem já está esperando (sem essa checagem de LLEN, mensagens
-     * novas poderiam continuar sendo processadas indefinidamente enquanto o backlog antigo
-     * nunca drena). Retorna `true` só quando o lock foi de fato adquirido.
-     */
-    private async tryAcquireOrEnqueueSerial(
-        instituicaoCodigo: number,
-        rotinaCodigo: number,
-        exeId: string,
-    ): Promise<boolean> {
-        const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
-        const waitkey = redisSerialWaitKey(instituicaoCodigo, rotinaCodigo);
-        const acquired = await tryAcquireOrEnqueueSerial(this.redis, zkey, waitkey, exeId, INFLIGHT_LEASE_MS);
-        if (!acquired) {
-            this.knownSerialWaitPairs.add(`${instituicaoCodigo}:${rotinaCodigo}`);
+    /** Agrupa as 3 chaves Redis usadas pelo lock serial de um par (instituição, rotina). */
+    private serialKeys(instituicaoCodigo: number, rotinaCodigo: number) {
+        return {
+            zkey: this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo),
+            waitkey: redisSerialWaitKey(instituicaoCodigo, rotinaCodigo),
+            processingkey: redisSerialProcessingKey(instituicaoCodigo, rotinaCodigo),
+        };
+    }
+
+    /** Registra o par no índice durável (SET no Redis) usado por `recoverSerialState` — substitui o antigo Set em memória, que se perdia a cada restart. */
+    private async rememberSerialPair(instituicaoCodigo: number, rotinaCodigo: number): Promise<void> {
+        try {
+            await this.redis.sadd(redisSerialPairsKey(), `${instituicaoCodigo}:${rotinaCodigo}`);
+        } catch (err) {
+            console.error(workerLogLine('Failed to remember serial pair:'), err);
         }
-        return acquired;
     }
 
     /**
@@ -1402,9 +1642,51 @@ class RabbitRotinaConsumer {
         rotinaCodigo: number,
         releasedExeId: string,
     ): Promise<string | null> {
-        const zkey = this.serialRotinaInflightZkeyFor(instituicaoCodigo, rotinaCodigo);
-        const waitkey = redisSerialWaitKey(instituicaoCodigo, rotinaCodigo);
-        return releaseSerialSlotAndPopNext(this.redis, zkey, waitkey, releasedExeId, INFLIGHT_LEASE_MS);
+        const { zkey, waitkey, processingkey } = this.serialKeys(instituicaoCodigo, rotinaCodigo);
+        return releaseSerialSlotAndPopNext(this.redis, zkey, waitkey, processingkey, releasedExeId, INFLIGHT_LEASE_MS);
+    }
+
+    /** Registra uma falha real de processamento e decide (via Lua atômico) recolocar na cabeça ou finalizar por esgotamento de tentativas. */
+    private async failSerialAttempt(instituicaoCodigo: number, rotinaCodigo: number, exeId: string) {
+        const { zkey, waitkey, processingkey } = this.serialKeys(instituicaoCodigo, rotinaCodigo);
+        const attemptsKey = redisSerialAttemptsKey(instituicaoCodigo, rotinaCodigo, exeId);
+        return failSerialAttemptAndClaimNext(
+            this.redis, zkey, waitkey, processingkey, attemptsKey, exeId,
+            SERIAL_MAX_ATTEMPTS, SERIAL_ATTEMPTS_TTL_SEC, INFLIGHT_LEASE_MS,
+        );
+    }
+
+    /** Rotina serial esgotou tentativas: finaliza como ERRO e manda para a DLQ final (nunca fica presa em loop). */
+    private async finalizeSerialExhausted(
+        msg: ConsumeMessage | null,
+        data: RotinaJobData,
+        attempts: number,
+    ): Promise<void> {
+        const reason = `Rotina serial esgotou tentativas (${attempts}/${SERIAL_MAX_ATTEMPTS})`;
+        console.error(workerLogLine(
+            `Job ${data.exeId} (rotina serial=${data.rotinaCodigo}) ${reason} — movendo para ERRO/DLQ.`,
+        ));
+        try {
+            await this.prisma.rOTExecucaoLog.updateMany({
+                where: { EXEIdExterno: data.exeId },
+                data: { EXEStatus: StatusExecucao.ERRO, EXEFim: new Date(), EXEErro: reason },
+            });
+        } catch (err) {
+            console.error(workerLogLine(`Failed to mark ${data.exeId} as ERRO (serial exhausted):`), err);
+        }
+        try {
+            const content = msg ? msg.content : Buffer.from(JSON.stringify(data));
+            const baseHeaders = msg ? msg.properties.headers : undefined;
+            this.sendToFinalDlq(content, baseHeaders, data.exeId, reason);
+        } catch (err) {
+            console.error(workerLogLine(`Failed to send ${data.exeId} to final DLQ (serial exhausted):`), err);
+        }
+    }
+
+    private startDrainInBackground(instituicaoCodigo: number, rotinaCodigo: number, exeId: string): void {
+        this.drainSerialWaitLoop(instituicaoCodigo, rotinaCodigo, exeId).catch((err) => {
+            console.error(workerLogLine(`Drain serial loop error (inst=${instituicaoCodigo}, rotina=${rotinaCodigo}):`), err);
+        });
     }
 
     /**
@@ -1414,20 +1696,32 @@ class RabbitRotinaConsumer {
     private async runSerialJob(data: RotinaJobData): Promise<boolean> {
         try {
             await this.clearPendingMarker(data.exeId);
-            await this.processJob(data);
-            return true;
+            const result = await this.withHardTimeout(this.processJob(data), `processJob (drain) exeId=${data.exeId}`);
+            return result.success;
         } catch (error: any) {
             console.error(workerLogLine(`Job ${data.exeId} error (drain):`), error?.message ?? error);
             return false;
         }
     }
 
-    /** Tenta adquirir o slot de capacidade da instituição em loop, sem desistir (mesmo espírito de "rotina serial nunca é descartada"). */
-    private async acquireTenantSlotBlocking(instituicaoCodigo: number, exeId: string): Promise<void> {
+    /**
+     * Tenta adquirir o slot de capacidade da instituição em loop, até um teto de tempo
+     * (`ROTINA_TENANT_SLOT_WAIT_MS`). Diferente do lock serial (que nunca desiste), aqui um
+     * teto é necessário porque a causa da espera é *externa* ao job (capacidade do tenant) —
+     * sem teto, um tenant sempre lotado travaria o dreno da fila serial indefinidamente.
+     */
+    private async acquireTenantSlotBlocking(instituicaoCodigo: number, exeId: string): Promise<boolean> {
         const limit = this.tenantLimits.get(instituicaoCodigo) ?? await this.loadTenantLimit(instituicaoCodigo);
+        const deadline = Date.now() + TENANT_SLOT_WAIT_MS;
         let attempts = 0;
         while (!(await this.tryAcquireTenantSlot(instituicaoCodigo, limit, exeId))) {
             attempts++;
+            if (Date.now() >= deadline) {
+                console.warn(workerLogLine(
+                    `Drain serial: exeId=${exeId} desistiu de aguardar slot de capacidade da instituição ${instituicaoCodigo} após ${attempts * 250}ms — devolvendo à cabeça da fila.`,
+                ));
+                return false;
+            }
             if (attempts % 20 === 0) {
                 console.warn(workerLogLine(
                     `Drain serial: exeId=${exeId} aguardando slot de capacidade da instituição ${instituicaoCodigo} há ${attempts * 250}ms.`,
@@ -1435,60 +1729,84 @@ class RabbitRotinaConsumer {
             }
             await sleep(250);
         }
+        return true;
     }
 
     /**
-     * Falha real de processamento (exceção) num job drenado da fila de espera serial. Não há
-     * `ConsumeMessage` disponível aqui (o dreno não passa pelo `onMessage`), então publica uma
-     * mensagem sintética direto na fila global de retry, reaproveitando o mesmo mecanismo de
-     * "serial defer" (backoff, sem contar como falha de retry) já usado para mensagens vivas —
-     * mantém rotinas serial girando indefinidamente até sucesso/cancelamento, sem misturar
-     * "falha real" com a fila de espera de contenção de lock (que é só para quem está esperando
-     * o slot, não para retry de erro).
+     * Lock distribuído (`SET NX PX`) contra execução dupla do mesmo exeId em instâncias
+     * diferentes do worker — complementa o guard de status terminal do Postgres, cobrindo a
+     * janela entre "status ainda não é terminal" e "esta instância efetivamente começou a
+     * rodar". TTL fixo (não renovado por heartbeat) bound ao teto de tempo do job: como o job
+     * nunca roda por mais que isso (ver `withHardTimeout`), não há necessidade de renovação.
      */
-    private republishSerialFailureForRetry(data: RotinaJobData): boolean {
-        if (!this.channel) return false;
-        const headers: Record<string, unknown> = {
-            [SERIAL_DEFERRED_HEADER]: true,
-            [SERIAL_INST_HEADER]: data.instituicaoCodigo,
-        };
-        const content = Buffer.from(JSON.stringify(data));
-        const properties: Options.Publish = {
-            persistent: true,
-            headers,
-            messageId: data.exeId,
-            correlationId: data.exeId,
-            contentType: 'application/json',
-            timestamp: Date.now(),
-        };
-        return this.channel.publish(getJobsRetryExchange(), RETRY_DLX_ROUTING_KEY, content, properties);
+    private async acquireRunningLock(exeId: string): Promise<boolean> {
+        try {
+            const key = redisRunningLockKey(exeId);
+            const ok = await this.redis.set(key, this.workerId, 'PX', RUNNING_LOCK_TTL_MS, 'NX');
+            return ok === 'OK';
+        } catch (err) {
+            // Redis indisponível: fail-open (não bloqueia o processamento) — o guard de
+            // status terminal no Postgres continua sendo a defesa primária.
+            console.error(workerLogLine(`Failed to acquire running lock for ${exeId} (fail-open):`), err);
+            return true;
+        }
+    }
+
+    private async releaseRunningLock(exeId: string): Promise<void> {
+        const key = redisRunningLockKey(exeId);
+        await this.redis.eval(
+            `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`,
+            1,
+            key,
+            this.workerId,
+        );
     }
 
     /**
      * Loop iterativo (não recursivo) de dreno da fila de espera serial. Reconstrói o job a
      * partir do `ROTExecucaoLog` (fonte de verdade durável — não do Redis) e processa um item
-     * por vez, encadeando com {@link releaseSerialSlotAndPopNext} até a lista esvaziar.
+     * por vez, encadeando com {@link releaseSerialSlotAndPopNext}/{@link failSerialAttempt}
+     * até a lista esvaziar.
      */
     private async drainSerialWaitLoop(
         instituicaoCodigo: number,
         rotinaCodigo: number,
         firstExeId: string,
     ): Promise<void> {
+        const { zkey, waitkey, processingkey } = this.serialKeys(instituicaoCodigo, rotinaCodigo);
         let nextExeId: string | null = firstExeId;
+
         while (nextExeId) {
             const exeId = nextExeId;
+            const attemptsKey = redisSerialAttemptsKey(instituicaoCodigo, rotinaCodigo, exeId);
+
+            // Se este exeId já falhou antes (recolocado na cabeça), respeita o backoff antes
+            // de tentar de novo — evita martelar um equipamento/serviço que acabou de falhar.
             try {
-                const log = await this.prisma.rOTExecucaoLog.findUnique({
-                    where: { EXEIdExterno: exeId },
-                });
+                const attempts = await getSerialAttempts(this.redis, attemptsKey);
+                if (attempts > 0) {
+                    const backoff = Math.min(
+                        SERIAL_RETRY_BACKOFF_BASE_MS * 2 ** (attempts - 1),
+                        SERIAL_RETRY_BACKOFF_CAP_MS,
+                    );
+                    console.warn(workerLogLine(
+                        `Drain serial: exeId=${exeId} tentativa ${attempts + 1}/${SERIAL_MAX_ATTEMPTS} — aguardando ${backoff}ms de backoff.`,
+                    ));
+                    await sleep(backoff);
+                }
+            } catch (err) {
+                console.error(workerLogLine(`Drain serial: erro lendo tentativas de ${exeId}:`), err);
+            }
+
+            let runningLockAcquired = false;
+            let jobOutcome: 'success' | 'failure' | 'skipped' | 'requeued-capacity' = 'skipped';
+            let failureData: RotinaJobData | null = null;
+
+            try {
+                const log = await this.prisma.rOTExecucaoLog.findUnique({ where: { EXEIdExterno: exeId } });
                 if (!log) {
                     console.warn(workerLogLine(`Drain serial: exeId=${exeId} sem ROTExecucaoLog — ignorando.`));
-                } else if (
-                    log.EXEStatus === StatusExecucao.SUCESSO ||
-                    log.EXEStatus === StatusExecucao.ERRO ||
-                    log.EXEStatus === StatusExecucao.CANCELADO ||
-                    log.EXEStatus === StatusExecucao.TIMEOUT
-                ) {
+                } else if (isTerminalStatus(log.EXEStatus)) {
                     // Guard de idempotência: proteção contra o risco residual de duplicidade
                     // (RPUSH no Redis confirmado + update de status no Postgres falhou).
                     console.warn(workerLogLine(`Drain serial: exeId=${exeId} já terminal (${log.EXEStatus}) — pulando.`));
@@ -1507,34 +1825,75 @@ class RabbitRotinaConsumer {
                         },
                         enqueuedAt: new Date().toISOString(),
                     };
-                    await this.acquireTenantSlotBlocking(data.instituicaoCodigo, data.exeId);
-                    let success = false;
-                    try {
-                        await this.prisma.rOTExecucaoLog.updateMany({
-                            where: { EXEIdExterno: data.exeId },
-                            data: { EXEStatus: StatusExecucao.EM_EXECUCAO },
-                        });
-                        success = await this.runSerialJob(data);
-                    } finally {
-                        try {
-                            await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
-                        } catch (releaseErr) {
-                            console.error(workerLogLine(`Failed to release tenant slot (drain) for ${data.exeId}:`), releaseErr);
-                        }
-                    }
-                    if (!success) {
-                        try {
-                            this.republishSerialFailureForRetry(data);
-                        } catch (err) {
-                            console.error(workerLogLine(`Failed to republish failed drained job ${data.exeId}:`), err);
+
+                    runningLockAcquired = await this.acquireRunningLock(exeId);
+                    if (!runningLockAcquired) {
+                        console.warn(workerLogLine(`Drain serial: exeId=${exeId} já em execução em outra instância — pulando.`));
+                    } else {
+                        const gotSlot = await this.acquireTenantSlotBlocking(data.instituicaoCodigo, data.exeId);
+                        if (!gotSlot) {
+                            // Contenção de capacidade do tenant, não falha do job: devolve à
+                            // cabeça da fila sem consumir tentativa.
+                            jobOutcome = 'requeued-capacity';
+                        } else {
+                            const serialHeartbeat = new LeaseHeartbeat(this.redis, zkey, exeId, INFLIGHT_LEASE_MS);
+                            const tenantHeartbeat = new LeaseHeartbeat(
+                                this.redis, redisInflightZkey(data.instituicaoCodigo), exeId, INFLIGHT_LEASE_MS,
+                            );
+                            serialHeartbeat.start();
+                            tenantHeartbeat.start();
+                            try {
+                                await this.prisma.rOTExecucaoLog.updateMany({
+                                    where: { EXEIdExterno: data.exeId },
+                                    data: { EXEStatus: StatusExecucao.EM_EXECUCAO },
+                                });
+                                const success = await this.runSerialJob(data);
+                                jobOutcome = success ? 'success' : 'failure';
+                                if (!success) failureData = data;
+                            } finally {
+                                serialHeartbeat.stop();
+                                tenantHeartbeat.stop();
+                                try {
+                                    await this.releaseTenantSlot(data.instituicaoCodigo, data.exeId);
+                                } catch (releaseErr) {
+                                    console.error(workerLogLine(`Failed to release tenant slot (drain) for ${data.exeId}:`), releaseErr);
+                                }
+                            }
                         }
                     }
                 }
             } catch (err) {
                 console.error(workerLogLine(`Drain serial: erro processando exeId=${exeId}:`), err);
+            } finally {
+                if (runningLockAcquired) {
+                    try {
+                        await this.releaseRunningLock(exeId);
+                    } catch (releaseErr) {
+                        console.error(workerLogLine(`Failed to release running lock (drain) for ${exeId}:`), releaseErr);
+                    }
+                }
             }
+
             try {
-                nextExeId = await this.releaseSerialSlotAndPopNext(instituicaoCodigo, rotinaCodigo, exeId);
+                if (jobOutcome === 'requeued-capacity') {
+                    nextExeId = await requeueAtHeadAndClaimNext(this.redis, zkey, waitkey, processingkey, exeId, INFLIGHT_LEASE_MS);
+                } else if (jobOutcome === 'failure' && failureData) {
+                    const outcome = await this.failSerialAttempt(instituicaoCodigo, rotinaCodigo, exeId);
+                    if (outcome.exhausted) {
+                        await this.finalizeSerialExhausted(null, failureData, outcome.attempts);
+                    } else {
+                        await this.prisma.rOTExecucaoLog.updateMany({
+                            where: { EXEIdExterno: exeId },
+                            data: { EXEStatus: StatusExecucao.AGUARDANDO_LOCK_SERIAL },
+                        }).catch((err) => console.error(workerLogLine(`Failed to mark ${exeId} as AGUARDANDO_LOCK_SERIAL (drain retry):`), err));
+                    }
+                    nextExeId = outcome.nextExeId;
+                } else {
+                    // 'success' ou 'skipped' (item inexistente/terminal/sem ROTCodigo/lock
+                    // tomado por outra instância) — libera espaço para o próximo sem contar
+                    // tentativa.
+                    nextExeId = await this.releaseSerialSlotAndPopNext(instituicaoCodigo, rotinaCodigo, exeId);
+                }
             } catch (releaseErr) {
                 console.error(workerLogLine(`Failed to release+pop serial slot for ${exeId}:`), releaseErr);
                 nextExeId = null;
@@ -1543,19 +1902,49 @@ class RabbitRotinaConsumer {
     }
 
     /**
-     * Hardening: se o processo morrer entre "pop da fila de espera + ZADD do lock" e
-     * "terminar de processar", o lock fica órfão até expirar via lease (potencialmente
-     * até {@link INFLIGHT_LEASE_MS}). Esse tick reduz essa janela verificando, para cada
-     * par (instituição, rotina) que já teve fila de espera, se o lock expirou e há itens
-     * parados — se sim, promove e drena, sem esperar uma mensagem "viva" chegar.
+     * Recupera o estado serial após boot/reconexão e periodicamente (tick de
+     * `SERIAL_RECONCILE_INTERVAL_MS`):
+     * 1. Lê o índice durável de pares (SET no Redis) — substitui o antigo Set em memória, que
+     *    se perdia a cada restart e era a causa raiz do backlog "parar de ser processado".
+     * 2. Cura esse índice via SCAN nas chaves wait/processing (cobre perda do próprio SET,
+     *    ex.: FLUSHDB acidental, ou um par visto por outra instância que nunca gravou aqui).
+     * 3. Para cada par: reclama claims órfãos (`reclaimOrphanSerialClaims`) e, se o lock
+     *    estiver livre com itens esperando, promove e dispara o dreno em background.
      */
-    private async reconcileSerialWaitPairs(): Promise<void> {
-        for (const pairKey of this.knownSerialWaitPairs) {
+    private async recoverSerialState(): Promise<void> {
+        const pairs = new Set<string>();
+
+        try {
+            const known = await this.redis.smembers(redisSerialPairsKey());
+            for (const k of known) pairs.add(k);
+        } catch (err) {
+            console.error(workerLogLine('recoverSerialState: erro lendo índice de pares:'), err);
+        }
+
+        try {
+            await this.scanForSerialPairs(redisSerialWaitPattern(), redisSerialWaitRegex(), pairs);
+            await this.scanForSerialPairs(redisSerialProcessingPattern(), redisSerialProcessingRegex(), pairs);
+        } catch (err) {
+            console.error(workerLogLine('recoverSerialState: erro no SCAN de pares:'), err);
+        }
+
+        for (const pairKey of pairs) {
             const [instStr, rotinaStr] = pairKey.split(':');
             const instituicaoCodigo = Number(instStr);
             const rotinaCodigo = Number(rotinaStr);
             if (!Number.isFinite(instituicaoCodigo) || !Number.isFinite(rotinaCodigo)) continue;
+
             try {
+                await this.redis.sadd(redisSerialPairsKey(), pairKey);
+                const { zkey, waitkey, processingkey } = this.serialKeys(instituicaoCodigo, rotinaCodigo);
+
+                const reclaimed = await reclaimOrphanSerialClaims(this.redis, zkey, waitkey, processingkey);
+                if (reclaimed.length > 0) {
+                    console.warn(workerLogLine(
+                        `Recover serial: claim(s) órfão(s) reclamado(s) inst=${instituicaoCodigo} rotina=${rotinaCodigo} exeIds=${reclaimed.join(',')}`,
+                    ));
+                }
+
                 // Não libera nada de fato (exeId inexistente) — só verifica se o lock está
                 // livre/expirado e promove o próximo item da lista, se houver.
                 const nextExeId = await this.releaseSerialSlotAndPopNext(
@@ -1565,32 +1954,36 @@ class RabbitRotinaConsumer {
                 );
                 if (nextExeId) {
                     console.warn(workerLogLine(
-                        `Reconcile serial: lock órfão detectado inst=${instituicaoCodigo} rotina=${rotinaCodigo} — promovendo exeId=${nextExeId}.`,
+                        `Recover serial: lock livre/órfão inst=${instituicaoCodigo} rotina=${rotinaCodigo} — promovendo exeId=${nextExeId}.`,
                     ));
-                    this.drainSerialWaitLoop(instituicaoCodigo, rotinaCodigo, nextExeId).catch((err) => {
-                        console.error(workerLogLine(`Drain serial loop error (reconcile, inst=${instituicaoCodigo}, rotina=${rotinaCodigo}):`), err);
-                    });
+                    this.startDrainInBackground(instituicaoCodigo, rotinaCodigo, nextExeId);
+                }
+
+                const [waitLen, processingLen] = await Promise.all([
+                    this.redis.llen(waitkey),
+                    this.redis.llen(processingkey),
+                ]);
+                if (waitLen > 0 || processingLen > 0) {
+                    console.log(workerLogLine(
+                        `Recover serial: backlog inst=${instituicaoCodigo} rotina=${rotinaCodigo} wait=${waitLen} processing=${processingLen}`,
+                    ));
                 }
             } catch (err) {
-                console.error(workerLogLine(`Reconcile serial: erro no par ${pairKey}:`), err);
+                console.error(workerLogLine(`Recover serial: erro no par ${pairKey}:`), err);
             }
         }
     }
 
-    /**
-     * Recoloca o job no exchange principal (fim da fila da instituição) sem DLX.
-     * Preserva headers, em especial {@link RETRY_HEADER} — não conta como nova tentativa de falha.
-     */
-    /**
-     * Reseta {@link RETRY_HEADER} no objeto de headers fornecido. Usado para rotinas
-     * com {@code ROTPermiteParalelismo=false}: o contador de tentativas é descartado
-     * para que a mensagem possa girar indefinidamente até processar com sucesso ou
-     * ser cancelada explicitamente.
-     */
-    private stripRetryHeader(headers: Record<string, unknown>): Record<string, unknown> {
-        const next = { ...headers };
-        delete next[RETRY_HEADER];
-        return next;
+    private async scanForSerialPairs(pattern: string, regex: RegExp, out: Set<string>): Promise<void> {
+        let cursor = '0';
+        do {
+            const [nextCursor, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+            cursor = nextCursor;
+            for (const key of keys) {
+                const m = regex.exec(key);
+                if (m) out.add(`${m[1]}:${m[2]}`);
+            }
+        } while (cursor !== '0');
     }
 
     private republishToTenantMainQueue(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
@@ -1648,24 +2041,6 @@ class RabbitRotinaConsumer {
     }
 
     /**
-     * Slot serial indisponível ({@code ROTPermiteParalelismo=false}): mesmo contrato que
-     * {@link republishWithCapacityDefer} via {@link republishDeferredThroughGlobalRetry}.
-     * Garante limpeza do {@link RETRY_HEADER} para que rotinas serial nunca esgotem
-     * tentativas em loop de defer.
-     */
-    private republishWithDelay(ch: amqp.Channel, msg: ConsumeMessage, instituicaoCodigo: number): boolean {
-        const baseHeaders = this.stripRetryHeader(msg.properties.headers || {});
-        return this.republishDeferredThroughGlobalRetry(
-            ch,
-            msg,
-            SERIAL_DEFERRED_HEADER,
-            SERIAL_BACKOFF_MS,
-            { [SERIAL_INST_HEADER]: instituicaoCodigo },
-            baseHeaders,
-        );
-    }
-
-    /**
      * Semáforo por instituição cheio: reenfileira na fila global de retry para
      * {@link onRetryQueueMessage} aplicar {@link CAPACITY_DEFER_MS} sem incrementar {@link RETRY_HEADER}.
      */
@@ -1682,21 +2057,26 @@ class RabbitRotinaConsumer {
         return Number(msg.properties.headers?.[RETRY_HEADER] ?? 0);
     }
 
-    private async sendToFinalDlq(msg: ConsumeMessage, data: RotinaJobData, reason: string) {
+    private sendToFinalDlq(
+        content: Buffer,
+        baseHeaders: Record<string, unknown> | undefined,
+        exeId: string,
+        reason: string,
+    ): void {
         const pubChannel = this.channel || this.retryChannel;
         if (!pubChannel) return;
         const headers = {
-            ...(msg.properties.headers || {}),
+            ...(baseHeaders || {}),
             'x-final-reason': reason,
         };
         const options: Options.Publish = {
             persistent: true,
             headers,
-            messageId: msg.properties.messageId || data.exeId,
-            correlationId: msg.properties.correlationId || data.exeId,
+            messageId: exeId,
+            correlationId: exeId,
             contentType: 'application/json',
         };
-        pubChannel.publish(getJobsDlxExchange(), 'final', msg.content, options);
+        pubChannel.publish(getJobsDlxExchange(), 'final', content, options);
     }
 }
 
@@ -1760,4 +2140,3 @@ async function updateExecLog(prisma: PrismaClient, exeId: string, status: Status
         },
     });
 }
-
