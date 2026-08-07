@@ -1,4 +1,6 @@
+import Redis from 'ioredis';
 import type { RedisOptions } from 'ioredis';
+import { workerLogLine } from './worker-log';
 
 function optionsFromUrl(url: string): RedisOptions {
     try {
@@ -31,4 +33,32 @@ export function getRedisConnectionOptions(): RedisOptions {
         opts.password = process.env.REDIS_PASSWORD;
     }
     return opts;
+}
+
+/**
+ * Cria um client ioredis com timeouts e handlers de erro obrigatórios — evita que uma
+ * instabilidade do Redis prenda um `await this.redis.xxx(...)` para sempre (o que travaria
+ * a entrega do RabbitMQ até o `consumer_timeout` do broker matar o canal, ver
+ * PRECONDITION-FAILED 406 nos logs de produção). `role` é só para identificar o client nos logs.
+ */
+export function createRedisClient(redisOptions: RedisOptions, role: string): Redis {
+    const client = new Redis({
+        ...redisOptions,
+        // Nenhum comando fica pendurado além de 10s — rejeita e deixa o chamador decidir
+        // (nack/retry) em vez de segurar a entrega do RabbitMQ indefinidamente.
+        commandTimeout: 10_000,
+        maxRetriesPerRequest: 3,
+        retryStrategy: (attempt: number) => Math.min(1000 * 2 ** Math.min(attempt, 5), 30_000),
+        reconnectOnError: () => true,
+    });
+    client.on('error', (err) => {
+        console.error(workerLogLine(`Redis[${role}] error:`), err?.message ?? err);
+    });
+    client.on('close', () => {
+        console.warn(workerLogLine(`Redis[${role}] connection closed — ioredis irá reconectar automaticamente.`));
+    });
+    client.on('reconnecting', (delay: number) => {
+        console.warn(workerLogLine(`Redis[${role}] reconnecting em ${delay}ms...`));
+    });
+    return client;
 }

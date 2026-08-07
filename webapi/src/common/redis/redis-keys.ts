@@ -17,6 +17,17 @@ export function redisSerialInflightZkey(
 ) {
   return `${p()}:rotina:serial:inflight:z:${instCodigo}:${rotinaCodigo}`;
 }
+/** Lista FIFO de exeId's esperando o lock serial — mesma chave usada pelo worker (rotina-consumer). */
+export function redisSerialWaitKey(instCodigo: number, rotinaCodigo: number) {
+  return `${p()}:rotina:serial:wait:${instCodigo}:${rotinaCodigo}`;
+}
+/** Lista de itens "em claim" (retirados da fila de espera, aguardando/execução) — mesma chave do worker. */
+export function redisSerialProcessingKey(
+  instCodigo: number,
+  rotinaCodigo: number,
+) {
+  return `${p()}:rotina:serial:processing:${instCodigo}:${rotinaCodigo}`;
+}
 export function redisInflightPattern() {
   return `${p()}:rotina:inflight:z:*`;
 }

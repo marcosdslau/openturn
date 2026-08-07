@@ -8,7 +8,24 @@ import { WsRelayClient } from './hardware/relay/ws-relay-client';
 import { HardwareFactory } from './hardware/factory/hardware.factory';
 import { getWebApiWsUrl } from './webapi-ws-url';
 
+/**
+ * Handlers globais: sem eles, um erro não tratado (ex.: 'error' emitido pela conexão
+ * amqplib) derruba o processo Node inteiro (ver `node:events:486 throw er`), o que mata
+ * as 3 instâncias PM2/Windows Service de uma vez e depende só do restart automático para
+ * voltar. Registrar aqui garante que o processo sobrevive; a reconexão de fato é feita em
+ * `RabbitRotinaConsumer` (RabbitMQ) e pelo `retryStrategy` do ioredis (Redis).
+ */
+function installGlobalErrorHandlers() {
+    process.on('unhandledRejection', (reason) => {
+        console.error(workerLogLine('Unhandled rejection (processo continua vivo):'), reason);
+    });
+    process.on('uncaughtException', (error) => {
+        console.error(workerLogLine('Uncaught exception (processo continua vivo):'), error);
+    });
+}
+
 async function bootstrap() {
+    installGlobalErrorHandlers();
     const redisOptions = getRedisConnectionOptions();
     const databaseUrl = process.env.DATABASE_URL;
 
