@@ -1120,6 +1120,13 @@ class RabbitRotinaConsumer {
                         );
                         break;
                     case 'FREQ_ERP_SYNC':
+                        //Para garantir que antes de executar a sincronização ERP,
+                        // a agregação de registros diários deve ser executada passando true como isLastRunOfDay
+                        await this.processRegistroDiarioAggregation(
+                            data.instituicaoCodigo,
+                            true,
+                        );
+                        //Após a execução da agregação de registros diários, a sincronização ERP é executada
                         await this.erpFrequencySync.run(data.instituicaoCodigo);
                         break;
                     default:
