@@ -1,6 +1,14 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000/api';
 const DEFAULT_API_TIMEOUT_MS = 10 * 60 * 1000;
 
+/** Erro de autenticação real (401 do backend), distinto de falhas de rede/infra (timeout, 5xx). */
+export class UnauthorizedError extends Error {
+    constructor(message = 'Unauthorized') {
+        super(message);
+        this.name = 'UnauthorizedError';
+    }
+}
+
 function getToken(): string | null {
     if (typeof window === 'undefined') return null;
     return localStorage.getItem('openturn_token');
@@ -12,6 +20,19 @@ export function setToken(token: string) {
 
 export function clearToken() {
     localStorage.removeItem('openturn_token');
+}
+
+// Evita que múltiplas requisições 401 concorrentes (ex.: várias abas/queries em paralelo)
+// disparem clearToken/redirect repetidas vezes.
+let redirectingToSignin = false;
+
+function handleUnauthorized(): never {
+    clearToken();
+    if (typeof window !== 'undefined' && !redirectingToSignin) {
+        redirectingToSignin = true;
+        window.location.href = '/signin';
+    }
+    throw new UnauthorizedError();
 }
 
 export type ApiExtra = { timeoutMs?: number };
@@ -85,11 +106,7 @@ export async function apiFetchBlob(
     if (timeoutId) clearTimeout(timeoutId);
 
     if (res.status === 401) {
-        clearToken();
-        if (typeof window !== 'undefined') {
-            window.location.href = '/signin';
-        }
-        throw new Error('Unauthorized');
+        handleUnauthorized();
     }
 
     if (!res.ok) {
@@ -166,11 +183,7 @@ export async function api<T = any>(
     if (timeoutId) clearTimeout(timeoutId);
 
     if (res.status === 401) {
-        clearToken();
-        if (typeof window !== 'undefined') {
-            window.location.href = '/signin';
-        }
-        throw new Error('Unauthorized');
+        handleUnauthorized();
     }
 
     if (!res.ok) {

@@ -30,12 +30,102 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   protected readonly logger = new Logger(AbstractControlIDProvider.name);
   protected session: string | null = null;
 
+  // Estado do circuit breaker por host:porta, compartilhado entre todas as instâncias/subclasses
+  // do processo (cada chamada de hardware cria um novo provider, então o estado por-instância
+  // não sobreviveria entre requisições).
+  private static readonly circuitBreakers = new Map<
+    string,
+    { failures: number; openUntil: number }
+  >();
+
   constructor(
     protected readonly config: ControlIDConfig,
     protected readonly prisma: PrismaService,
     protected readonly transport: IHttpTransport,
     protected readonly relayMultiHost?: ControlIdRelayMultiHostContext,
   ) {}
+
+  private circuitKey(): string {
+    return `${this.config.host}:${this.config.port ?? 80}`;
+  }
+
+  private circuitFailureThreshold(): number {
+    return parseInt(
+      process.env.CONTROLID_CIRCUIT_FAILURE_THRESHOLD || '3',
+      10,
+    );
+  }
+
+  private circuitCooldownMs(): number {
+    return parseInt(process.env.CONTROLID_CIRCUIT_COOLDOWN_MS || '60000', 10);
+  }
+
+  private isCircuitOpen(): boolean {
+    const state = AbstractControlIDProvider.circuitBreakers.get(
+      this.circuitKey(),
+    );
+    return !!state && Date.now() < state.openUntil;
+  }
+
+  private recordCircuitSuccess(): void {
+    AbstractControlIDProvider.circuitBreakers.delete(this.circuitKey());
+  }
+
+  /** Após N falhas consecutivas de login, abre o circuito: próximas chamadas falham rápido
+   * (sem os 5 retries x 5s do withRetry) até o cooldown expirar. Evita martelar um equipamento
+   * offline a cada requisição, consumindo handlers/tempo do Node repetidamente. */
+  private recordCircuitFailure(): void {
+    const key = this.circuitKey();
+    const state = AbstractControlIDProvider.circuitBreakers.get(key) ?? {
+      failures: 0,
+      openUntil: 0,
+    };
+    state.failures += 1;
+    if (state.failures >= this.circuitFailureThreshold()) {
+      state.openUntil = Date.now() + this.circuitCooldownMs();
+      this.logger.warn(
+        `Circuit breaker aberto para ${key} após ${state.failures} falha(s) consecutiva(s); ` +
+          `chamadas serão rejeitadas rapidamente por ${this.circuitCooldownMs()}ms`,
+      );
+    }
+    AbstractControlIDProvider.circuitBreakers.set(key, state);
+  }
+
+  private sessionHardTimeoutMs(): number {
+    return parseInt(
+      process.env.CONTROLID_SESSION_HARD_TIMEOUT_MS || '12000',
+      10,
+    );
+  }
+
+  /** Teto absoluto de tempo para uma promise, sem depender do axios/withRetry internos.
+   * Não cancela a promise original (ela segue em segundo plano), mas impede que o handler
+   * da requisição HTTP fique preso por até ~35s quando o equipamento está offline. */
+  private withHardTimeout<T>(
+    promise: Promise<T>,
+    ms: number,
+    label: string,
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            `${label} excedeu o teto de ${ms}ms (equipamento ${this.config.host} provavelmente offline)`,
+          ),
+        );
+      }, ms);
+      promise.then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+    });
+  }
 
   private getErrorDetails(error: any): string {
     if (error?.message) return error.message;
@@ -111,10 +201,11 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     }
     conteudo += message;
 
+    // set_config(..., true) escopa o GUC à transação atual (equivalente a SET LOCAL) e
+    // usa bind parametrizado em vez de concatenar o tenant na string SQL.
     await this.prisma.$transaction([
-      this.prisma.$executeRawUnsafe(
-        `SET app.current_tenant = '${instituicaoCodigo}'`,
-      ),
+      this.prisma
+        .$executeRaw`SELECT set_config('app.current_tenant', ${String(instituicaoCodigo)}, true)`,
       this.prisma.nOTNotificacao.upsert({
         where: { ckey },
         create: {
@@ -176,29 +267,45 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   }
 
   private async login() {
-    return this.withRetry(async () => {
-      try {
-        const response = await this.transport.post('/login.fcgi', {
-          login: this.config.user,
-          password: this.config.pass,
-        });
-        this.session = (response.data as any)?.session ?? null;
-        if (!this.session) {
-          throw new Error('Device login failed: empty session');
+    if (this.isCircuitOpen()) {
+      throw new Error(
+        `Equipamento ${this.config.host} em cooldown por falhas recentes (circuit breaker aberto); tentativa de login rejeitada rapidamente.`,
+      );
+    }
+
+    try {
+      await this.withRetry(async () => {
+        try {
+          const response = await this.transport.post('/login.fcgi', {
+            login: this.config.user,
+            password: this.config.pass,
+          });
+          this.session = (response.data as any)?.session ?? null;
+          if (!this.session) {
+            throw new Error('Device login failed: empty session');
+          }
+        } catch (error: any) {
+          this.logger.error(
+            `Failed to login to ControlID device at ${this.config.host}`,
+            this.getErrorDetails(error),
+          );
+          throw error;
         }
-      } catch (error: any) {
-        this.logger.error(
-          `Failed to login to ControlID device at ${this.config.host}`,
-          this.getErrorDetails(error),
-        );
-        throw error;
-      }
-    });
+      });
+      this.recordCircuitSuccess();
+    } catch (error) {
+      this.recordCircuitFailure();
+      throw error;
+    }
   }
 
   protected async ensureSession() {
     if (!this.session) {
-      await this.login();
+      await this.withHardTimeout(
+        this.login(),
+        this.sessionHardTimeoutMs(),
+        `ensureSession(${this.config.host})`,
+      );
     }
   }
 

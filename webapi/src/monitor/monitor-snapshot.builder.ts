@@ -493,7 +493,14 @@ export class MonitorSnapshotBuilder {
     });
   }
 
-  /** Complemento cacheável (Redis): série + contagens e histórico sucesso/erro para a instituição. */
+  /**
+   * Complemento cacheável (Redis): série + contagens e histórico sucesso/erro para a instituição.
+   *
+   * As contagens de `ROTExecucaoLog` e `ROTRotina` são feitas com agregação condicional
+   * (`FILTER`) em uma única query por tabela, em vez de vários `count()` paralelos, para
+   * reduzir o número de conexões simultâneas retiradas do pool Prisma por chamada
+   * (rota consultada a cada poll de 15s pelo frontend).
+   */
   async buildInstituicaoDashboardExtras(
     instituicaoCodigo: number,
     now: Date,
@@ -501,69 +508,59 @@ export class MonitorSnapshotBuilder {
   ): Promise<MonitorInstituicaoDashboardExtrasCacheDto> {
     const tz = validateTimezone(timezone);
     const startHoje = startOfDay(now);
-    const [
-      serieExecucoesInstituicao,
-      execHoje,
-      execTotal,
-      totalRot,
-      sched,
-      web,
-      equip,
-      completed,
-      failed,
-    ] = await Promise.all([
-      this.buildSeriesForInstituicao(instituicaoCodigo, now, tz),
-      this.prisma.rOTExecucaoLog.count({
-        where: {
-          INSInstituicaoCodigo: instituicaoCodigo,
-          EXEInicio: { gte: startHoje },
-        },
-      }),
-      this.prisma.rOTExecucaoLog.count({
-        where: { INSInstituicaoCodigo: instituicaoCodigo },
-      }),
-      this.prisma.rOTRotina.count({
-        where: { INSInstituicaoCodigo: instituicaoCodigo },
-      }),
-      this.prisma.rOTRotina.count({
-        where: {
-          INSInstituicaoCodigo: instituicaoCodigo,
-          ROTTipo: TipoRotina.SCHEDULE,
-        },
-      }),
-      this.prisma.rOTRotina.count({
-        where: {
-          INSInstituicaoCodigo: instituicaoCodigo,
-          ROTTipo: TipoRotina.WEBHOOK,
-        },
-      }),
-      this.prisma.eQPEquipamento.count({
-        where: { INSInstituicaoCodigo: instituicaoCodigo },
-      }),
-      this.prisma.rOTExecucaoLog.count({
-        where: {
-          INSInstituicaoCodigo: instituicaoCodigo,
-          EXEStatus: StatusExecucao.SUCESSO,
-        },
-      }),
-      this.prisma.rOTExecucaoLog.count({
-        where: {
-          INSInstituicaoCodigo: instituicaoCodigo,
-          EXEStatus: StatusExecucao.ERRO,
-        },
-      }),
-    ]);
+
+    const [serieExecucoesInstituicao, execAgg, rotAgg, equip] =
+      await Promise.all([
+        this.buildSeriesForInstituicao(instituicaoCodigo, now, tz),
+        this.prisma.$queryRaw<
+          { exechoje: bigint; exectotal: bigint; completed: bigint; failed: bigint }[]
+        >`
+          SELECT
+            COUNT(*) FILTER (WHERE "EXEInicio" >= ${startHoje})::bigint AS exechoje,
+            COUNT(*)::bigint AS exectotal,
+            COUNT(*) FILTER (WHERE "EXEStatus" = ${StatusExecucao.SUCESSO}::"StatusExecucao")::bigint AS completed,
+            COUNT(*) FILTER (WHERE "EXEStatus" = ${StatusExecucao.ERRO}::"StatusExecucao")::bigint AS failed
+          FROM "ROTExecucaoLog"
+          WHERE "INSInstituicaoCodigo" = ${instituicaoCodigo}
+        `,
+        this.prisma.$queryRaw<
+          { total: bigint; sched: bigint; web: bigint }[]
+        >`
+          SELECT
+            COUNT(*)::bigint AS total,
+            COUNT(*) FILTER (WHERE "ROTTipo" = ${TipoRotina.SCHEDULE}::"TipoRotina")::bigint AS sched,
+            COUNT(*) FILTER (WHERE "ROTTipo" = ${TipoRotina.WEBHOOK}::"TipoRotina")::bigint AS web
+          FROM "ROTRotina"
+          WHERE "INSInstituicaoCodigo" = ${instituicaoCodigo}
+        `,
+        this.prisma.eQPEquipamento.count({
+          where: { INSInstituicaoCodigo: instituicaoCodigo },
+        }),
+      ]);
+
+    const execRow = execAgg[0];
+    const rotRow = rotAgg[0];
 
     return {
       version: MONITOR_INST_DASHBOARD_CACHE_VERSION,
       generatedAt: now.toISOString(),
       serieExecucoesInstituicao,
       counts: {
-        execucoes: { hoje: execHoje, total: execTotal },
-        rotinas: { total: totalRot, schedules: sched, webhooks: web },
+        execucoes: {
+          hoje: toNum(execRow?.exechoje),
+          total: toNum(execRow?.exectotal),
+        },
+        rotinas: {
+          total: toNum(rotRow?.total),
+          schedules: toNum(rotRow?.sched),
+          webhooks: toNum(rotRow?.web),
+        },
         equipamentos: equip,
       },
-      queueHistory: { completed, failed },
+      queueHistory: {
+        completed: toNum(execRow?.completed),
+        failed: toNum(execRow?.failed),
+      },
     };
   }
 

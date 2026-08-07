@@ -75,6 +75,20 @@ export class MonitorSnapshotService {
     );
   }
 
+  // TTL bem maior que o cache "fresco": serve apenas como fallback de última instância
+  // quando o Prisma está indisponível (ex.: pool esgotado) e não deve ser removido pela
+  // invalidação normal do cache (chave distinta, fora do padrão usado no DEL em massa).
+  private staleDashboardTtlSec(): number {
+    return Math.max(
+      this.instDashboardTtlSec(),
+      parseInt(process.env.MONITOR_INST_DASHBOARD_STALE_TTL_SEC || '86400', 10),
+    );
+  }
+
+  private staleDashboardKey(instituicaoCodigo: number): string {
+    return `${redisKeyMonitorInstDashboard(instituicaoCodigo)}:stale`;
+  }
+
   private async invalidateInstituicaoDashboardCaches(): Promise<void> {
     if (!this.redis) return;
     try {
@@ -94,16 +108,22 @@ export class MonitorSnapshotService {
 
   /**
    * Read-through Redis para complemento do dashboard por instituição (série + contagens Prisma).
+   *
+   * Stale-while-revalidate: se o cache "fresco" expirou/está ausente e `build()` falha
+   * (ex.: P2024 por esgotamento do pool Prisma), serve o último valor conhecido gravado em
+   * uma chave separada sem TTL curto, em vez de propagar o erro para o controller. Isso evita
+   * que uma instabilidade transitória do banco derrube a resposta do dashboard.
    */
   async getInstituicaoDashboardExtrasCached(
     instituicaoCodigo: number,
     build: () => Promise<MonitorInstituicaoDashboardExtrasCacheDto>,
   ): Promise<MonitorInstituicaoDashboardExtrasCacheDto> {
+    const freshKey = redisKeyMonitorInstDashboard(instituicaoCodigo);
+    const staleKey = this.staleDashboardKey(instituicaoCodigo);
+
     if (this.redis) {
       try {
-        const raw = await this.redis.get(
-          redisKeyMonitorInstDashboard(instituicaoCodigo),
-        );
+        const raw = await this.redis.get(freshKey);
         if (raw) {
           const parsed = JSON.parse(
             raw,
@@ -119,16 +139,43 @@ export class MonitorSnapshotService {
       }
     }
 
-    const dto = await build();
+    let dto: MonitorInstituicaoDashboardExtrasCacheDto;
+    try {
+      dto = await build();
+    } catch (e) {
+      this.logger.warn(
+        `Falha ao recalcular dashboard inst ${instituicaoCodigo} (provável instabilidade do banco): ${(e as Error).message}`,
+      );
+
+      if (this.redis) {
+        try {
+          const staleRaw = await this.redis.get(staleKey);
+          if (staleRaw) {
+            const staleParsed = JSON.parse(
+              staleRaw,
+            ) as MonitorInstituicaoDashboardExtrasCacheDto;
+            if (staleParsed.version === MONITOR_INST_DASHBOARD_CACHE_VERSION) {
+              this.logger.warn(
+                `Servindo dashboard inst ${instituicaoCodigo} a partir do cache stale (gerado em ${staleParsed.generatedAt})`,
+              );
+              return staleParsed;
+            }
+          }
+        } catch (staleErr) {
+          this.logger.warn(
+            `Falha ao ler cache stale dashboard inst: ${(staleErr as Error).message}`,
+          );
+        }
+      }
+
+      throw e;
+    }
 
     if (this.redis) {
       try {
-        await this.redis.set(
-          redisKeyMonitorInstDashboard(instituicaoCodigo),
-          JSON.stringify(dto),
-          'EX',
-          this.instDashboardTtlSec(),
-        );
+        const body = JSON.stringify(dto);
+        await this.redis.set(freshKey, body, 'EX', this.instDashboardTtlSec());
+        await this.redis.set(staleKey, body, 'EX', this.staleDashboardTtlSec());
       } catch (e) {
         this.logger.warn(
           `Falha ao gravar cache dashboard inst: ${(e as Error).message}`,

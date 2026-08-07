@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { apiPost, apiGet, setToken, clearToken } from "@/lib/api";
+import { apiPost, apiGet, setToken, clearToken, UnauthorizedError } from "@/lib/api";
 import { firstAccessibleInstituicaoId } from "@/lib/user-instituicao-access";
 
 interface AcessoScope {
@@ -24,6 +24,7 @@ interface User {
 interface AuthContextType {
     user: User | null;
     loading: boolean;
+    authError: boolean;
     login: (email: string, senha: string) => Promise<void>;
     logout: () => void;
     switchContext: (clienteId?: number, instituicaoId?: number) => Promise<void>;
@@ -31,7 +32,14 @@ interface AuthContextType {
     isGlobal: boolean;
     isSuperRoot: boolean;
     isAdmin: boolean;
+    retryLoadUser: () => void;
 }
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Backoff curto para falhas transitórias (rede, 5xx, timeout) ao carregar a sessão.
+// Não usado para 401 real, que é tratado como logout imediato.
+const LOAD_USER_RETRY_DELAYS_MS = [1000, 3000];
 
 const ACTIVE_SCOPE_KEY = "openturn_active_scope";
 
@@ -40,35 +48,65 @@ const AuthContext = createContext<AuthContextType>({} as AuthContextType);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const [authError, setAuthError] = useState(false);
     const router = useRouter();
 
     const loadUser = useCallback(async () => {
-        try {
-            const token = localStorage.getItem("openturn_token");
-            if (!token) {
+        const token = localStorage.getItem("openturn_token");
+        if (!token) {
+            setLoading(false);
+            return;
+        }
+
+        setAuthError(false);
+
+        // UnauthorizedError (401 real) = sessão inválida -> logout imediato.
+        // Qualquer outro erro (rede, timeout, 5xx, banco indisponível) é tratado como
+        // falha transitória: algumas tentativas com backoff, sem apagar a sessão.
+        for (let attempt = 0; attempt <= LOAD_USER_RETRY_DELAYS_MS.length; attempt++) {
+            try {
+                const data = await apiGet<any>("/auth/me");
+
+                const savedScope = localStorage.getItem(ACTIVE_SCOPE_KEY);
+                const activeScope = savedScope ? JSON.parse(savedScope) : data.activeScope;
+
+                setUser({
+                    codigo: data.userId || data.sub || data.codigo,
+                    nome: data.nome,
+                    email: data.email,
+                    acessos: data.acessos || [],
+                    activeScope,
+                });
+                setAuthError(false);
                 setLoading(false);
                 return;
+            } catch (err) {
+                if (err instanceof UnauthorizedError) {
+                    clearToken();
+                    localStorage.removeItem(ACTIVE_SCOPE_KEY);
+                    setUser(null);
+                    setLoading(false);
+                    return;
+                }
+
+                const isLastAttempt = attempt === LOAD_USER_RETRY_DELAYS_MS.length;
+                if (isLastAttempt) {
+                    // Falha de infraestrutura persistente: mantém o token/sessão atual
+                    // (não desloga o usuário) e apenas sinaliza o erro para a UI.
+                    setAuthError(true);
+                    setLoading(false);
+                    return;
+                }
+
+                await sleep(LOAD_USER_RETRY_DELAYS_MS[attempt]);
             }
-            const data = await apiGet<any>("/auth/me");
-
-            const savedScope = localStorage.getItem(ACTIVE_SCOPE_KEY);
-            const activeScope = savedScope ? JSON.parse(savedScope) : data.activeScope;
-
-            setUser({
-                codigo: data.userId || data.sub || data.codigo,
-                nome: data.nome,
-                email: data.email,
-                acessos: data.acessos || [],
-                activeScope,
-            });
-        } catch {
-            clearToken();
-            localStorage.removeItem(ACTIVE_SCOPE_KEY);
-            setUser(null);
-        } finally {
-            setLoading(false);
         }
     }, []);
+
+    const retryLoadUser = useCallback(() => {
+        setLoading(true);
+        loadUser();
+    }, [loadUser]);
 
     useEffect(() => {
         loadUser();
@@ -144,13 +182,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         <AuthContext.Provider value={{
             user,
             loading,
+            authError,
             login,
             logout,
             switchContext,
             isAuthenticated: !!user,
             isGlobal,
             isSuperRoot,
-            isAdmin
+            isAdmin,
+            retryLoadUser
         }}>
             {children}
         </AuthContext.Provider>
