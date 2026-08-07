@@ -32,10 +32,11 @@ export class PrismaService
             async $allOperations({ args, query }) {
               const tenantId = tenantService.getTenantId();
               if (tenantId) {
+                // set_config(..., true) com $executeRaw parametrizado evita concatenar o
+                // valor na string SQL (risco de injeção) e é o padrão recomendado para
+                // GUCs por sessão de transação — SET LOCAL não aceita bind de parâmetro.
                 const results = await (baseClient as any).$transaction([
-                  (baseClient as any).$executeRawUnsafe(
-                    `SET LOCAL app.current_tenant = '${tenantId}'`,
-                  ),
+                  (baseClient as any).$executeRaw`SELECT set_config('app.current_tenant', ${String(tenantId)}, true)`,
                   query(args),
                 ]);
                 return results[1];

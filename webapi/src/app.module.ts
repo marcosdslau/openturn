@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
-import { APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './common/prisma/prisma.module';
 import { TenantInterceptor } from './common/interceptors/tenant.interceptor';
+import { PrismaConnectionExceptionFilter } from './common/filters/prisma-connection-exception.filter';
 import { AuthModule } from './auth/auth.module';
 import { ClienteModule } from './cliente/cliente.module';
 import { InstituicaoModule } from './instituicao/instituicao.module';
@@ -53,6 +54,10 @@ import { WizardFotoModule } from './wizard-foto/wizard-foto.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: TenantInterceptor,
+    },
+    {
+      provide: APP_FILTER,
+      useClass: PrismaConnectionExceptionFilter,
     },
   ],
 })
