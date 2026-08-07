@@ -98,6 +98,14 @@ model INSInstituicao {
   /// Expressão cron (5 campos: min hora dom mês dow) para sincronização de frequências ao ERP.
   INSTempoFreqEducacional           String  @default("58 23 * * *")
   INSLancFreqAusenciaRegistro       Boolean @default(false)
+  /// Indica se a instituição está em período de implantação: quando true, a
+  /// rotina FREQ_ERP_SYNC envia apenas para as turmas listadas em
+  /// CIMCursosImplantacao (lista vazia = não envia para ninguém).
+  INSImplantacao                    Boolean  @default(false)
+  /// Data de "Go-Live". Quando INSImplantacao=false, a rotina FREQ_ERP_SYNC só
+  /// envia RPDs com RPDData >= esta data — evita reenviar retroativamente o
+  /// backlog acumulado durante a implantação assim que ela é desativada.
+  INSDataGoLive                      DateTime @default(now()) @db.Date
   createdAt                         DateTime              @default(now())
   pessoas             PESPessoa[]
   matriculas          MATMatricula[]
@@ -120,6 +128,7 @@ model INSInstituicao {
   periodosRegistro        PERPeriodosConfig[]
   notificacoes        NOTNotificacao[]
   fotoOtps            PESFotoOtp[]
+  cursosImplantacao   CIMCursosImplantacao[]
 }
 
 model PESPessoa {
@@ -181,6 +190,21 @@ model MATMatricula {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+}
+
+/// Turmas pioneiras liberadas para envio ao ERP educacional durante o
+/// período de implantação (INSInstituicao.INSImplantacao=true).
+model CIMCursosImplantacao {
+  CIMCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  CIMCurso             String
+  CIMSerie             String
+  CIMTurma             String
+  createdAt            DateTime       @default(now())
+
+  @@unique([INSInstituicaoCodigo, CIMCurso, CIMSerie, CIMTurma])
+  @@index([INSInstituicaoCodigo])
 }
 
 model EQPEquipamento {
@@ -468,6 +492,7 @@ enum StatusExecucao {
   ERRO
   TIMEOUT
   CANCELADO
+  AGUARDANDO_LOCK_SERIAL
 }
 
 model ROTRotina {
@@ -522,6 +547,9 @@ model ROTExecucaoLog {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @default(now()) @updatedAt
+
+  @@index([EXEStatus, updatedAt])
 }
 
 model ROTHistoricoVersao {

@@ -40,7 +40,8 @@ export type StatusExecucaoKey =
   | 'SUCESSO'
   | 'ERRO'
   | 'TIMEOUT'
-  | 'CANCELADO';
+  | 'CANCELADO'
+  | 'AGUARDANDO_LOCK_SERIAL';
 
 export interface ExecucoesJanelaCurta {
   '1h': number;
@@ -72,6 +73,7 @@ export interface StatusContagem {
   ERRO: number;
   TIMEOUT: number;
   CANCELADO: number;
+  AGUARDANDO_LOCK_SERIAL: number;
 }
 
 export interface InstituicaoRankingEntry {

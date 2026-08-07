@@ -13,6 +13,10 @@ export function redisSerialInflightZkey(instCodigo: number, rotinaCodigo: number
 export function redisSerialInflightPattern(instCodigo: number) {
     return `${p()}:rotina:serial:inflight:z:${instCodigo}:*`;
 }
+/** Lista FIFO de exeId's esperando o lock serial de (instCodigo, rotinaCodigo). */
+export function redisSerialWaitKey(instCodigo: number, rotinaCodigo: number) {
+    return `${p()}:rotina:serial:wait:${instCodigo}:${rotinaCodigo}`;
+}
 export function redisInflightPattern()                  { return `${p()}:rotina:inflight:z:*`; }
 export function redisInflightRegex()                    { return new RegExp(`^${p()}:rotina:inflight:z:(\\d+)$`); }
 

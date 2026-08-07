@@ -10,6 +10,7 @@ import { ExecutionService } from './engine/execution.service';
 import { ProcessManager } from './engine/process-manager';
 import { ConsoleGateway } from './console.gateway';
 import { LogCleanupService } from './log-cleanup.service';
+import { SerialLockWatchdogService } from './serial-lock-watchdog.service';
 import { RotinaQueueService } from './queue/rotina-queue.service';
 
 @Module({
@@ -27,6 +28,7 @@ import { RotinaQueueService } from './queue/rotina-queue.service';
     ProcessManager,
     ConsoleGateway,
     LogCleanupService,
+    SerialLockWatchdogService,
     RotinaQueueService,
   ],
   exports: [

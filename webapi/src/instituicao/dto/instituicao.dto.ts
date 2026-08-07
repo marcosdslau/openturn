@@ -5,6 +5,7 @@ import {
   IsInt,
   IsObject,
   IsEnum,
+  IsDateString,
   Matches,
   Min,
   Max,
@@ -124,6 +125,14 @@ export class CreateInstituicaoDto {
       'INSTempoFreqEducacional: use cron de 5 campos (min hora dom mês dow) ou 6 campos',
   })
   INSTempoFreqEducacional?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  INSImplantacao?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  INSDataGoLive?: string;
 }
 
 export class UpdateInstituicaoDto {
@@ -233,6 +242,14 @@ export class UpdateInstituicaoDto {
       'INSTempoFreqEducacional: use cron de 5 campos (min hora dom mês dow) ou 6 campos',
   })
   INSTempoFreqEducacional?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  INSImplantacao?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  INSDataGoLive?: string;
 }
 
 export class SetWorkerStatusBodyDto {

@@ -91,6 +91,7 @@ const STATUS_ORDER: StatusExecucaoKey[] = [
     "TIMEOUT",
     "CANCELADO",
     "EM_EXECUCAO",
+    "AGUARDANDO_LOCK_SERIAL",
 ];
 const STATUS_LABEL: Record<StatusExecucaoKey, string> = {
     SUCESSO: "Sucesso",
@@ -98,6 +99,7 @@ const STATUS_LABEL: Record<StatusExecucaoKey, string> = {
     TIMEOUT: "Timeout",
     CANCELADO: "Cancelado",
     EM_EXECUCAO: "Em execução",
+    AGUARDANDO_LOCK_SERIAL: "Aguardando lock serial",
 };
 
 /** Altura do donut alinhada à coluna RabbitMQ Realtime (cards + área do gráfico). */
@@ -110,6 +112,7 @@ function emptyStatusContagem(): StatusContagem {
         ERRO: 0,
         TIMEOUT: 0,
         CANCELADO: 0,
+        AGUARDANDO_LOCK_SERIAL: 0,
     };
 }
 
@@ -376,7 +379,7 @@ export default function MonitorPage() {
         return {
             chart: { type: "donut", fontFamily: "Outfit, sans-serif" },
             labels: STATUS_ORDER.map((k) => STATUS_LABEL[k]),
-            colors: ["#22c55e", "#ef4444", "#f97316", "#94a3b8", "#3b82f6"],
+            colors: ["#22c55e", "#ef4444", "#f97316", "#94a3b8", "#3b82f6", "#a855f7"],
             legend: { position: "bottom" },
             plotOptions: {
                 pie: {

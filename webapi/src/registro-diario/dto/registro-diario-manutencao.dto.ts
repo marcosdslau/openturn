@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsArray,
   IsDateString,
+  IsEnum,
   Min,
   Max,
   ArrayMinSize,
@@ -13,6 +14,7 @@ import {
   Matches,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import { RPDStatus } from '@prisma/client';
 
 /** Normaliza query param de string simples para array (ex: ?turma=A → ['A']) */
 const toArray = () =>
@@ -175,6 +177,15 @@ export class AlterarRegistrosDiariosDto {
   @IsString()
   @Matches(HHMM_REGEX, { message: 'novaSaidaHora deve estar no formato HH:mm' })
   novaSaidaHora?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  @Type(() => Boolean)
+  alterarStatus?: boolean;
+
+  @IsOptional()
+  @IsEnum(RPDStatus)
+  novoStatus?: RPDStatus;
 }
 
 // ---------------------------------------------------------------------------
