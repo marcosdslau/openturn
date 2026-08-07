@@ -383,7 +383,8 @@ export class RegistroDiarioManutencaoService {
     userId: number,
   ): Promise<{ alterados: number }> {
     const base: Prisma.RPDRegistrosDiariosUncheckedUpdateManyInput = {
-      RPDStatus: RPDStatus.MANUAL,
+      RPDStatus:
+        dto.alterarStatus && dto.novoStatus ? dto.novoStatus : RPDStatus.MANUAL,
       USRCodigoAlteracao: userId,
       RPDAlteradoEm: new Date(),
     };

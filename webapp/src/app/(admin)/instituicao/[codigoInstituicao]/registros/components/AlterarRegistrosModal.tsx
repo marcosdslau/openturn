@@ -7,6 +7,8 @@ import { apiPatch } from "@/lib/api";
 import Button from "@/components/ui/button/Button";
 import Label from "@/components/form/Label";
 import InputField from "@/components/form/input/InputField";
+import Select from "@/components/form/Select";
+import Alert from "@/components/ui/alert/Alert";
 import { Modal } from "@/components/ui/modal";
 
 interface Props {
@@ -14,6 +16,15 @@ interface Props {
     onClose: () => void;
     onSuccess: () => void;
 }
+
+type RPDStatusValue = "PENDENTE" | "MANUAL" | "ERRO" | "ENVIADO";
+
+const STATUS_OPTIONS: { value: RPDStatusValue; label: string }[] = [
+    { value: "PENDENTE", label: "Pendente" },
+    { value: "MANUAL", label: "Manual" },
+    { value: "ERRO", label: "Erro" },
+    { value: "ENVIADO", label: "Enviado" },
+];
 
 export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }: Props) {
     const { codigoInstituicao } = useTenant();
@@ -23,12 +34,15 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
     const [novaEntrada, setNovaEntrada] = useState("");
     const [alterarSaida, setAlterarSaida] = useState(false);
     const [novaSaida, setNovaSaida] = useState("");
+    const [alterarStatus, setAlterarStatus] = useState(false);
+    const [novoStatus, setNovoStatus] = useState<RPDStatusValue>("MANUAL");
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [loading, setLoading] = useState(false);
 
     const canSubmit =
         (alterarEntrada && !!novaEntrada) ||
-        (alterarSaida && !!novaSaida);
+        (alterarSaida && !!novaSaida) ||
+        alterarStatus;
 
     const handleProcessar = async () => {
         if (!codigoInstituicao) return;
@@ -42,6 +56,8 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                     novaEntradaHora: alterarEntrada && novaEntrada ? novaEntrada : undefined,
                     alterarSaida,
                     novaSaidaHora: alterarSaida && novaSaida ? novaSaida : undefined,
+                    alterarStatus,
+                    novoStatus: alterarStatus ? novoStatus : undefined,
                 },
             );
             setConfirmOpen(false);
@@ -117,6 +133,35 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                             </div>
                         )}
 
+                        <label className="flex items-center gap-3 cursor-pointer">
+                            <input
+                                type="checkbox"
+                                checked={alterarStatus}
+                                onChange={(e) => setAlterarStatus(e.target.checked)}
+                                className="h-4 w-4 rounded border-gray-300 text-brand-500"
+                            />
+                            <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Alterar Status</span>
+                        </label>
+                        {alterarStatus && (
+                            <div className="ml-7 space-y-3">
+                                <div>
+                                    <Label>Novo status</Label>
+                                    <Select
+                                        options={STATUS_OPTIONS}
+                                        defaultValue={novoStatus}
+                                        onChange={(v) => setNovoStatus(v as RPDStatusValue)}
+                                    />
+                                </div>
+                                {novoStatus !== "MANUAL" && (
+                                    <Alert
+                                        variant="warning"
+                                        title="Registro deixa de estar protegido"
+                                        message='Apenas o status Manual protege o registro contra sobrescrita automática pela agregação diária e contra exclusão pelo "Reprocessar Período". Ao escolher outro status, o registro volta a ficar sujeito a esses processos.'
+                                    />
+                                )}
+                            </div>
+                        )}
+
                         <div className="flex gap-3 pt-2">
                             <Button size="sm" disabled={!canSubmit} onClick={() => setConfirmOpen(true)}>
                                 Processar
@@ -135,7 +180,8 @@ export default function AlterarRegistrosModal({ rpdCodigos, onClose, onSuccess }
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                         <strong>{rpdCodigos.length}</strong> registro(s) serão alterados
                         {alterarEntrada ? ` — entrada: ${novaEntrada}` : ""}
-                        {alterarSaida ? ` — saída: ${novaSaida}` : ""}.
+                        {alterarSaida ? ` — saída: ${novaSaida}` : ""}
+                        {alterarStatus ? ` — status: ${STATUS_OPTIONS.find((o) => o.value === novoStatus)?.label}` : ""}.
                         Os campos de auditoria serão atualizados.
                     </p>
                     <div className="flex gap-3">
