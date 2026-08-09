@@ -53,6 +53,12 @@ export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
 
   openGate(equipmentId: number): Promise<void>;
 
+  /** Consulta se o equipamento está em modo de emergência (catraca sempre liberada). */
+  getEmergencyMode(equipmentId: number): Promise<{ emergencyMode: boolean }>;
+
+  /** Ativa (`true`) ou desativa (`false`) o modo de emergência do equipamento. */
+  setEmergencyMode(equipmentId: number, emergencyMode: boolean): Promise<void>;
+
   enroll(type: 'face' | 'biometry', userId: number): Promise<void>;
 
   customCommand(cmd: string, params?: any): Promise<any>;
