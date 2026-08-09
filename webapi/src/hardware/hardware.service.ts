@@ -586,10 +586,11 @@ export class HardwareService {
     return { ok: true };
   }
 
-  async openGate(
+  /** Busca o equipamento garantindo que pertence à instituição do contexto. */
+  private async findDeviceOrThrow(
     instituicaoCodigo: number,
     equipmentId: number,
-  ): Promise<{ ok: boolean }> {
+  ): Promise<EQPEquipamento> {
     const device = await this.prisma.eQPEquipamento.findUnique({
       where: { EQPCodigo: equipmentId },
     });
@@ -602,9 +603,39 @@ export class HardwareService {
       throw new NotFoundException(`Equipamento ${equipmentId} não encontrado`);
     }
 
+    return device;
+  }
+
+  async openGate(
+    instituicaoCodigo: number,
+    equipmentId: number,
+  ): Promise<{ ok: boolean }> {
+    const device = await this.findDeviceOrThrow(instituicaoCodigo, equipmentId);
     const provider = await this.instantiate(device);
     await provider.openGate(device.EQPCodigo);
     return { ok: true };
+  }
+
+  /** Consulta se a catraca está em modo de emergência (giro sempre liberado). */
+  async getEmergencyMode(
+    instituicaoCodigo: number,
+    equipmentId: number,
+  ): Promise<{ emergencyMode: boolean }> {
+    const device = await this.findDeviceOrThrow(instituicaoCodigo, equipmentId);
+    const provider = await this.instantiate(device);
+    return provider.getEmergencyMode(device.EQPCodigo);
+  }
+
+  /** Ativa/desativa o modo de emergência — sem timeout, vale até a próxima ação manual. */
+  async setEmergencyMode(
+    instituicaoCodigo: number,
+    equipmentId: number,
+    emergencyMode: boolean,
+  ): Promise<{ ok: boolean; emergencyMode: boolean }> {
+    const device = await this.findDeviceOrThrow(instituicaoCodigo, equipmentId);
+    const provider = await this.instantiate(device);
+    await provider.setEmergencyMode(device.EQPCodigo, emergencyMode);
+    return { ok: true, emergencyMode };
   }
 
   async executeCommand(

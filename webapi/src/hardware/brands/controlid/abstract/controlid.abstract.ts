@@ -830,6 +830,47 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     );
   }
 
+  /** `sec_box.catra_default_fsm`: '1' = ambos liberados (emergência), '0' = ambos controlados. */
+  async getEmergencyMode(
+    equipmentId: number,
+  ): Promise<{ emergencyMode: boolean }> {
+    const res = await this.postWithRetry('/get_configuration.fcgi', {
+      sec_box: ['catra_default_fsm'],
+    });
+
+    const raw = this.extractCatraDefaultFsm(res.data);
+    const emergencyMode = raw === '1';
+
+    this.logger.log(
+      `[ControlID] getEmergencyMode equipmentId=${equipmentId} host=${this.config.host} ` +
+        `catra_default_fsm=${raw ?? '-'} emergencyMode=${emergencyMode}`,
+    );
+    return { emergencyMode };
+  }
+
+  async setEmergencyMode(
+    equipmentId: number,
+    emergencyMode: boolean,
+  ): Promise<void> {
+    await this.postWithRetry('/set_configuration.fcgi', {
+      sec_box: { catra_default_fsm: emergencyMode ? '1' : '0' },
+    });
+    this.logger.log(
+      `[ControlID] setEmergencyMode equipmentId=${equipmentId} host=${this.config.host} ` +
+        `emergencyMode=${emergencyMode}`,
+    );
+  }
+
+  /** Resposta esperada é achatada (`{ catra_default_fsm }`); aceita também aninhada em `sec_box`. */
+  private extractCatraDefaultFsm(data: unknown): string | undefined {
+    const body = (data ?? {}) as {
+      catra_default_fsm?: unknown;
+      sec_box?: { catra_default_fsm?: unknown };
+    };
+    const raw = body.catra_default_fsm ?? body.sec_box?.catra_default_fsm;
+    return raw == null ? undefined : String(raw);
+  }
+
   async executeAction(action: string, params?: any): Promise<void> {
     await this.executeActionImpl(action, params);
   }

@@ -6,7 +6,8 @@ import { apiGet, apiPost } from "@/lib/api";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useToast } from "@/context/ToastContext";
 import Button from "@/components/ui/button/Button";
-import { RefreshIcon } from "@/icons";
+import EmergencyConfirmModal from "@/components/liberacoes/EmergencyConfirmModal";
+import { AlertIcon, RefreshIcon } from "@/icons";
 
 interface EquipamentoVisitante {
     EQPCodigo: number;
@@ -17,11 +18,24 @@ interface EquipamentoVisitante {
 
 type RowState = "idle" | "loading" | "countdown";
 
+/** Estado da consulta de modo de emergência de cada equipamento. */
+type EmergencyStatus = "loading" | "loaded" | "error";
+
+interface ConfirmTarget {
+    equipamento: EquipamentoVisitante;
+    /** `true` = vai ativar a emergência; `false` = vai desativar. */
+    targetMode: boolean;
+}
+
 const COUNTDOWN_SECONDS = 5;
 
 function formatMarcaModelo(marca: string | null, modelo: string | null): string {
     const parts = [marca, modelo].filter((p) => p && p.trim().length > 0);
     return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+function nomeEquipamento(equipamento: EquipamentoVisitante): string {
+    return equipamento.EQPDescricao?.trim() || `Equipamento #${equipamento.EQPCodigo}`;
 }
 
 export default function LiberacoesPage() {
@@ -35,6 +49,13 @@ export default function LiberacoesPage() {
     const [rowStates, setRowStates] = useState<Record<number, RowState>>({});
     const [countdowns, setCountdowns] = useState<Record<number, number>>({});
     const timersRef = useRef<Record<number, ReturnType<typeof setInterval>>>({});
+
+    const [emergencyStatus, setEmergencyStatus] = useState<Record<number, EmergencyStatus>>({});
+    const [emergencyMode, setEmergencyMode] = useState<Record<number, boolean>>({});
+    const [emergencyBusy, setEmergencyBusy] = useState<Record<number, boolean>>({});
+    const [confirmTarget, setConfirmTarget] = useState<ConfirmTarget | null>(null);
+    /** Descarta respostas de consultas disparadas por uma listagem anterior. */
+    const emergencyGenerationRef = useRef(0);
 
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -62,6 +83,41 @@ export default function LiberacoesPage() {
             Object.values(timersRef.current).forEach(clearInterval);
         };
     }, []);
+
+    /**
+     * Consulta o modo de emergência de um equipamento. Em caso de falha a linha fica
+     * como "error" e o botão de emergência não é montado — não oferecemos a ação
+     * sem saber o estado atual da catraca.
+     */
+    const loadEmergencyMode = useCallback(
+        async (eqpCodigo: number) => {
+            if (!codigoInstituicao) return;
+            const generation = emergencyGenerationRef.current;
+            setEmergencyStatus((prev) => ({ ...prev, [eqpCodigo]: "loading" }));
+            try {
+                const data = await apiGet<{ emergencyMode: boolean }>(
+                    `/instituicao/${codigoInstituicao}/hardware/${eqpCodigo}/emergency-mode`,
+                );
+                if (emergencyGenerationRef.current !== generation) return;
+                setEmergencyMode((prev) => ({ ...prev, [eqpCodigo]: !!data?.emergencyMode }));
+                setEmergencyStatus((prev) => ({ ...prev, [eqpCodigo]: "loaded" }));
+            } catch {
+                if (emergencyGenerationRef.current !== generation) return;
+                setEmergencyStatus((prev) => ({ ...prev, [eqpCodigo]: "error" }));
+            }
+        },
+        [codigoInstituicao],
+    );
+
+    // Dispara as consultas em paralelo, sem bloquear a renderização da lista.
+    useEffect(() => {
+        emergencyGenerationRef.current += 1;
+        setEmergencyStatus({});
+        setEmergencyMode({});
+        equipamentos.forEach((eqp) => {
+            void loadEmergencyMode(eqp.EQPCodigo);
+        });
+    }, [equipamentos, loadEmergencyMode]);
 
     const clearTimer = (eqpCodigo: number) => {
         const timer = timersRef.current[eqpCodigo];
@@ -119,6 +175,43 @@ export default function LiberacoesPage() {
         }
     };
 
+    /**
+     * Ativa/desativa o modo de emergência. Não há countdown: a mudança é definitiva
+     * até a próxima ação manual. Ao final, o estado real é relido do equipamento.
+     */
+    const handleEmergency = async (
+        equipamento: EquipamentoVisitante,
+        targetMode: boolean,
+    ) => {
+        const { EQPCodigo } = equipamento;
+        if (!mayExecute || emergencyBusy[EQPCodigo]) return;
+
+        setEmergencyBusy((prev) => ({ ...prev, [EQPCodigo]: true }));
+
+        try {
+            await apiPost<{ ok: boolean; emergencyMode: boolean }>(
+                `/instituicao/${codigoInstituicao}/hardware/${EQPCodigo}/emergency-release`,
+                { emergencyMode: targetMode },
+            );
+            showToast(
+                "success",
+                targetMode ? "Emergência ativada" : "Emergência desativada",
+                targetMode
+                    ? "A catraca está com o giro liberado nos dois sentidos."
+                    : "A catraca voltou ao controle normal de acesso.",
+            );
+        } catch (error: unknown) {
+            const message =
+                error instanceof Error
+                    ? error.message
+                    : "Não foi possível alterar o modo de emergência.";
+            showToast("error", "Erro no modo de emergência", message);
+        } finally {
+            setEmergencyBusy((prev) => ({ ...prev, [EQPCodigo]: false }));
+            await loadEmergencyMode(EQPCodigo);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div>
@@ -146,52 +239,101 @@ export default function LiberacoesPage() {
                         const isLoading = state === "loading";
                         const isCountdown = state === "countdown";
 
+                        const emergencyReady = emergencyStatus[eqp.EQPCodigo] === "loaded";
+                        const isEmergencyOn = !!emergencyMode[eqp.EQPCodigo];
+                        const isEmergencyBusy = !!emergencyBusy[eqp.EQPCodigo];
+
                         return (
                             <li
                                 key={eqp.EQPCodigo}
-                                className="flex items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 md:p-6 dark:border-gray-800 dark:bg-white/[0.03]"
+                                className="flex flex-col gap-4 rounded-2xl border border-gray-200 bg-white p-5 md:flex-row md:items-center md:justify-between md:p-6 dark:border-gray-800 dark:bg-white/[0.03]"
                             >
                                 <div className="min-w-0 flex-1">
-                                    <p className="truncate text-xl font-semibold text-gray-800 dark:text-white/90 md:text-2xl">
-                                        {eqp.EQPDescricao?.trim() || `Equipamento #${eqp.EQPCodigo}`}
+                                    <p className="truncate text-xl font-semibold text-gray-800 md:text-2xl dark:text-white/90">
+                                        {nomeEquipamento(eqp)}
                                     </p>
                                     <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                                         {formatMarcaModelo(eqp.EQPMarca, eqp.EQPModelo)}
                                     </p>
                                 </div>
 
-                                <div className="flex shrink-0 min-w-[8.25rem] items-center justify-center">
-                                    {isCountdown && countdown != null && countdown > 0 ? (
-                                        <span
-                                            className="flex size-[4.125rem] items-center justify-center rounded-full bg-brand-500 text-2xl font-bold text-white"
-                                            aria-label={`${countdown} segundos restantes`}
-                                        >
-                                            {countdown}
-                                        </span>
-                                    ) : mayExecute ? (
+                                <div className="flex flex-wrap items-center justify-end gap-3 md:shrink-0 md:flex-nowrap">
+                                    {mayExecute && emergencyReady ? (
                                         <Button
                                             size="md"
-                                            variant="primary"
-                                            disabled={isLoading}
-                                            onClick={() => handleLiberar(eqp)}
-                                            className="min-w-[7.5rem] px-6 py-3.5 text-base font-medium"
+                                            variant={isEmergencyOn ? "primary" : "danger"}
+                                            disabled={isEmergencyBusy}
+                                            onClick={() =>
+                                                setConfirmTarget({
+                                                    equipamento: eqp,
+                                                    targetMode: !isEmergencyOn,
+                                                })
+                                            }
+                                            startIcon={
+                                                isEmergencyBusy ? undefined : (
+                                                    <AlertIcon className="size-5" />
+                                                )
+                                            }
+                                            className="px-6 py-3.5 text-base font-medium whitespace-nowrap"
                                         >
-                                            {isLoading ? (
+                                            {isEmergencyBusy ? (
                                                 <span className="inline-flex items-center gap-2">
                                                     <RefreshIcon className="h-4 w-4 animate-spin" />
-                                                    Liberando…
+                                                    Processando…
                                                 </span>
+                                            ) : isEmergencyOn ? (
+                                                "Desativar Emergência"
                                             ) : (
-                                                "Liberar"
+                                                "Liberação de Emergência"
                                             )}
                                         </Button>
                                     ) : null}
+
+                                    <div className="flex min-w-[8.25rem] items-center justify-center">
+                                        {isCountdown && countdown != null && countdown > 0 ? (
+                                            <span
+                                                className="flex size-[4.125rem] items-center justify-center rounded-full bg-brand-500 text-2xl font-bold text-white"
+                                                aria-label={`${countdown} segundos restantes`}
+                                            >
+                                                {countdown}
+                                            </span>
+                                        ) : mayExecute ? (
+                                            <Button
+                                                size="md"
+                                                variant="primary"
+                                                disabled={isLoading}
+                                                onClick={() => handleLiberar(eqp)}
+                                                className="min-w-[7.5rem] px-6 py-3.5 text-base font-medium"
+                                            >
+                                                {isLoading ? (
+                                                    <span className="inline-flex items-center gap-2">
+                                                        <RefreshIcon className="h-4 w-4 animate-spin" />
+                                                        Liberando…
+                                                    </span>
+                                                ) : (
+                                                    "Liberar"
+                                                )}
+                                            </Button>
+                                        ) : null}
+                                    </div>
                                 </div>
                             </li>
                         );
                     })}
                 </ul>
             )}
+
+            {confirmTarget ? (
+                <EmergencyConfirmModal
+                    isOpen
+                    targetMode={confirmTarget.targetMode}
+                    equipamentoNome={nomeEquipamento(confirmTarget.equipamento)}
+                    onConfirm={() =>
+                        void handleEmergency(confirmTarget.equipamento, confirmTarget.targetMode)
+                    }
+                    onClose={() => setConfirmTarget(null)}
+                />
+            ) : null}
         </div>
     );
 }

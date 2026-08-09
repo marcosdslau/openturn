@@ -113,6 +113,25 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
     });
   }
 
+  async getEmergencyMode(
+    _equipmentId: number,
+  ): Promise<{ emergencyMode: boolean }> {
+    throw new BadRequestException({
+      supported: false,
+      message: 'getEmergencyMode não suportado para esta marca',
+    });
+  }
+
+  async setEmergencyMode(
+    _equipmentId: number,
+    _emergencyMode: boolean,
+  ): Promise<void> {
+    throw new BadRequestException({
+      supported: false,
+      message: 'setEmergencyMode não suportado para esta marca',
+    });
+  }
+
   async executeAction(action: string, params?: any): Promise<void> {
     this.logger.log(`[Intelbras] Executing action ${action}`);
   }

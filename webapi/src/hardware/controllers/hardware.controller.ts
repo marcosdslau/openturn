@@ -1,5 +1,6 @@
 import {
   Controller,
+  Get,
   Post,
   Param,
   ParseIntPipe,
@@ -13,6 +14,7 @@ import { PermissionsGuard } from '../../auth/permissions.guard';
 import { RequirePermission } from '../../auth/permissions.decorator';
 import { TestConnectionDto } from '../dto/test-connection.dto';
 import { ConfigureEquipmentDto } from '../dto/configure-equipment.dto';
+import { SetEmergencyModeDto } from '../dto/set-emergency-mode.dto';
 
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('instituicao/:instituicaoCodigo/hardware')
@@ -88,6 +90,36 @@ export class HardwareController {
       `[${instituicaoCodigo}] open-gate on equipment ${equipmentId}`,
     );
     return this.hardwareService.openGate(instituicaoCodigo, equipmentId);
+  }
+
+  @Get(':equipmentId/emergency-mode')
+  @RequirePermission('visitante', 'read')
+  async getEmergencyMode(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('equipmentId', ParseIntPipe) equipmentId: number,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] emergency-mode on equipment ${equipmentId}`,
+    );
+    return this.hardwareService.getEmergencyMode(instituicaoCodigo, equipmentId);
+  }
+
+  @Post(':equipmentId/emergency-release')
+  @RequirePermission('visitante', 'execute')
+  async setEmergencyMode(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('equipmentId', ParseIntPipe) equipmentId: number,
+    @Body() dto: SetEmergencyModeDto,
+  ) {
+    this.logger.log(
+      `[${instituicaoCodigo}] emergency-release on equipment ${equipmentId} ` +
+        `emergencyMode=${dto.emergencyMode}`,
+    );
+    return this.hardwareService.setEmergencyMode(
+      instituicaoCodigo,
+      equipmentId,
+      dto.emergencyMode,
+    );
   }
 
   @Post(':equipmentId/delete-all-users')
