@@ -174,7 +174,9 @@ export class InstituicaoService {
       dto.INSTempoSync !== undefined ||
       dto.INSSyncRegistrosDiarios !== undefined ||
       dto.INSSyncFreqEducacional !== undefined ||
-      dto.INSTempoFreqEducacional !== undefined
+      dto.INSTempoFreqEducacional !== undefined ||
+      // o fuso define o utcOffset com que os crons são registrados
+      dto.INSFusoHorario !== undefined
     ) {
       this.redisPub?.publish(channelSyncSchedulerRefresh(), JSON.stringify({ INSCodigo: id })).catch(() => null);
     }
@@ -188,6 +190,8 @@ export class InstituicaoService {
       data: { INSWorkerAtivo: active },
     });
     await this.publishQueueRefresh(instituicao, 'updated');
+    // reconcileSchedules filtra por INSWorkerAtivo — os crons precisam ser revistos
+    this.redisPub?.publish(channelSyncSchedulerRefresh(), JSON.stringify({ INSCodigo: id })).catch(() => null);
     return instituicao;
   }
 

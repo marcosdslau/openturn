@@ -9,6 +9,17 @@ export function toLocalHour(nowUtc: Date, fusoHorario: number): number {
   return new Date(localMs).getUTCHours();
 }
 
+/**
+ * Dia civil local da instituição em formato `YYYY-MM-DD`.
+ * Usado para fixar o dia alvo do FREQ_ERP_SYNC no momento da publicação do job,
+ * de modo que um consumo atrasado (ex.: job das 23:58 processado 00:02) não
+ * feche o dia errado.
+ */
+export function localDayIsoDate(nowUtc: Date, fusoHorario: number): string {
+  const d = new Date(nowUtc.getTime() + fusoHorario * 3_600_000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
 /** Expande um segmento de campo de hora (ex.: "9", "9-12", "*") em lista de horas. */
 function expandHourSegment(segment: string): number[] {
   const trimmed = segment.trim();

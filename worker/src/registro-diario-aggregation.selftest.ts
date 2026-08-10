@@ -7,6 +7,7 @@ import {
     collectJanelasForLocalDay,
     diaOverlapsLocalToday,
     getInstitutionLocalDayBounds,
+    localDayBoundsFromIsoDate,
     planReconciliacao,
     type PassagemParaAgregacao,
     type PeriodoConfig,
@@ -538,6 +539,41 @@ function mkJanela(indice: number, entrada: string, saida: string): JanelaAgregad
     assert(coletadas.length === 1, 'coleta apenas janelas da pessoa no dia local');
     assert(coletadas[0].RPDJanelaIndice === 1, 'reindexa a partir de 1');
     assert(coletadas[0].dataLocal.getTime() === bounds.dataLocal.getTime(), 'dataLocal remapeada para dia local');
+}
+
+// ---------------------------------------------------------------------------
+// localDayBoundsFromIsoDate — dia alvo do FREQ_ERP_SYNC
+// ---------------------------------------------------------------------------
+
+{
+    const bounds = localDayBoundsFromIsoDate('2026-08-07', -3);
+    assert(bounds.inicio.toISOString() === '2026-08-07T03:00:00.000Z', 'dia local começa 03:00Z (fuso -3)');
+    assert(bounds.fim.toISOString() === '2026-08-08T03:00:00.000Z', 'dia local termina 03:00Z do dia seguinte');
+    assert(bounds.dataLocal.toISOString() === '2026-08-07T12:00:00.000Z', 'dataLocal em meio-dia UTC do dia alvo');
+}
+
+{
+    // Mesmo dia civil calculado a partir de "agora" e a partir do ISO → limites idênticos
+    const porAgora = getInstitutionLocalDayBounds(new Date('2026-08-07T15:00:00.000Z'), -3);
+    const porIso = localDayBoundsFromIsoDate('2026-08-07', -3);
+    assert(porAgora.inicio.getTime() === porIso.inicio.getTime(), 'inicio idêntico ao de getInstitutionLocalDayBounds');
+    assert(porAgora.fim.getTime() === porIso.fim.getTime(), 'fim idêntico ao de getInstitutionLocalDayBounds');
+    assert(porAgora.dataLocal.getTime() === porIso.dataLocal.getTime(), 'dataLocal idêntica à de getInstitutionLocalDayBounds');
+}
+
+{
+    // Job das 23:58 locais consumido às 00:02: o dia alvo do payload continua sendo o dia anterior
+    const atrasado = new Date('2026-08-08T03:02:00.000Z'); // 00:02 local de 08/08
+    const porAgora = getInstitutionLocalDayBounds(atrasado, -3);
+    const porIso = localDayBoundsFromIsoDate('2026-08-07', -3);
+    assert(porAgora.dataLocal.getTime() !== porIso.dataLocal.getTime(), 'consumo atrasado cairia no dia seguinte');
+    assert(porIso.dataLocal.toISOString().slice(0, 10) === '2026-08-07', 'diaAlvoLocal do payload preserva o dia correto');
+}
+
+{
+    const bounds = localDayBoundsFromIsoDate('2026-08-07', 0);
+    assert(bounds.inicio.toISOString() === '2026-08-07T00:00:00.000Z', 'fuso 0: dia local = dia UTC');
+    assert(bounds.fim.toISOString() === '2026-08-08T00:00:00.000Z', 'fuso 0: fim = meia-noite UTC seguinte');
 }
 
 console.log('registro-diario-aggregation selftest OK');

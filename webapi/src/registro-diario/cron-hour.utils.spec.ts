@@ -1,6 +1,7 @@
 import {
   extractHoursFromCron,
   isLastScheduledHour,
+  localDayIsoDate,
   toLocalHour,
 } from './cron-hour.utils';
 
@@ -47,5 +48,23 @@ describe('isLastScheduledHour', () => {
     const cron6 = '0 0 9,15,22 * * *';
     const now = new Date('2026-07-09T01:00:00.000Z');
     expect(isLastScheduledHour(cron6, now, fuso)).toBe(true);
+  });
+
+  it('cron de frequência: true às 23:58 locais, false às 12:00 locais', () => {
+    const cronFreq = '58 23 * * *';
+    expect(isLastScheduledHour(cronFreq, new Date('2026-08-08T02:58:00.000Z'), fuso)).toBe(true);
+    expect(isLastScheduledHour(cronFreq, new Date('2026-08-07T15:00:00.000Z'), fuso)).toBe(false);
+  });
+});
+
+describe('localDayIsoDate', () => {
+  it('usa o dia civil local da instituição', () => {
+    // 01:10Z de 08/08 ainda é 07/08 no fuso -3
+    expect(localDayIsoDate(new Date('2026-08-08T01:10:00.000Z'), -3)).toBe('2026-08-07');
+    expect(localDayIsoDate(new Date('2026-08-08T03:10:00.000Z'), -3)).toBe('2026-08-08');
+  });
+
+  it('fuso 0 equivale ao dia UTC', () => {
+    expect(localDayIsoDate(new Date('2026-08-07T23:59:00.000Z'), 0)).toBe('2026-08-07');
   });
 });

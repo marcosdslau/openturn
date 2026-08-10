@@ -16,8 +16,11 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
   private readonly logger = new Logger(RegistroDiarioSyncScheduler.name);
   private redis: Redis | null = null;
   private redisSub: Redis | null = null;
-  /** jobName → INSCodigo */
-  private readonly cronJobs = new Map<string, number>();
+  /** jobName → configuração com que o cron foi registrado */
+  private readonly cronJobs = new Map<
+    string,
+    { instCodigo: number; cronExpr: string; fusoHorario: number }
+  >();
 
   constructor(
     private readonly schedulerRegistry: SchedulerRegistry,
@@ -68,13 +71,13 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
     try {
       const instituicoes = await this.prisma.iNSInstituicao.findMany({
         where: { INSAtivo: true, INSSyncRegistrosDiarios: true, INSWorkerAtivo: true },
-        select: { INSCodigo: true, INSTempoSync: true },
+        select: { INSCodigo: true, INSTempoSync: true, INSFusoHorario: true },
       });
 
       const activeIds = new Set(instituicoes.map((i) => i.INSCodigo));
 
-      for (const [name, instId] of this.cronJobs.entries()) {
-        if (!activeIds.has(instId)) {
+      for (const [name, cfg] of this.cronJobs.entries()) {
+        if (!activeIds.has(cfg.instCodigo)) {
           this.removeCronJob(name);
         }
       }
@@ -82,13 +85,14 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
       for (const inst of instituicoes) {
         const name = this.jobName(inst.INSCodigo);
         const cronExpr = inst.INSTempoSync || '0 9,15,22 * * *';
+        const fusoHorario = inst.INSFusoHorario ?? -3;
 
         const existing = this.cronJobs.get(name);
         if (existing !== undefined) {
-          // Se a expressão mudou, recriar o job
+          // Se a expressão ou o fuso mudaram, recriar o job
           try {
-            const job = this.schedulerRegistry.getCronJob(name);
-            if ((job as any).cronTime?.source !== cronExpr) {
+            this.schedulerRegistry.getCronJob(name);
+            if (existing.cronExpr !== cronExpr || existing.fusoHorario !== fusoHorario) {
               this.removeCronJob(name);
             } else {
               continue;
@@ -98,7 +102,7 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
           }
         }
 
-        this.registerCronJob(inst.INSCodigo, cronExpr);
+        this.registerCronJob(inst.INSCodigo, cronExpr, fusoHorario);
       }
 
       this.logger.log(`Sync scheduler reconciliado: ${this.cronJobs.size} instituições agendadas`);
@@ -107,14 +111,27 @@ export class RegistroDiarioSyncScheduler implements OnModuleInit, OnModuleDestro
     }
   }
 
-  private registerCronJob(instCodigo: number, cronExpr: string) {
+  private registerCronJob(instCodigo: number, cronExpr: string, fusoHorario: number) {
     const name = this.jobName(instCodigo);
     try {
-      const job = new CronJob(cronExpr, () => this.onTick(instCodigo), null, true, undefined, null, false);
+      // utcOffset (em minutos) faz o cron disparar no fuso da instituição —
+      // é exclusivo com timeZone, por isso o parâmetro de timezone vai como null.
+      const job = new CronJob(
+        cronExpr,
+        () => this.onTick(instCodigo),
+        null,
+        true,
+        null,
+        null,
+        false,
+        fusoHorario * 60,
+      );
       this.schedulerRegistry.addCronJob(name, job as any);
       job.start();
-      this.cronJobs.set(name, instCodigo);
-      this.logger.log(`Cron de sync registrado: inst=${instCodigo} expr="${cronExpr}"`);
+      this.cronJobs.set(name, { instCodigo, cronExpr, fusoHorario });
+      this.logger.log(
+        `Cron de sync registrado: inst=${instCodigo} expr="${cronExpr}" fuso=UTC${fusoHorario >= 0 ? '+' : ''}${fusoHorario}`,
+      );
     } catch (err) {
       this.logger.error(`Erro ao registrar cron para inst=${instCodigo} expr="${cronExpr}": ${err}`);
     }

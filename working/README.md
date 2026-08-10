@@ -8,3 +8,4 @@ Documentação de features planejadas antes/durante a implementação.
 | Turmas pioneiras (implantação) | Spec v0.1 | [README](./configuracao%20de%20implantacao/README.md) |
 | Manutenção — alterar status em lote | Spec v0.1 | [melhorias-manutencao-registros](./configuracao%20de%20implantacao/melhorias-manutencao-registros.md) |
 | Liberação de emergência da catraca | Spec v0.1 (planejamento) | [README](./liberacao-emergencia/README.md) |
+| Inconsistências em registros diários (diagnóstico) | Análise 2026-08-08 | [README](./analise-registros-diarios-inconsistentes/README.md) |
