@@ -404,7 +404,11 @@ export class RotinaQueueService {
     return exeId;
   }
 
-  async publishFreqEducacionalSyncJob(instituicaoCodigo: number): Promise<string> {
+  async publishFreqEducacionalSyncJob(
+    instituicaoCodigo: number,
+    diaAlvoLocal?: string,
+    isLastRunOfDay?: boolean,
+  ): Promise<string> {
     const exeId = randomUUID();
     const now = new Date();
     const jobData: RotinaJobData = {
@@ -413,6 +417,8 @@ export class RotinaQueueService {
       instituicaoCodigo,
       trigger: 'INTERNAL',
       internalKind: 'FREQ_ERP_SYNC',
+      diaAlvoLocal,
+      isLastRunOfDay,
       enqueuedAt: now.toISOString(),
     };
 
@@ -426,7 +432,7 @@ export class RotinaQueueService {
         EXEStatus: StatusExecucao.EM_EXECUCAO,
         EXEInicio: now,
         EXETrigger: 'INTERNAL',
-        EXERequestBody: { internalKind: 'FREQ_ERP_SYNC' },
+        EXERequestBody: { internalKind: 'FREQ_ERP_SYNC', diaAlvoLocal, isLastRunOfDay },
       },
     });
 

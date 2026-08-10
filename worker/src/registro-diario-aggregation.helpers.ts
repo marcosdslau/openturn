@@ -533,6 +533,21 @@ export function getInstitutionLocalDayBounds(nowUtc: Date, fusoHorario: number):
     };
 }
 
+/**
+ * Limites do dia civil local a partir de uma data `YYYY-MM-DD` (dia alvo vindo
+ * no payload do job), em vez de "agora". Mesma convenção de
+ * `getInstitutionLocalDayBounds`: `dataLocal` em meio-dia UTC.
+ */
+export function localDayBoundsFromIsoDate(isoDate: string, fusoHorario: number): LocalDayBounds {
+    const [y, mo, d] = isoDate.split('-').map(Number);
+    const localMidnightUtcMs = Date.UTC(y, mo - 1, d, 0, 0, 0, 0) - fusoHorario * 3_600_000;
+    return {
+        dataLocal: new Date(Date.UTC(y, mo - 1, d, 12, 0, 0, 0)),
+        inicio: new Date(localMidnightUtcMs),
+        fim: new Date(localMidnightUtcMs + 24 * 3_600_000),
+    };
+}
+
 /** Compara dois valores de RPDData (meio-dia UTC) pelo instante. */
 export function isSameRpdData(a: Date, b: Date): boolean {
     return a.getTime() === b.getTime();

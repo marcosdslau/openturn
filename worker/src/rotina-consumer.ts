@@ -50,6 +50,7 @@ import {
     getInstitutionLocalDayBounds,
     groupJanelasByPersonDay,
     isSameRpdData,
+    localDayBoundsFromIsoDate,
     reconciliarDiaAtual,
     type DiaAfetado,
     type JanelaAgregada,
@@ -74,6 +75,8 @@ export interface RotinaJobData {
     trigger: 'SCHEDULE' | 'WEBHOOK' | 'INTERNAL';
     internalKind?: 'RPD_AGGREGATION' | 'FREQ_ERP_SYNC';
     isLastRunOfDay?: boolean;
+    /** FREQ_ERP_SYNC: dia civil local (`YYYY-MM-DD`) a reprocessar antes do envio. */
+    diaAlvoLocal?: string;
     requestEnvelope?: any;
     enqueuedAt: string;
 }
@@ -1120,13 +1123,18 @@ class RabbitRotinaConsumer {
                         );
                         break;
                     case 'FREQ_ERP_SYNC':
-                        //Para garantir que antes de executar a sincronização ERP,
-                        // a agregação de registros diários deve ser executada passando true como isLastRunOfDay
+                        // O dia alvo é reprocessado do zero (equivalente a "Reprocessar Período"
+                        // de 1 dia): RPDs apagados e passagens devolvidas para não processadas.
+                        await this.reprocessarDiaParaEnvio(
+                            data.instituicaoCodigo,
+                            data.diaAlvoLocal,
+                        );
+                        // Reagrega o dia alvo (agora pendente) + eventuais dias em atraso.
                         await this.processRegistroDiarioAggregation(
                             data.instituicaoCodigo,
-                            true,
+                            data.isLastRunOfDay ?? true,
                         );
-                        //Após a execução da agregação de registros diários, a sincronização ERP é executada
+                        // RPDs recriados nascem PENDENTE — tudo do dia é (re)enviado ao ERP.
                         await this.erpFrequencySync.run(data.instituicaoCodigo);
                         break;
                     default:
@@ -1158,6 +1166,52 @@ class RabbitRotinaConsumer {
             }
         }
         return internalOk;
+    }
+
+    /**
+     * Reprocessa um dia inteiro antes do envio ao ERP — equivalente a
+     * "Reprocessar Período" de um único dia: apaga os RPDs do dia (exceto MANUAL)
+     * e devolve as passagens para REGProcessado=false, de modo que a agregação
+     * seguinte reconstrua o dia e o envio reprocesse tudo, inclusive o que já
+     * estava ENVIADO.
+     *
+     * `diaAlvoLocal` (YYYY-MM-DD) vem fixado da publicação do job; sem ele,
+     * usa o dia local corrente.
+     */
+    private async reprocessarDiaParaEnvio(instituicaoCodigo: number, diaAlvoLocal?: string) {
+        const inst = await this.prisma.iNSInstituicao.findUnique({
+            where: { INSCodigo: instituicaoCodigo },
+            select: { INSFusoHorario: true },
+        });
+        const fusoHorario = inst?.INSFusoHorario ?? -3;
+
+        const bounds = diaAlvoLocal
+            ? localDayBoundsFromIsoDate(diaAlvoLocal, fusoHorario)
+            : getInstitutionLocalDayBounds(new Date(), fusoHorario);
+
+        const [rpds, passagens] = await this.prisma.$transaction([
+            this.prisma.rPDRegistrosDiarios.deleteMany({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    RPDData: bounds.dataLocal,
+                    RPDStatus: { not: 'MANUAL' },
+                },
+            }),
+            this.prisma.rEGRegistroPassagem.updateMany({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    REGDataHora: { gte: bounds.inicio, lt: bounds.fim },
+                },
+                data: { REGProcessado: false },
+            }),
+        ]);
+
+        console.log(
+            workerLogLine(
+                `[FREQ_ERP_SYNC] Reprocesso do dia ${bounds.dataLocal.toISOString().slice(0, 10)} inst=${instituicaoCodigo}: ` +
+                `rpd_removidos=${rpds.count} passagens_resetadas=${passagens.count}`,
+            ),
+        );
     }
 
     /**
@@ -1388,15 +1442,37 @@ class RabbitRotinaConsumer {
 
             try {
                 await this.prisma.$transaction(async (tx) => {
+                    // Linhas MANUAL são preservadas (mesma regra do reprocessarPeriodo);
+                    // os índices que elas ocupam ficam bloqueados para janelas computadas.
+                    const manuais = await tx.rPDRegistrosDiarios.findMany({
+                        where: {
+                            INSInstituicaoCodigo: instituicaoCodigo,
+                            PESCodigo: dia.PESCodigo,
+                            RPDData: dia.dataLocal,
+                            RPDStatus: 'MANUAL',
+                        },
+                        select: { RPDJanelaIndice: true },
+                    });
+                    const indicesManuais = new Set(manuais.map((m) => m.RPDJanelaIndice));
+
                     await tx.rPDRegistrosDiarios.deleteMany({
                         where: {
                             INSInstituicaoCodigo: instituicaoCodigo,
                             PESCodigo: dia.PESCodigo,
                             RPDData: dia.dataLocal,
+                            RPDStatus: { not: 'MANUAL' },
                         },
                     });
 
                     for (const j of dayJanelas) {
+                        if (indicesManuais.has(j.RPDJanelaIndice)) {
+                            console.warn(
+                                workerLogLine(
+                                    `[INTERNAL] Colisão de índice ${j.RPDJanelaIndice} com linha MANUAL — pes=${j.PESCodigo} dia=${dia.dataLocal.toISOString()}, descartando janela computada`,
+                                ),
+                            );
+                            continue;
+                        }
                         if (j.RPDDataEntrada && j.RPDDataSaida && j.RPDDataEntrada > j.RPDDataSaida) {
                             console.warn(
                                 workerLogLine(
