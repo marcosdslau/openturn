@@ -45,6 +45,19 @@ export class RegistroDiarioManutencaoService {
   // Reprocessar período
   // ---------------------------------------------------------------------------
 
+  /**
+   * Reprocessa um intervalo civil fechado: apaga os RPDs do período (exceto MANUAL),
+   * devolve as passagens para não processadas e enfileira uma agregação **restrita
+   * ao mesmo intervalo**.
+   *
+   * A janela vai no payload do job para que o worker não reconcilie o dia corrente
+   * nem arraste backlog pendente de fora do período — o que deixava o dia de hoje
+   * agregado a partir de passagens ainda incompletas. Backlog fora do intervalo é
+   * processado normalmente no próximo tick do cron de sync.
+   *
+   * `isLastRunOfDay` é sempre `false` aqui: um reprocessamento retroativo não é a
+   * última execução agendada do dia e não pode selar as passagens do dia corrente.
+   */
   async reprocessarPeriodo(
     instituicaoCodigo: number,
     dto: ReprocessarPeriodoDto,
@@ -68,7 +81,7 @@ export class RegistroDiarioManutencaoService {
 
     const inst = await this.prisma.iNSInstituicao.findUnique({
       where: { INSCodigo: instituicaoCodigo },
-      select: { INSTempoSync: true, INSFusoHorario: true },
+      select: { INSCodigo: true },
     });
     if (!inst) {
       throw new NotFoundException('Instituição não encontrada');
@@ -98,10 +111,13 @@ export class RegistroDiarioManutencaoService {
       passagensResetadas = updateResult.count;
     });
 
-    const cronExpr = inst.INSTempoSync || '0 9,15,22 * * *';
-    const fusoHorario = inst.INSFusoHorario ?? -3;
-    const isLastRunOfDay = isLastScheduledHour(cronExpr, new Date(), fusoHorario);
-    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(instituicaoCodigo, isLastRunOfDay);
+    // Datas normalizadas a partir do meio-dia UTC já parseado — o DTO aceita ISO
+    // completo e o worker espera `YYYY-MM-DD`.
+    const jobId = await this.rotinaQueue.publishRegistroDiarioSyncJob(
+      instituicaoCodigo,
+      false,
+      { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) },
+    );
 
     return { jobId, rpdRemovidos, passagensResetadas };
   }

@@ -72,6 +72,9 @@ export default function ReprocessarPeriodoModal({ onClose, onSuccess }: Props) {
                             <p className="text-xs text-amber-700 dark:text-amber-300">
                                 Os registros diários do intervalo serão <strong>apagados</strong> e as passagens
                                 reagregadas conforme o modo de aglutinação atual da instituição.
+                                <br />
+                                Apenas os dias dentro do intervalo são afetados — se incluir o dia de hoje, ele
+                                será reagregado com as passagens recebidas até o momento.
                             </p>
                         </div>
 
@@ -111,7 +114,8 @@ export default function ReprocessarPeriodoModal({ onClose, onSuccess }: Props) {
                     <h3 className="text-lg font-semibold text-gray-800 dark:text-white">Confirmar reprocessamento</h3>
                     <p className="text-sm text-gray-600 dark:text-gray-400">
                         Todos os registros diários de <strong>{dataInicio}</strong> a <strong>{dataFim}</strong> serão
-                        apagados e as passagens do período serão reagregadas. Esta ação não pode ser desfeita.
+                        apagados e as passagens do período serão reagregadas. Dias fora desse intervalo não são
+                        alterados. Esta ação não pode ser desfeita.
                     </p>
                     <div className="flex gap-3">
                         <Button size="sm" onClick={handleConfirmar} disabled={loading}>

@@ -15,6 +15,14 @@ export interface RotinaJobData {
    * quando o consumo atrasa.
    */
   diaAlvoLocal?: string;
+  /**
+   * RPD_AGGREGATION: janela civil (`YYYY-MM-DD`) à qual a agregação fica restrita.
+   * Presente apenas no reprocessamento retroativo — jobs agendados não a enviam e
+   * mantêm o comportamento padrão (backlog pendente + reconciliação do dia corrente).
+   * Comparada contra RPDData, o mesmo critério usado para apagar os registros.
+   */
+  janelaInicio?: string;
+  janelaFim?: string;
   requestEnvelope?: any;
   enqueuedAt: string;
 }

@@ -363,10 +363,15 @@ export class RotinaQueueService {
   /**
    * Publica um job INTERNAL de sincronização de registros diários para a instituição.
    * Cria ROTExecucaoLog antes de publicar para o worker sempre encontrar o registro na base.
+   *
+   * @param janela Reprocessamento retroativo: restringe a agregação ao intervalo
+   *   civil informado (`YYYY-MM-DD`). Omitir mantém o comportamento agendado
+   *   (backlog pendente + reconciliação do dia corrente).
    */
   async publishRegistroDiarioSyncJob(
     instituicaoCodigo: number,
     isLastRunOfDay?: boolean,
+    janela?: { inicio: string; fim: string },
   ): Promise<string> {
     const exeId = randomUUID();
     const now = new Date();
@@ -377,6 +382,7 @@ export class RotinaQueueService {
       trigger: 'INTERNAL',
       internalKind: 'RPD_AGGREGATION',
       isLastRunOfDay,
+      ...(janela && { janelaInicio: janela.inicio, janelaFim: janela.fim }),
       enqueuedAt: now.toISOString(),
     };
 
@@ -390,7 +396,11 @@ export class RotinaQueueService {
         EXEStatus: StatusExecucao.EM_EXECUCAO,
         EXEInicio: now,
         EXETrigger: 'INTERNAL',
-        EXERequestBody: { internalKind: 'RPD_AGGREGATION', isLastRunOfDay },
+        EXERequestBody: {
+          internalKind: 'RPD_AGGREGATION',
+          isLastRunOfDay,
+          ...(janela && { janelaInicio: janela.inicio, janelaFim: janela.fim }),
+        },
       },
     });
 
@@ -400,7 +410,8 @@ export class RotinaQueueService {
       ),
     );
 
-    this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})`);
+    const janelaLabel = janela ? ` janela=${janela.inicio}..${janela.fim}` : '';
+    this.logger.log(`INTERNAL sync job published: ${exeId} (inst=${instituicaoCodigo})${janelaLabel}`);
     return exeId;
   }
 
