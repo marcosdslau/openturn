@@ -425,6 +425,8 @@ export class ExecutionService {
           { name: 'PESCodigo', type: 'Int', pk: true, fk: 'PESPessoa' },
           { name: 'EQPCodigo', type: 'Int', pk: true, fk: 'EQPEquipamento' },
           { name: 'PEQIdNoEquipamento', type: 'String' },
+          { name: 'PEQSyncHash', type: 'String' },
+          { name: 'PEQSyncedAt', type: 'DateTime' },
         ],
       },
       CTLControlidDao: {

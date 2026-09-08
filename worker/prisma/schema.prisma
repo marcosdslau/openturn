@@ -297,6 +297,10 @@ model PESEquipamentoMapeamento {
   EQPCodigo            Int
   equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
   PEQIdNoEquipamento   String         // ID no hardware (ex: "100")
+  /// Hash do payload confirmado no hardware (nome, foto, grupo, tag, limiar...). Null = nunca confirmado.
+  PEQSyncHash          String?
+  /// Último sync confirmado (ou revalidado por hash igual) neste equipamento.
+  PEQSyncedAt          DateTime?
   createdAt            DateTime       @default(now())
   updatedAt            DateTime       @updatedAt
 

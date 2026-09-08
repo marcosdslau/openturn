@@ -230,8 +230,12 @@ export class HardwareService {
   }
 
   /**
-   * Remove a pessoa de todos os equipamentos ativos da instituição e, ao fim,
-   * apaga mapeamentos locais dessa pessoa para esses equipamentos.
+   * Remove a pessoa de todos os equipamentos ativos da instituição e apaga os
+   * mapeamentos locais APENAS dos equipamentos em que a remoção foi confirmada.
+   *
+   * A pessoa pode estar inativa — é justamente o caso mais comum de chamada.
+   * Equipamento que falhou mantém o mapeamento, para que a rotina de
+   * enfileiramento tente de novo na próxima execução.
    */
   async deletePersonAcrossInstitution(
     instituicaoCodigo: number,
@@ -246,13 +250,12 @@ export class HardwareService {
       where: {
         PESCodigo: pescodigo,
         INSInstituicaoCodigo: instituicaoCodigo,
-        PESAtivo: true,
       },
     });
 
     if (!person) {
       throw new NotFoundException(
-        `Pessoa ${pescodigo} não encontrada ou inativa para esta instituição`,
+        `Pessoa ${pescodigo} não encontrada para esta instituição`,
       );
     }
 
@@ -260,13 +263,12 @@ export class HardwareService {
       where: { INSInstituicaoCodigo: instituicaoCodigo, EQPAtivo: true },
     });
 
-    const equipmentIds = devices.map((d) => d.EQPCodigo);
-
     const results: Array<{
       equipmentId: number;
       ok: boolean;
       error?: string;
     }> = [];
+    const removedEquipmentIds: number[] = [];
     let deleted = 0;
     let failed = 0;
 
@@ -287,6 +289,7 @@ export class HardwareService {
         }
         await provider.deletePerson(hardwareUser.id);
         results.push({ equipmentId: dev.EQPCodigo, ok: true });
+        removedEquipmentIds.push(dev.EQPCodigo);
         deleted++;
       } catch (e) {
         const msg = (e as Error)?.message ?? String(e);
@@ -299,11 +302,11 @@ export class HardwareService {
     }
 
     const delMaps =
-      equipmentIds.length > 0
+      removedEquipmentIds.length > 0
         ? await this.prisma.rls.pESEquipamentoMapeamento.deleteMany({
             where: {
               PESCodigo: pescodigo,
-              EQPCodigo: { in: equipmentIds },
+              EQPCodigo: { in: removedEquipmentIds },
             },
           })
         : { count: 0 };

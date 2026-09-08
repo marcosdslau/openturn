@@ -296,7 +296,7 @@ await context.hardware.modifyPerson(1, 101, "João Novo Nome", "456", "321.654.9
     {
         label: 'Hardware - Excluir pessoa em todos os equipamentos (institucional)',
         detail:
-            'Sem eqpId: remove nos equipamentos ativos da instituição e apaga PESEquipamentoMapeamento desses equipamentos.',
+            'Sem eqpId: remove nos equipamentos ativos da instituição e apaga PESEquipamentoMapeamento apenas dos equipamentos em que a remoção foi confirmada.',
         code: `const out = await context.hardware.deletePersonAcrossInstitution(pessoa.PESCodigo);
 console.log(out.deleted, out.failed, out.mappingsRemoved);`,
     },

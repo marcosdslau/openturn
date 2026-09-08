@@ -16,18 +16,55 @@ export class DbTenantProxy {
     this.instituicaoCodigo = instituicaoCodigo;
   }
 
-  /** INSInstituicao usa INSCodigo como PK; demais modelos usam INSInstituicaoCodigo. */
-  private tenantWhere(modelName: string): Record<string, number> {
-    return modelName === 'iNSInstituicao'
-      ? { INSCodigo: this.instituicaoCodigo }
+  /**
+   * Modelos sem coluna própria de tenant: o isolamento sai por relação.
+   * Injetar `INSInstituicaoCodigo` neles quebra a query (campo inexistente no Prisma).
+   */
+  private static readonly TENANT_BY_RELATION: Record<string, string> = {
+    pESEquipamentoMapeamento: 'pessoa',
+  };
+
+  /** INSInstituicao usa INSCodigo como PK; demais modelos usam INSInstituicaoCodigo (ou uma relação). */
+  private tenantWhere(modelName: string): Record<string, unknown> {
+    if (modelName === 'iNSInstituicao') {
+      return { INSCodigo: this.instituicaoCodigo };
+    }
+
+    const relacao = DbTenantProxy.TENANT_BY_RELATION[modelName];
+    if (relacao) {
+      return { [relacao]: { INSInstituicaoCodigo: this.instituicaoCodigo } };
+    }
+
+    return { INSInstituicaoCodigo: this.instituicaoCodigo };
+  }
+
+  /**
+   * Campo de tenant para injeção em create/createMany.
+   * Vazio para INSInstituicao (é o próprio tenant) e para modelos escopados por relação,
+   * que herdam a instituição da linha pai.
+   */
+  private tenantData(modelName: string): Record<string, number> {
+    return modelName === 'iNSInstituicao' ||
+      DbTenantProxy.TENANT_BY_RELATION[modelName]
+      ? {}
       : { INSInstituicaoCodigo: this.instituicaoCodigo };
   }
 
-  /** Campo de tenant para injeção em create/createMany (exceto INSInstituicao). */
-  private tenantData(modelName: string): Record<string, number> {
-    return modelName === 'iNSInstituicao'
-      ? {}
-      : { INSInstituicaoCodigo: this.instituicaoCodigo };
+  /** Injeta o filtro de tenant em um WhereUniqueInput sem conflitar com @id/@unique. */
+  private mergeWhereUnique(
+    modelName: string,
+    where: any,
+  ): Record<string, unknown> {
+    const existente = where?.AND
+      ? Array.isArray(where.AND)
+        ? where.AND
+        : [where.AND]
+      : [];
+
+    return {
+      ...where,
+      AND: [...existente, this.tenantWhere(modelName)],
+    };
   }
 
   /**
@@ -49,20 +86,14 @@ export class DbTenantProxy {
 
           // Métodos que usam WhereUniqueInput (apenas @id/@unique permitidos no where)
           // Injeta INSInstituicaoCodigo via AND para garantir tenant isolation
-          if (['delete', 'update', 'findUnique'].includes(prop)) {
+          if (
+            ['delete', 'update', 'findUnique', 'findUniqueOrThrow'].includes(
+              prop,
+            )
+          ) {
             const enhancedParams = {
               ...params,
-              where: {
-                ...params?.where,
-                AND: [
-                  ...(params?.where?.AND
-                    ? Array.isArray(params.where.AND)
-                      ? params.where.AND
-                      : [params.where.AND]
-                    : []),
-                  this.tenantWhere(modelName),
-                ],
-              },
+              where: this.mergeWhereUnique(modelName, params?.where),
             };
             return target[prop](enhancedParams);
           }
@@ -72,7 +103,10 @@ export class DbTenantProxy {
             [
               'findMany',
               'findFirst',
+              'findFirstOrThrow',
               'count',
+              'aggregate',
+              'groupBy',
               'deleteMany',
               'updateMany',
             ].includes(prop)
@@ -82,6 +116,20 @@ export class DbTenantProxy {
               where: {
                 ...params?.where,
                 ...this.tenantWhere(modelName),
+              },
+            };
+            return target[prop](enhancedParams);
+          }
+
+          // UPSERT - escopo no where e tenant na linha criada.
+          // O `update` interno herda o escopo do próprio where.
+          if (prop === 'upsert') {
+            const enhancedParams = {
+              ...params,
+              where: this.mergeWhereUnique(modelName, params?.where),
+              create: {
+                ...params?.create,
+                ...this.tenantData(modelName),
               },
             };
             return target[prop](enhancedParams);

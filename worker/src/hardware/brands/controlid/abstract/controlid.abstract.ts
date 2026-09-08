@@ -711,12 +711,19 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         );
       });
     } catch (error: any) {
-      if (
-        error.response?.data?.error_msg !== 'Object not found' &&
-        !JSON.stringify(error.response?.data || '').includes('not found')
-      ) {
-        this.logger.warn(`Failed to delete person ${id}: ${error.message}`);
+      const naoEncontrado =
+        error.response?.data?.error_msg === 'Object not found' ||
+        JSON.stringify(error.response?.data || '').includes('not found');
+
+      // Usuário já ausente no equipamento: exclusão é idempotente, segue como sucesso.
+      if (naoEncontrado) {
+        return;
       }
+
+      // Falha real (equipamento offline, sessão, timeout): precisa propagar para que
+      // o chamador NÃO apague o mapeamento e a pessoa volte para a fila.
+      this.logger.warn(`Failed to delete person ${id}: ${error.message}`);
+      throw error;
     }
   }
 
