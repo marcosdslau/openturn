@@ -223,6 +223,17 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         type: 'String',
         description: 'ID no Hardware (De-Para)',
       },
+      {
+        name: 'PEQSyncHash',
+        type: 'String',
+        description:
+          'Hash do payload confirmado no equipamento (evita reenvio sem mudança)',
+      },
+      {
+        name: 'PEQSyncedAt',
+        type: 'DateTime',
+        description: 'Último sync confirmado neste equipamento',
+      },
     ],
   },
 ];

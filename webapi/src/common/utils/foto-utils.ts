@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import sharp from 'sharp';
 import { validatePersonPhoto } from '../face-photo-validation';
 
@@ -299,6 +300,30 @@ export async function prepararFoto(
   return { foto: compressed.toString('base64'), extencao: 'jpg', imageError: null };
 }
 
+/**
+ * Hash estável (sha1 hex) usado pelas rotinas para detectar mudança de payload
+ * antes de reenviar uma pessoa ao equipamento. Objetos são serializados com as
+ * chaves ordenadas para que a ordem de montagem não altere o resultado.
+ */
+export function hashEstavel(valor: unknown): string {
+  const serializa = (v: unknown): string => {
+    if (v === null || v === undefined) return 'null';
+    if (typeof v !== 'object') return JSON.stringify(v) ?? 'null';
+    if (Array.isArray(v)) return '[' + v.map(serializa).join(',') + ']';
+    const obj = v as Record<string, unknown>;
+    return (
+      '{' +
+      Object.keys(obj)
+        .sort()
+        .map((k) => JSON.stringify(k) + ':' + serializa(obj[k]))
+        .join(',') +
+      '}'
+    );
+  };
+
+  return createHash('sha1').update(serializa(valor)).digest('hex');
+}
+
 export function createRotinaUtils() {
-  return { prepararFoto };
+  return { prepararFoto, hash: hashEstavel };
 }
