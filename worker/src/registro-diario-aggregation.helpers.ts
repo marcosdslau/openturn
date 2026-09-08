@@ -558,6 +558,62 @@ export function diaOverlapsLocalToday(dia: DiaAfetado, bounds: LocalDayBounds): 
     return dia.inicio < bounds.fim && dia.fim > bounds.inicio;
 }
 
+// ---------------------------------------------------------------------------
+// Janela de reprocessamento retroativo
+// ---------------------------------------------------------------------------
+
+/**
+ * Intervalo civil fechado a que uma agregação retroativa fica restrita.
+ *
+ * `dataInicio`/`dataFim` estão em meio-dia UTC e são comparados contra `RPDData` —
+ * o mesmo critério que o `reprocessarPeriodo` usa para apagar os registros, de modo
+ * que o que foi apagado é exatamente o que é reconstruído. `inicio`/`fim` são os
+ * limites de timestamp (calendário UTC, `[inicio, fim)`) para recortar `REGDataHora`,
+ * consistentes com o agrupamento por dia UTC de `personDayKey`.
+ */
+export type JanelaReprocessamento = {
+    dataInicio: Date;
+    dataFim: Date;
+    inicio: Date;
+    fim: Date;
+};
+
+/** Constrói a janela a partir de duas datas `YYYY-MM-DD` (inclusivas nas duas pontas). */
+export function parseJanelaReprocessamento(
+    inicioIso: string,
+    fimIso: string,
+): JanelaReprocessamento {
+    const [yi, moi, di] = inicioIso.split('-').map(Number);
+    const [yf, mof, df] = fimIso.split('-').map(Number);
+    return {
+        dataInicio: new Date(Date.UTC(yi, moi - 1, di, 12, 0, 0, 0)),
+        dataFim: new Date(Date.UTC(yf, mof - 1, df, 12, 0, 0, 0)),
+        inicio: new Date(Date.UTC(yi, moi - 1, di, 0, 0, 0, 0)),
+        fim: new Date(Date.UTC(yf, mof - 1, df + 1, 0, 0, 0, 0)),
+    };
+}
+
+/** Verifica se o dia civil de um `DiaAfetado` cai dentro da janela. */
+export function diaDentroDaJanela(dia: DiaAfetado, janela: JanelaReprocessamento): boolean {
+    const t = dia.dataLocal.getTime();
+    return t >= janela.dataInicio.getTime() && t <= janela.dataFim.getTime();
+}
+
+/**
+ * Verifica se o dia local corrente da instituição está dentro da janela.
+ *
+ * A comparação é por `RPDData` (dia civil), não por timestamp: em fusos positivos
+ * o dia local corrente começa antes da meia-noite UTC, e comparar instantes faria
+ * uma janela que termina ontem sobrepor o dia de hoje.
+ */
+export function janelaIncluiDiaLocal(
+    janela: JanelaReprocessamento,
+    bounds: LocalDayBounds,
+): boolean {
+    const t = bounds.dataLocal.getTime();
+    return t >= janela.dataInicio.getTime() && t <= janela.dataFim.getTime();
+}
+
 /**
  * Coleta e reindexa janelas de uma pessoa cujo horário de referência cai
  * dentro dos limites do dia local da instituição.

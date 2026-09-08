@@ -445,41 +445,51 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   }
 
   /**
+   * Remove **todos** os vínculos `user_groups` do usuário em uma única chamada.
+   *
+   * `destroy_objects` aceita filtro parcial (só `user_id`), então não dependemos
+   * de ter lido a lista de vínculos: qualquer vínculo criado por outra origem —
+   * pelo próprio equipamento ao cadastrar o usuário, por uma rotina, ou por um
+   * sync concorrente — também é removido. Retorna quantos vínculos foram apagados.
+   */
+  protected async clearUserGroups(hardwareId: number): Promise<number> {
+    const res = await this.postWithRetry('/destroy_objects.fcgi', {
+      object: 'user_groups',
+      where: { user_groups: { user_id: hardwareId } },
+    });
+    const changes = Number((res.data as any)?.changes ?? 0);
+    return Number.isFinite(changes) ? changes : 0;
+  }
+
+  /**
    * Sincroniza vínculos `user_groups` no Control iD com PESGrupo: busca `groups` no equipamento,
-   * encontra por nome (case-insensitive) ou por id numérico, e alinha os vínculos do usuário.
+   * encontra por nome (case-insensitive) ou por id numérico, e substitui os vínculos do usuário.
+   *
+   * O usuário deve terminar com **exatamente um** departamento. Vínculos acumulados
+   * fazem o equipamento somar as regras de acesso indiretas de todos os grupos, o que
+   * produz negativas de giro ("entrada/saída não autorizada") por regra de departamento
+   * antigo. Por isso a gravação é sempre limpar-tudo-e-criar, nunca um diff sobre a
+   * lista lida — a lista lida pode não refletir vínculos criados fora do nosso fluxo.
    */
   protected async syncUserGroupsFromDepartamento(
     hardwareId: number,
     grupo: string | null | undefined,
   ): Promise<void> {
     try {
+      const label = (grupo ?? '').trim();
+
+      // Sem departamento definido: o usuário não deve pertencer a nenhum grupo.
+      if (!label) {
+        await this.clearUserGroups(hardwareId);
+        return;
+      }
+
       const groupsRes = await this.postWithRetry('/load_objects.fcgi', {
         object: 'groups',
       });
       const groups: any[] = (groupsRes.data as any)?.groups ?? [];
 
-      const ugRes = await this.postWithRetry('/load_objects.fcgi', {
-        object: 'user_groups',
-        where: { user_groups: { user_id: hardwareId } },
-      });
-      const currentLinks: any[] = (ugRes.data as any)?.user_groups ?? [];
-      const currentGroupIds = currentLinks.map((ug) => Number(ug.group_id));
-
-      const label = (grupo ?? '').trim();
       const norm = (s: string) => s.trim().toLowerCase();
-
-      if (!label) {
-        for (const gid of currentGroupIds) {
-          await this.postWithRetry('/destroy_objects.fcgi', {
-            object: 'user_groups',
-            where: {
-              user_groups: { user_id: hardwareId, group_id: gid },
-            },
-          });
-        }
-        return;
-      }
-
       const target = groups.find((g) => {
         if (g?.name != null && norm(String(g.name)) === norm(label)) {
           return true;
@@ -490,6 +500,9 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         return false;
       });
 
+      // O alvo é resolvido ANTES de qualquer remoção: se o departamento não existe
+      // no equipamento, preservamos o vínculo atual em vez de deixar o usuário sem
+      // nenhum grupo (o que o tornaria dependente só de regras diretas).
       if (target == null || target.id == null) {
         const names = groups
           .map((g) => g?.name)
@@ -503,22 +516,16 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
 
       const targetId = Number(target.id);
 
-      for (const gid of currentGroupIds) {
-        if (gid !== targetId) {
-          await this.postWithRetry('/destroy_objects.fcgi', {
-            object: 'user_groups',
-            where: {
-              user_groups: { user_id: hardwareId, group_id: gid },
-            },
-          });
-        }
-      }
+      const removidos = await this.clearUserGroups(hardwareId);
+      await this.postWithRetry('/create_objects.fcgi', {
+        object: 'user_groups',
+        values: [{ user_id: hardwareId, group_id: targetId }],
+      });
 
-      if (!currentGroupIds.some((gid) => gid === targetId)) {
-        await this.postWithRetry('/create_objects.fcgi', {
-          object: 'user_groups',
-          values: [{ user_id: hardwareId, group_id: targetId }],
-        });
+      if (removidos > 1) {
+        this.logger.warn(
+          `Usuário ${hardwareId} tinha ${removidos} departamentos em ${this.config.host}; substituídos por "${label}" (group_id=${targetId}).`,
+        );
       }
     } catch (error: any) {
       this.logger.warn(
@@ -740,16 +747,35 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     });
   }
 
+  /**
+   * Substitui os departamentos do usuário: remove os vínculos anteriores e grava
+   * apenas `groupIds`. Os ids são validados **antes** da remoção — um id inválido
+   * aborta a operação inteira em vez de deixar o usuário sem nenhum grupo.
+   *
+   * Para acrescentar um grupo sem remover os demais (raro, e sujeito ao acúmulo
+   * de regras de acesso indiretas), use `customCommand('create_objects', ...)`.
+   */
   async setGroups(
     userId: number,
     groupIds: (number | string)[],
   ): Promise<void> {
-    await this.ensureSession();
-    const values = groupIds.map((gid) => ({
-      user_id: userId,
-      group_id: typeof gid === 'string' ? parseInt(gid, 10) : gid,
-    }));
-    await this.transport.post(`/create_objects.fcgi?session=${this.session}`, {
+    const values = groupIds.map((gid) => {
+      const id = typeof gid === 'string' ? parseInt(gid, 10) : gid;
+      if (!Number.isInteger(id)) {
+        throw new Error(
+          `setGroups: group_id inválido (${JSON.stringify(gid)}) — informe o id numérico do grupo no equipamento.`,
+        );
+      }
+      return { user_id: userId, group_id: id };
+    });
+
+    await this.clearUserGroups(userId);
+
+    if (values.length === 0) {
+      return;
+    }
+
+    await this.postWithRetry('/create_objects.fcgi', {
       object: 'user_groups',
       values,
     });

@@ -377,7 +377,7 @@ const SNIPPET_CATEGORIES: Record<string, { label: string; code: string }[]> = {
     },
     {
       label: 'setGroups / removeGroups',
-      code: `await context.hardware.setGroups(pessoaId, [1,"TI"]); await context.hardware.removeGroups(pessoaId, [1])`,
+      code: `await context.hardware.setGroups(pessoaId, [1]); await context.hardware.removeGroups(pessoaId, [1])`,
     },
     {
       label: 'executeAction',

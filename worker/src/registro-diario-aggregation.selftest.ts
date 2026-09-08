@@ -5,10 +5,14 @@ import {
     aggregateTempoPermanencia,
     aggregateTempoPermanenciaPeriodo,
     collectJanelasForLocalDay,
+    diaDentroDaJanela,
     diaOverlapsLocalToday,
     getInstitutionLocalDayBounds,
+    janelaIncluiDiaLocal,
     localDayBoundsFromIsoDate,
+    parseJanelaReprocessamento,
     planReconciliacao,
+    type DiaAfetado,
     type PassagemParaAgregacao,
     type PeriodoConfig,
     type JanelaAgregada,
@@ -574,6 +578,85 @@ function mkJanela(indice: number, entrada: string, saida: string): JanelaAgregad
     const bounds = localDayBoundsFromIsoDate('2026-08-07', 0);
     assert(bounds.inicio.toISOString() === '2026-08-07T00:00:00.000Z', 'fuso 0: dia local = dia UTC');
     assert(bounds.fim.toISOString() === '2026-08-08T00:00:00.000Z', 'fuso 0: fim = meia-noite UTC seguinte');
+}
+
+// ---------------------------------------------------------------------------
+// Janela de reprocessamento retroativo
+// ---------------------------------------------------------------------------
+
+function mkDia(isoDia: string, pes = 1): DiaAfetado {
+    const [y, mo, d] = isoDia.split('-').map(Number);
+    return {
+        PESCodigo: pes,
+        dataLocal: new Date(Date.UTC(y, mo - 1, d, 12, 0, 0, 0)),
+        inicio: new Date(Date.UTC(y, mo - 1, d, 0, 0, 0, 0)),
+        fim: new Date(Date.UTC(y, mo - 1, d + 1, 0, 0, 0, 0)),
+    };
+}
+
+{
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-06');
+    assert(j.inicio.toISOString() === '2026-09-05T00:00:00.000Z', 'janela começa na meia-noite UTC do primeiro dia');
+    assert(j.fim.toISOString() === '2026-09-07T00:00:00.000Z', 'janela termina na meia-noite UTC do dia seguinte ao último');
+    assert(j.dataInicio.toISOString() === '2026-09-05T12:00:00.000Z', 'dataInicio em meio-dia UTC (convenção RPDData)');
+    assert(j.dataFim.toISOString() === '2026-09-06T12:00:00.000Z', 'dataFim em meio-dia UTC (convenção RPDData)');
+}
+
+{
+    // Janela de um único dia — as duas pontas são inclusivas
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-05');
+    assert(j.inicio.toISOString() === '2026-09-05T00:00:00.000Z', 'janela de 1 dia: início');
+    assert(j.fim.toISOString() === '2026-09-06T00:00:00.000Z', 'janela de 1 dia: fim exclusivo no dia seguinte');
+    assert(diaDentroDaJanela(mkDia('2026-09-05'), j), 'janela de 1 dia contém o próprio dia');
+}
+
+{
+    // Virada de mês no limite superior
+    const j = parseJanelaReprocessamento('2026-08-30', '2026-08-31');
+    assert(j.fim.toISOString() === '2026-09-01T00:00:00.000Z', 'fim rola para o mês seguinte');
+    assert(diaDentroDaJanela(mkDia('2026-08-31'), j), 'último dia do mês dentro da janela');
+    assert(!diaDentroDaJanela(mkDia('2026-09-01'), j), 'primeiro dia do mês seguinte fora da janela');
+}
+
+{
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-06');
+    assert(!diaDentroDaJanela(mkDia('2026-09-04'), j), 'dia anterior ao início fica fora');
+    assert(diaDentroDaJanela(mkDia('2026-09-05'), j), 'primeiro dia do range dentro');
+    assert(diaDentroDaJanela(mkDia('2026-09-06'), j), 'último dia do range dentro');
+    assert(!diaDentroDaJanela(mkDia('2026-09-07'), j), 'dia posterior ao fim fica fora');
+}
+
+{
+    // Cenário do bug: reprocessar 05..06 durante o dia 07 não pode tocar o dia 07.
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-06');
+    const hoje = getInstitutionLocalDayBounds(new Date('2026-09-07T15:00:00.000Z'), -3);
+    assert(!janelaIncluiDiaLocal(j, hoje), 'janela 05..06 não inclui o dia corrente 07 (fuso -3)');
+}
+
+{
+    // Regressão do critério por RPDData: em fuso positivo o dia local corrente
+    // começa antes da meia-noite UTC, então comparar timestamps daria falso positivo.
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-06');
+    const hoje = getInstitutionLocalDayBounds(new Date('2026-09-07T09:00:00.000Z'), 3);
+    assert(hoje.inicio.toISOString() === '2026-09-06T21:00:00.000Z', 'fuso +3: dia local 07 começa 21:00Z de 06');
+    assert(j.fim > hoje.inicio, 'sobreposição por timestamp existe — é o caso que o critério por RPDData corrige');
+    assert(!janelaIncluiDiaLocal(j, hoje), 'janela 05..06 não inclui o dia corrente 07 (fuso +3)');
+}
+
+{
+    // Operador incluiu hoje no range: o dia corrente deve ser reconciliado.
+    const j = parseJanelaReprocessamento('2026-09-05', '2026-09-07');
+    const hojeNeg = getInstitutionLocalDayBounds(new Date('2026-09-07T15:00:00.000Z'), -3);
+    const hojePos = getInstitutionLocalDayBounds(new Date('2026-09-07T09:00:00.000Z'), 3);
+    assert(janelaIncluiDiaLocal(j, hojeNeg), 'janela 05..07 inclui o dia corrente (fuso -3)');
+    assert(janelaIncluiDiaLocal(j, hojePos), 'janela 05..07 inclui o dia corrente (fuso +3)');
+}
+
+{
+    // Janela inteiramente no futuro em relação a hoje também não pega o dia corrente
+    const j = parseJanelaReprocessamento('2026-09-08', '2026-09-09');
+    const hoje = getInstitutionLocalDayBounds(new Date('2026-09-07T15:00:00.000Z'), -3);
+    assert(!janelaIncluiDiaLocal(j, hoje), 'janela posterior ao dia corrente não o inclui');
 }
 
 console.log('registro-diario-aggregation selftest OK');

@@ -332,8 +332,8 @@ console.log(out.deleted, out.failed, out.mappingsRemoved);`,
     },
     {
         label: 'Hardware - Definir Grupos/Departamentos',
-        detail: 'Vincula o usuário a grupos de acesso no hardware',
-        code: `await context.hardware.setGroups(101, [1, "TI", 5]);`,
+        detail: 'Substitui os grupos de acesso do usuário no hardware — os vínculos anteriores são removidos. Apenas ids numéricos.',
+        code: `await context.hardware.setGroups(101, [1, 5]);`,
     },
     {
         label: 'Hardware - Remover Grupos/Departamentos',

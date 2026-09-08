@@ -45,7 +45,7 @@ const HARDWARE_REFERENCE: {
         method: 'setGroups',
         params: 'userId, groupIds: (number|string)[]',
         notes:
-            'Departamentos/grupos no equipamento. Na rotina: await context.hardware.setGroups(eqpId, userId, groupIds) — userId é o id no leitor, não o EQPCodigo.',
+            'Departamentos/grupos no equipamento. SUBSTITUI os grupos atuais do usuário — os vínculos anteriores são removidos antes de gravar. groupIds aceita apenas ids numéricos. Na rotina: await context.hardware.setGroups(eqpId, userId, groupIds) — userId é o id no leitor, não o EQPCodigo.',
     },
     {
         method: 'removeGroups',
@@ -122,7 +122,7 @@ console.log('deleted', result.deleted, 'failed', result.failed, 'mappings', resu
     },
     {
         label: 'Definir grupos / departamentos no hardware',
-        detail: 'eqpId = EQPCodigo no OpenTurn; userId = id da pessoa no leitor (ex.: PESIdExterno).',
+        detail: 'Substitui os grupos atuais. eqpId = EQPCodigo no OpenTurn; userId = id da pessoa no leitor (ex.: PESIdExterno).',
         code: `// 1º argumento obrigatório: código do equipamento (EQPCodigo), não o id do usuário no leitor
 await context.hardware.setGroups(eqpId, userIdNoLeitor, [1, 2]);`,
     },

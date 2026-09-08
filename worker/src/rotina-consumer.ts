@@ -45,15 +45,19 @@ import {
     aggregateTempoPermanencia,
     aggregateTempoPermanenciaPeriodo,
     collectJanelasForLocalDay,
+    diaDentroDaJanela,
     diaOverlapsLocalToday,
     extractAffectedDayKeys,
     getInstitutionLocalDayBounds,
     groupJanelasByPersonDay,
     isSameRpdData,
+    janelaIncluiDiaLocal,
     localDayBoundsFromIsoDate,
+    parseJanelaReprocessamento,
     reconciliarDiaAtual,
     type DiaAfetado,
     type JanelaAgregada,
+    type JanelaReprocessamento,
     type PeriodoConfig,
     type ReconciliacaoResult,
 } from './registro-diario-aggregation.helpers';
@@ -77,6 +81,12 @@ export interface RotinaJobData {
     isLastRunOfDay?: boolean;
     /** FREQ_ERP_SYNC: dia civil local (`YYYY-MM-DD`) a reprocessar antes do envio. */
     diaAlvoLocal?: string;
+    /**
+     * RPD_AGGREGATION: janela civil (`YYYY-MM-DD`) à qual a agregação fica restrita.
+     * Presente apenas no reprocessamento retroativo; jobs agendados não a enviam.
+     */
+    janelaInicio?: string;
+    janelaFim?: string;
     requestEnvelope?: any;
     enqueuedAt: string;
 }
@@ -1120,6 +1130,9 @@ class RabbitRotinaConsumer {
                         await this.processRegistroDiarioAggregation(
                             data.instituicaoCodigo,
                             data.isLastRunOfDay ?? false,
+                            data.janelaInicio && data.janelaFim
+                                ? parseJanelaReprocessamento(data.janelaInicio, data.janelaFim)
+                                : undefined,
                         );
                         break;
                     case 'FREQ_ERP_SYNC':
@@ -1219,14 +1232,24 @@ class RabbitRotinaConsumer {
      * Dias passados: fluxo baseado em REGProcessado=false (delete + insert).
      * Dia atual (local): reconcilia todas as passagens (upsert/delete seletivo);
      * marca REGProcessado=true somente na última execução agendada do dia.
+     *
+     * @param janela Reprocessamento retroativo: restringe a agregação ao intervalo
+     *   civil informado. O backlog pendente é recortado ao intervalo e o dia corrente
+     *   só é reconciliado se estiver dentro dele — sem isso, um reprocesso de dias
+     *   anteriores reagregava o dia de hoje a partir de passagens ainda incompletas.
+     *   Sem janela (cron e sync manual), o comportamento é o de sempre.
      */
     private async processRegistroDiarioAggregation(
         instituicaoCodigo: number,
         isLastRunOfDay: boolean,
+        janela?: JanelaReprocessamento,
     ) {
+        const janelaLabel = janela
+            ? `${janela.dataInicio.toISOString().slice(0, 10)}..${janela.dataFim.toISOString().slice(0, 10)}`
+            : 'none';
         console.log(
             workerLogLine(
-                `[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo} isLastRunOfDay=${isLastRunOfDay}`,
+                `[INTERNAL] Iniciando agregação de registros diários para inst=${instituicaoCodigo} isLastRunOfDay=${isLastRunOfDay} janela=${janelaLabel}`,
             ),
         );
 
@@ -1240,41 +1263,57 @@ class RabbitRotinaConsumer {
         const hojeBounds = getInstitutionLocalDayBounds(new Date(), fusoHorario);
 
         const pendentes = await this.prisma.rEGRegistroPassagem.findMany({
-            where: { INSInstituicaoCodigo: instituicaoCodigo, REGProcessado: false },
+            where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                REGProcessado: false,
+                // Backlog de fora da janela fica para o próximo tick do cron.
+                ...(janela && { REGDataHora: { gte: janela.inicio, lt: janela.fim } }),
+            },
             select: { REGCodigo: true, PESCodigo: true, REGDataHora: true, REGAcao: true },
             orderBy: { REGDataHora: 'asc' },
         });
 
         const diasPendentes = extractAffectedDayKeys(pendentes);
-        const diasPassados = diasPendentes.filter((d) => !diaOverlapsLocalToday(d, hojeBounds));
+        const diasPassados = diasPendentes.filter(
+            (d) => !diaOverlapsLocalToday(d, hojeBounds) && (!janela || diaDentroDaJanela(d, janela)),
+        );
 
-        const passagensHoje = await this.prisma.rEGRegistroPassagem.findMany({
-            where: {
-                INSInstituicaoCodigo: instituicaoCodigo,
-                REGDataHora: { gte: hojeBounds.inicio, lt: hojeBounds.fim },
-            },
-            select: { PESCodigo: true },
-            distinct: ['PESCodigo'],
-        });
+        // O dia corrente só entra quando não há janela (cron/sync manual) ou quando o
+        // operador incluiu o dia de hoje no intervalo pedido.
+        const reconciliarHoje = !janela || janelaIncluiDiaLocal(janela, hojeBounds);
+        let diasHoje: DiaAfetado[] = [];
 
-        const hojePessoas = new Set<number>(passagensHoje.map((p) => p.PESCodigo));
-        for (const d of diasPendentes) {
-            if (diaOverlapsLocalToday(d, hojeBounds)) {
-                hojePessoas.add(d.PESCodigo);
+        if (reconciliarHoje) {
+            const passagensHoje = await this.prisma.rEGRegistroPassagem.findMany({
+                where: {
+                    INSInstituicaoCodigo: instituicaoCodigo,
+                    REGDataHora: { gte: hojeBounds.inicio, lt: hojeBounds.fim },
+                },
+                select: { PESCodigo: true },
+                distinct: ['PESCodigo'],
+            });
+
+            const hojePessoas = new Set<number>(passagensHoje.map((p) => p.PESCodigo));
+            for (const d of diasPendentes) {
+                if (diaOverlapsLocalToday(d, hojeBounds)) {
+                    hojePessoas.add(d.PESCodigo);
+                }
             }
-        }
 
-        const diasHoje: DiaAfetado[] = [...hojePessoas].map((pesCodigo) => ({
-            PESCodigo: pesCodigo,
-            dataLocal: hojeBounds.dataLocal,
-            inicio: hojeBounds.inicio,
-            fim: hojeBounds.fim,
-        }));
+            diasHoje = [...hojePessoas].map((pesCodigo) => ({
+                PESCodigo: pesCodigo,
+                dataLocal: hojeBounds.dataLocal,
+                inicio: hojeBounds.inicio,
+                fim: hojeBounds.fim,
+            }));
+        }
 
         const diasAfetados = [...diasPassados, ...diasHoje];
 
         if (diasAfetados.length === 0) {
-            console.log(workerLogLine(`[INTERNAL] Nenhum dia afetado para inst=${instituicaoCodigo}`));
+            console.log(
+                workerLogLine(`[INTERNAL] Nenhum dia afetado para inst=${instituicaoCodigo} janela=${janelaLabel}`),
+            );
             return;
         }
 
@@ -1393,7 +1432,7 @@ class RabbitRotinaConsumer {
 
         console.log(
             workerLogLine(
-                `[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: modo=${modo} isLastRunOfDay=${isLastRunOfDay} days_rebuilt=${daysRebuilt} janelas=${totalJanelas} janelas_criadas=${janelasCriadas} janelas_atualizadas=${janelasAtualizadas} janelas_removidas=${janelasRemovidas} colisoes_protegidas=${colisoesProtegidas} errors=${errors}`,
+                `[INTERNAL] Agregação concluída para inst=${instituicaoCodigo}: modo=${modo} janela=${janelaLabel} dia_corrente=${reconciliarHoje ? 'sim' : 'nao'} isLastRunOfDay=${isLastRunOfDay} days_rebuilt=${daysRebuilt} janelas=${totalJanelas} janelas_criadas=${janelasCriadas} janelas_atualizadas=${janelasAtualizadas} janelas_removidas=${janelasRemovidas} colisoes_protegidas=${colisoesProtegidas} errors=${errors}`,
             ),
         );
     }
