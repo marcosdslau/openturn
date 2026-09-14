@@ -20,6 +20,8 @@ process.on('message', async (message: any) => {
             }
 
             context.hardware = createHardwareProxy();
+            // Controle de acesso por turma — mesmas operações da tela (working/Controle-turma/README.md §10)
+            context.turmas = createTurmasProxy();
 
             const logger = new FileLogger(context.instituicaoCodigo, context.logsDir);
             const axios = require('axios');
@@ -79,6 +81,16 @@ function createHardwareProxy() {
             return (equipmentId: number, ...args: any[]) => {
                 return sendRpc('hardware.exec', { equipmentId, method: prop, args });
             };
+        }
+    });
+}
+
+/** `context.turmas.*` → RPC `turmas.exec`; métodos permitidos e origem são decididos no processo pai. */
+function createTurmasProxy() {
+    return new Proxy({}, {
+        get: (_target: any, prop: string) => {
+            if (prop === 'then') return undefined; // não é thenable
+            return (...args: any[]) => sendRpc('turmas.exec', { method: prop, args });
         }
     });
 }

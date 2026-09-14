@@ -78,3 +78,8 @@ export function channelRotinaRefresh() {
 export function socketIoKeyPrefix() {
   return `${p()}:socket.io`;
 }
+
+/** Lock por equipamento das operações de grupos de acesso por turma — mesma chave do worker. */
+export function redisTurmaSyncLockKey(instCodigo: number, eqpCodigo: number) {
+  return `${p()}:turma:sync:lock:${instCodigo}:${eqpCodigo}`;
+}

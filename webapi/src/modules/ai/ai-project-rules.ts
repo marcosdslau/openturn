@@ -66,6 +66,17 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         type: 'DateTime',
         description: 'Data Exclusão (Soft Delete)',
       },
+      {
+        name: 'PESTRMCodigo',
+        type: 'Int',
+        fk: 'TRMTurma',
+        description: 'Turma efetiva para controle de acesso (preenchida por context.turmas.vincularPessoas)',
+      },
+      {
+        name: 'PESGrupoHorario',
+        type: 'String',
+        description: 'Nome do perfil de horário da turma efetiva (vale só nos equipamentos do escopo da turma)',
+      },
     ],
   },
   {
@@ -90,6 +101,12 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
       { name: 'MATTurma', type: 'String', description: 'Turma' },
       { name: 'MATAtivo', type: 'Boolean', description: 'Ativa?' },
       { name: 'createdAt', type: 'DateTime', description: 'Data Criação' },
+      {
+        name: 'TRMCodigo',
+        type: 'Int',
+        fk: 'TRMTurma',
+        description: 'Turma do catálogo (vinculada por idEnrollment = MATNumero)',
+      },
     ],
   },
   {
@@ -236,6 +253,72 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
       },
     ],
   },
+  {
+    name: 'TRMTurma',
+    alias: 'Turma',
+    description: 'Catálogo de turmas lido do ERP (somente leitura via context.db; alterar via context.turmas)',
+    fields: [
+      { name: 'TRMCodigo', type: 'Int', pk: true, description: 'ID Turma' },
+      { name: 'TRMIdExterno', type: 'String', description: 'idClass no ERP' },
+      { name: 'TRMTurma', type: 'String', description: 'Nome da turma' },
+      { name: 'TRMCurso', type: 'String', description: 'Curso' },
+      { name: 'TRMSerie', type: 'String', description: 'Série/Módulo' },
+      { name: 'TRMTurno', type: 'String', description: 'Turno (shiftName)' },
+      { name: 'TRMAnoReferencia', type: 'String', description: 'Ano de referência' },
+      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario', description: 'Perfil de horário atribuído' },
+      { name: 'TRMValidacaoAtiva', type: 'Boolean', description: 'Controle de acesso por turma ativo?' },
+      { name: 'TRMTodosEquipamentos', type: 'Boolean', description: 'Vale em todos os equipamentos (inclusive futuros)?' },
+      { name: 'TRMAtiva', type: 'Boolean', description: 'Veio na última leitura do ERP?' },
+      { name: 'TRMPrioridade', type: 'Int', description: 'Desempate quando a pessoa está em mais de uma turma' },
+      { name: 'TRMQtdePessoas', type: 'Int', description: 'Pessoas com matrícula ativa' },
+    ],
+  },
+  {
+    name: 'PHAPerfilHorario',
+    alias: 'PerfilHorario',
+    description: 'Perfil de horário = departamento no equipamento; turmas com horário igual compartilham o perfil',
+    fields: [
+      { name: 'PHACodigo', type: 'Int', pk: true, description: 'ID Perfil' },
+      { name: 'PHANome', type: 'String', description: 'Nome do departamento no equipamento (≤ 15 bytes)' },
+      { name: 'PHAHashJanelas', type: 'String', description: 'Identidade do horário (forma canônica)' },
+      { name: 'PHAHashConfig', type: 'String', description: 'Hash do que deve estar no equipamento' },
+    ],
+  },
+  {
+    name: 'PHAJanela',
+    alias: 'PerfilHorarioJanela',
+    description: 'Faixas de horário de um perfil',
+    fields: [
+      { name: 'PHJCodigo', type: 'Int', pk: true, description: 'ID Faixa' },
+      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario', description: 'ID Perfil' },
+      { name: 'PHJHoraInicio', type: 'String', description: 'Início HH:mm' },
+      { name: 'PHJHoraFim', type: 'String', description: 'Fim HH:mm (menor que início = cruza a meia-noite)' },
+      { name: 'PHJSeg', type: 'Boolean', description: 'Segunda (há também PHJDom, PHJTer, PHJQua, PHJQui, PHJSex, PHJSab)' },
+    ],
+  },
+  {
+    name: 'TEQTurmaEquipamento',
+    alias: 'TurmaEquipamento',
+    description: 'Equipamentos selecionados para a turma (quando TRMTodosEquipamentos = false)',
+    fields: [
+      { name: 'TEQCodigo', type: 'Int', pk: true, description: 'ID' },
+      { name: 'TRMCodigo', type: 'Int', fk: 'TRMTurma', description: 'ID Turma' },
+      { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento', description: 'ID Equipamento' },
+    ],
+  },
+  {
+    name: 'PHEPerfilEquipamento',
+    alias: 'PerfilEquipamento',
+    description: 'Estado de sincronização de um perfil em um equipamento',
+    fields: [
+      { name: 'PHECodigo', type: 'Int', pk: true, description: 'ID' },
+      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario', description: 'ID Perfil' },
+      { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento', description: 'ID Equipamento' },
+      { name: 'PHESyncHash', type: 'String', description: 'Hash confirmado no equipamento (null = nada aplicado)' },
+      { name: 'PHESyncedAt', type: 'DateTime', description: 'Último sync confirmado' },
+      { name: 'PHEUltimoErro', type: 'String', description: 'Último erro/pendência' },
+    ],
+  },
 ];
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -255,6 +338,7 @@ Auxiliar desenvolvedores a escrever, corrigir, explicar e sugerir código JavaSc
 ## Objetos Disponíveis via \`context\`
 - \`context.db\` — Prisma Client isolado por tenant (RLS). Aceita: \`.findMany()\`, \`.findFirst()\`, \`.create()\`, \`.update()\`, \`.delete()\`, \`.groupBy()\`
 - \`context.hardware\` — API unificada de controle de equipamentos (catracas, leitores). Métodos: \`syncPerson\`, \`createPerson\`, \`modifyPerson\`, \`deletePerson\`, \`setTag\`, \`removeTag\`, \`setFace\`, \`removeFace\`, \`setFingers\`, \`removeFingers\`, \`setGroups\`, \`removeGroups\`, \`executeAction\`, \`enroll\`, \`customCommand\`
+- \`context.turmas\` — Controle de acesso por turma (mesmas regras da tela Turmas). Métodos: \`listar\`, \`obter\`, \`listarPerfis\`, \`previewPerfil\`, \`salvarValidacao(TRMCodigo, { ativa, horarios: [{ inicio, fim, dias: [dom..sab] }], escopo: { todos, EQPCodigos } })\`, \`salvarValidacaoEmLote\`, \`renomearPerfil\`, \`gruposNoEquipamentos(PESCodigo, EQPCodigos)\`, \`sincronizar\`, \`reconciliar\`, \`vincularPessoas\`, \`importarCatalogo({ turmas, matriculasPorTurma })\`, \`sugestoesImportacaoAnoAnterior\`, \`importarAnoAnterior\`. Tabelas de turma/perfil são somente leitura em \`context.db\`.
 - \`context.adapters\` — Adaptadores legados (equipamentos ativos e suas infos)
 - \`context.request\` — Objeto da requisição HTTP (somente em rotinas tipo Webhook). Acesse: \`.body\`, \`.query\`, \`.headers\`, \`.method\`, \`.path\`, \`.params\`
 

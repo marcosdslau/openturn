@@ -19,6 +19,7 @@ import { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import { HardwareEquipmentConfigType, HardwareUser } from './interfaces/hardware.types';
 import { HardwareFactory } from './factory/hardware.factory';
 import { ControlIDConfig } from './brands/controlid/controlid.types';
+import { resolverGruposDaPessoa } from '../turma/core';
 
 @Injectable()
 export class HardwareService {
@@ -76,6 +77,8 @@ export class HardwareService {
       });
 
     const idNoEquipamento = HardwareService.deviceUserIdFromPessoa(person);
+    // Departamento por equipamento: perfil da turma quando o EQP está no escopo, senão PESGrupo.
+    const grupo = (await resolverGruposDaPessoa(this.prisma, person, [equipmentId])).get(equipmentId);
 
     return {
       pescodigo: person.PESCodigo,
@@ -85,7 +88,7 @@ export class HardwareService {
       name: person.PESNome,
       cpf: person.PESDocumento || undefined,
       faceExtension: person.PESFotoExtensao || 'jpg',
-      grupo: person.PESGrupo ?? undefined,
+      grupo: grupo ?? undefined,
       tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
       faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
       fingers,

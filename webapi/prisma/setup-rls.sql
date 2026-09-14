@@ -74,3 +74,24 @@ CREATE POLICY tenant_isolation_per ON "PERPeriodosConfig"
 -- Nota: Executar APENAS se o user do banco for diferente do owner das tabelas
 -- ALTER ROLE openturn_user SET row_security = off;
 
+
+-- Controle de acesso por turma (working/Controle-turma/README.md)
+ALTER TABLE "TRMTurma" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_trm ON "TRMTurma"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "PHAPerfilHorario" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_pha ON "PHAPerfilHorario"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "PHAJanela" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_phj ON "PHAJanela"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "TEQTurmaEquipamento" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_teq ON "TEQTurmaEquipamento"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "PHEPerfilEquipamento" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_phe ON "PHEPerfilEquipamento"
+  USING ("INSInstituicaoCodigo" = current_tenant());

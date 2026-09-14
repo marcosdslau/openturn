@@ -8,6 +8,13 @@ import { StatusExecucao } from '@prisma/client';
 import { HardwareService } from '../../hardware/hardware.service';
 import { ModuleRef } from '@nestjs/core';
 import { join } from 'path';
+import { TurmaAcessoService } from '../../turma/turma-acesso.service';
+import {
+  assertEscritaTurmaPermitida,
+  executarTurmasRpc,
+  mesclarSchemaTurmas,
+  TURMA_MODELOS_ROTINA,
+} from '../../turma/core';
 
 @Injectable()
 export class ExecutionService {
@@ -88,6 +95,7 @@ export class ExecutionService {
       const { context, rpcHandler } = await this.buildContext(
         instituicaoCodigo,
         requestData,
+        { ROTCodigo: rotinaCodigo, exeId },
       );
 
       const result = await this.processManager.executeInProcess(
@@ -264,6 +272,7 @@ export class ExecutionService {
       const { context, rpcHandler } = await this.buildContext(
         instituicaoCodigo,
         requestData,
+        { ROTCodigo: rotinaCodigo, exeId },
       );
       const result = await this.processManager.executeInProcess(
         exeId,
@@ -314,7 +323,11 @@ export class ExecutionService {
     }
   }
 
-  private async buildContext(instituicaoCodigo: number, requestData?: any) {
+  private async buildContext(
+    instituicaoCodigo: number,
+    requestData?: any,
+    execucao?: { ROTCodigo: number; exeId: string },
+  ) {
     const instituicao = await this.prisma.iNSInstituicao.findUnique({
       where: { INSCodigo: instituicaoCodigo },
     });
@@ -337,9 +350,10 @@ export class ExecutionService {
       'iNSInstituicao',
       'cTLControlidDao',
       'cTLControlidCatraEvent',
+      ...TURMA_MODELOS_ROTINA,
     ];
 
-    const schemaDefinition = {
+    const schemaDefinition = mesclarSchemaTurmas({
       PESPessoa: {
         alias: 'Pessoa',
         fields: [
@@ -474,7 +488,7 @@ export class ExecutionService {
           { name: 'createdAt', type: 'DateTime' },
         ],
       },
-    };
+    });
 
     const realDb = dbProxy.createDbContext(allowedModels);
     const modelNames = Object.keys(realDb);
@@ -490,6 +504,8 @@ export class ExecutionService {
         if (typeof realDb[model][dbMethod] !== 'function') {
           throw new Error(`Method ${dbMethod} not found on model ${model}`);
         }
+
+        assertEscritaTurmaPermitida(model, dbMethod);
 
         return sanitizeForIpc(await realDb[model][dbMethod](...args));
       }
@@ -525,6 +541,15 @@ export class ExecutionService {
         }
         throw new Error(
           `Unknown institution hardware method: ${String(instMethod)}`,
+        );
+      }
+
+      if (method === 'turmas.exec') {
+        const { method: turmaMethod, args } = params;
+        const turmas = this.moduleRef.get(TurmaAcessoService, { strict: false });
+        const origem = execucao ? { rotina: execucao } : ({ sistema: true } as const);
+        return sanitizeForIpc(
+          await executarTurmasRpc(turmas.core(instituicaoCodigo), turmaMethod, args, origem),
         );
       }
 

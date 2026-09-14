@@ -2,6 +2,8 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { EQPEquipamento } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
+  HardwareAccessGroup,
+  HardwareAccessGroupRef,
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
@@ -138,6 +140,31 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
 
   async enroll(type: 'face' | 'biometry', userId: number): Promise<void> {
     this.logger.log(`[Intelbras] Enrolling ${type} for user ${userId}`);
+  }
+
+  // Grupos de acesso (controle por turma): ainda não implementado para Intelbras.
+  supportsAccessGroups(): boolean {
+    return false;
+  }
+
+  async syncAccessGroup(
+    _equipmentId: number,
+    _group: HardwareAccessGroup,
+    _ref?: HardwareAccessGroupRef,
+  ): Promise<HardwareAccessGroupRef> {
+    throw new Error('[Intelbras] syncAccessGroup não implementado');
+  }
+
+  async removeAccessGroup(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<void> {
+    throw new Error('[Intelbras] removeAccessGroup não implementado');
+  }
+
+  async countAccessGroupMembers(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<number> {
+    throw new Error('[Intelbras] countAccessGroupMembers não implementado');
+  }
+
+  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
+    throw new Error('[Intelbras] listAccessGroups não implementado');
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

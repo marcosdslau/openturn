@@ -129,6 +129,11 @@ model INSInstituicao {
   notificacoes        NOTNotificacao[]
   fotoOtps            PESFotoOtp[]
   cursosImplantacao   CIMCursosImplantacao[]
+  turmas              TRMTurma[]
+  perfisHorario       PHAPerfilHorario[]
+  perfisHorarioJanelas PHAJanela[]
+  turmasEquipamentos  TEQTurmaEquipamento[]
+  perfisEquipamentos  PHEPerfilEquipamento[]
 }
 
 model PESPessoa {
@@ -159,6 +164,14 @@ model PESPessoa {
   registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
   fotoOtps             PESFotoOtp[]
+  /// Turma efetiva (desempate aplicado) para controle de acesso. Preenchido pela rotina de vínculo.
+  PESTRMCodigo         Int?
+  turmaEfetiva         TRMTurma?             @relation(fields: [PESTRMCodigo], references: [TRMCodigo], onDelete: SetNull)
+  /// Nome do perfil de horário da turma efetiva. Vale só nos equipamentos do escopo da turma.
+  /// Existe para mover updatedAt quando o perfil muda — é o sinal que a rotina de enfileiramento usa.
+  PESGrupoHorario      String?
+
+  @@index([PESTRMCodigo])
 }
 
 model NOTNotificacao {
@@ -190,6 +203,11 @@ model MATMatricula {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+  /// Turma no catálogo, vinculada pela rotina de catálogo via idEnrollment (= MATNumero).
+  TRMCodigo            Int?
+  turmaRef             TRMTurma?      @relation(fields: [TRMCodigo], references: [TRMCodigo], onDelete: SetNull)
+
+  @@index([TRMCodigo])
 }
 
 /// Turmas pioneiras liberadas para envio ao ERP educacional durante o
@@ -205,6 +223,153 @@ model CIMCursosImplantacao {
 
   @@unique([INSInstituicaoCodigo, CIMCurso, CIMSerie, CIMTurma])
   @@index([INSInstituicaoCodigo])
+}
+
+// === CONTROLE DE ACESSO POR TURMA (working/Controle-turma/README.md) ===
+
+/// Catálogo de turmas lido do ERP. Identidade = idClass (TRMIdExterno).
+model TRMTurma {
+  TRMCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+
+  /// idClass do ERP. Nome pode mudar, id não.
+  TRMIdExterno     String
+  /// idCurriculumOffer de origem (rastreabilidade).
+  TRMIdOferta      String?
+  TRMTurma         String
+  TRMCurso         String?
+  TRMSerie         String?
+  TRMCurriculo     String?
+  /// shiftName como veio do ERP (matutino, vespertino, noturno...).
+  TRMTurno         String?
+  TRMAnoReferencia String?
+  TRMCalendario    String?
+  TRMDataInicio    DateTime?
+  TRMDataFim       DateTime?
+
+  /// Perfil de horário atribuído. Mantido ao desativar, para a tela reabrir com o último horário.
+  PHACodigo Int?
+  perfil    PHAPerfilHorario? @relation(fields: [PHACodigo], references: [PHACodigo], onDelete: SetNull)
+
+  TRMValidacaoAtiva    Boolean @default(false)
+  /// true = todos os equipamentos ativos, inclusive futuros. false = só os de TEQTurmaEquipamento.
+  TRMTodosEquipamentos Boolean @default(true)
+  /// false = turma não veio na última leitura do ERP. A rotina nunca apaga.
+  TRMAtiva             Boolean @default(true)
+  /// Desempate quando a pessoa tem mais de uma turma com validação ativa (maior vence).
+  TRMPrioridade        Int     @default(0)
+  TRMQtdePessoas       Int     @default(0)
+
+  /// Auditoria — a configuração pode ser alterada pela tela ou por rotina.
+  USRCodigoAlteracao Int?
+  usuarioAlteracao   USRUsuario? @relation("TrmAlteracao", fields: [USRCodigoAlteracao], references: [USRCodigo], onDelete: SetNull)
+  ROTCodigoAlteracao Int?
+  TRMAlteradoEm      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  escopo     TEQTurmaEquipamento[]
+  matriculas MATMatricula[]
+  pessoas    PESPessoa[]
+
+  @@unique([INSInstituicaoCodigo, TRMIdExterno])
+  @@index([INSInstituicaoCodigo, TRMValidacaoAtiva])
+  @@index([PHACodigo])
+}
+
+/// Perfil de horário = departamento no equipamento. Turmas com horário equivalente compartilham o perfil.
+model PHAPerfilHorario {
+  PHACodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+
+  /// Nome do groups/time_zones no equipamento. ≤ 15 bytes UTF-8.
+  PHANome        String
+  /// Hash da forma canônica das janelas. Identidade do perfil. Imutável.
+  PHAHashJanelas String
+  /// Hash do que vai ao equipamento (nome + canônico). Muda apenas quando PHANome muda.
+  PHAHashConfig  String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  janelas      PHAJanela[]
+  turmas       TRMTurma[]
+  equipamentos PHEPerfilEquipamento[]
+
+  @@unique([INSInstituicaoCodigo, PHAHashJanelas])
+  @@unique([INSInstituicaoCodigo, PHANome])
+}
+
+/// Faixas do perfil, como digitadas por quem o criou. Identidade e payload saem da forma canônica.
+model PHAJanela {
+  PHJCodigo            Int              @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao   @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  PHACodigo            Int
+  perfil               PHAPerfilHorario @relation(fields: [PHACodigo], references: [PHACodigo], onDelete: Cascade)
+
+  /// "HH:mm" no horário local do equipamento. fim < inicio = cruza a meia-noite.
+  PHJHoraInicio String
+  PHJHoraFim    String
+  PHJDom        Boolean @default(false)
+  PHJSeg        Boolean @default(false)
+  PHJTer        Boolean @default(false)
+  PHJQua        Boolean @default(false)
+  PHJQui        Boolean @default(false)
+  PHJSex        Boolean @default(false)
+  PHJSab        Boolean @default(false)
+  /// Feriados ControlID 1/2/3 — reservado; fora da v1.
+  PHJFeriado1   Boolean @default(false)
+  PHJFeriado2   Boolean @default(false)
+  PHJFeriado3   Boolean @default(false)
+  PHJOrdem      Int     @default(1)
+
+  @@index([PHACodigo])
+}
+
+/// Escopo da turma: linha existe = equipamento selecionado (usado quando TRMTodosEquipamentos = false).
+model TEQTurmaEquipamento {
+  TEQCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  TRMCodigo            Int
+  turma                TRMTurma       @relation(fields: [TRMCodigo], references: [TRMCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+  createdAt            DateTime       @default(now())
+
+  @@unique([TRMCodigo, EQPCodigo])
+  @@index([EQPCodigo])
+}
+
+/// Estado de sync de um perfil em um equipamento (hash confirmado no hardware).
+model PHEPerfilEquipamento {
+  PHECodigo            Int              @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao   @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  PHACodigo            Int
+  perfil               PHAPerfilHorario @relation(fields: [PHACodigo], references: [PHACodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento   @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// Ids no hardware (ControlID: group_id / access_rule_id / time_zone_id).
+  PHEIdGrupo       String?
+  PHEIdRegraAcesso String?
+  PHEIdHorario     String?
+
+  /// Hash confirmado no hardware. Null = nada aplicado.
+  PHESyncHash   String?
+  PHESyncedAt   DateTime?
+  PHEUltimoErro String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([PHACodigo, EQPCodigo])
+  @@index([EQPCodigo])
 }
 
 model EQPEquipamento {
@@ -227,6 +392,8 @@ model EQPEquipamento {
   cmdcomandoFilas      CMDComandoFila[]
   sessoesRemotas       RMTSessaoRemota[]
   mapeamentos          PESEquipamentoMapeamento[]
+  turmasEscopo         TEQTurmaEquipamento[]
+  perfisHorario        PHEPerfilEquipamento[]
 }
 
 model ERPConfiguracao {
@@ -277,6 +444,7 @@ model USRUsuario {
   senhaResetTokens    USRSenhaResetToken[]
   rpdCriados          RPDRegistrosDiarios[] @relation("RpdCriacao")
   rpdAlterados        RPDRegistrosDiarios[] @relation("RpdAlteracao")
+  turmasAlteradas     TRMTurma[]            @relation("TrmAlteracao")
 }
 
 model USRSenhaResetToken {

@@ -1,6 +1,7 @@
 import * as amqp from 'amqplib';
 import type { ConsumeMessage, Options } from 'amqplib';
 import { PrismaClient, StatusExecucao } from '@prisma/client';
+import type Redis from 'ioredis';
 import type { RedisOptions } from 'ioredis';
 import { join } from 'path';
 import { DbTenantProxy } from './engine/db-tenant-proxy';
@@ -21,11 +22,21 @@ import { workerLogLine } from './worker-log';
 import { HardwareFactory } from './hardware/factory/hardware.factory';
 import { HardwareResolver } from './hardware/hardware-resolver';
 import {
+    assertEscritaTurmaPermitida,
+    criarAccessGroupPort,
+    criarLockRedis,
+    executarTurmasRpc,
+    mesclarSchemaTurmas,
+    TURMA_MODELOS_ROTINA,
+    TurmaAcessoCore,
+} from './turma/core';
+import {
     channelCancel,
     channelFinished,
     channelInstituicaoRefresh,
     channelRotinaRefresh,
     redisPendingKey,
+    redisTurmaSyncLockKey,
     redisInflightZkey,
     redisRotinaParalelismoCacheInstPrefix,
     redisRotinaParalelismoCacheKey,
@@ -177,9 +188,10 @@ const ALLOWED_MODELS = [
     'pESPessoa', 'mATMatricula', 'rEGRegistroPassagem',
     'eQPEquipamento', 'pESEquipamentoMapeamento', 'eRPConfiguracao', 'iNSInstituicao',
     'rPDRegistrosDiarios',
+    ...TURMA_MODELOS_ROTINA,
 ];
 
-const SCHEMA_DEFINITION = {
+const SCHEMA_DEFINITION = mesclarSchemaTurmas({
     PESPessoa: {
         alias: 'Pessoa',
         fields: [
@@ -283,7 +295,7 @@ const SCHEMA_DEFINITION = {
             { name: 'updatedAt', type: 'DateTime' },
         ],
     },
-};
+});
 
 export async function startConsumer(
     prisma: PrismaClient,
@@ -1575,7 +1587,14 @@ class RabbitRotinaConsumer {
             throw new Error('Rotina não encontrada');
         }
 
-        const { context, rpcHandler } = buildContext(this.prisma, instituicaoCodigo, requestEnvelope, this.hardwareFactory);
+        const { context, rpcHandler } = buildContext(
+            this.prisma,
+            instituicaoCodigo,
+            requestEnvelope,
+            this.hardwareFactory,
+            this.redis,
+            { ROTCodigo: rotinaCodigo, exeId },
+        );
         const result = await this.processManager.executeInProcess(
             exeId,
             rotinaCodigo,
@@ -2209,6 +2228,8 @@ function buildContext(
     instituicaoCodigo: number,
     requestData: any,
     hardwareFactory: HardwareFactory,
+    redis: Redis,
+    execucao: { ROTCodigo: number; exeId: string },
 ) {
     const dbProxy = new DbTenantProxy(prisma, instituicaoCodigo);
     const realDb = dbProxy.createDbContext(ALLOWED_MODELS);
@@ -2221,6 +2242,7 @@ function buildContext(
             const { model, method: dbMethod, args } = params;
             if (!realDb[model]) throw new Error(`Access denied to model ${model}`);
             if (typeof realDb[model][dbMethod] !== 'function') throw new Error(`Method ${dbMethod} not found on model ${model}`);
+            assertEscritaTurmaPermitida(model, dbMethod);
             return sanitizeForIpc(await realDb[model][dbMethod](...args));
         }
         if (method === 'hardware.exec') {
@@ -2237,6 +2259,17 @@ function buildContext(
                 return hardwareResolver.deletePersonAcrossInstitution(pescodigo);
             }
             throw new Error(`Unknown institution hardware method: ${String(instMethod)}`);
+        }
+        if (method === 'turmas.exec') {
+            const { method: turmaMethod, args } = params;
+            const core = new TurmaAcessoCore(prisma, instituicaoCodigo, {
+                hardware: criarAccessGroupPort((eqp) => hardwareFactory.resolve(eqp)),
+                lock: criarLockRedis(redis),
+                chaveLock: redisTurmaSyncLockKey,
+                log: (nivel, mensagem) =>
+                    (nivel === 'error' ? console.error : nivel === 'warn' ? console.warn : console.log)(workerLogLine(mensagem)),
+            });
+            return sanitizeForIpc(await executarTurmasRpc(core, turmaMethod, args, { rotina: execucao }));
         }
         throw new Error(`Unknown RPC method: ${method}`);
     };

@@ -24,6 +24,7 @@ import { RegistroDiarioModule } from './registro-diario/registro-diario.module';
 import { NotificacaoModule } from './notificacao/notificacao.module';
 import { VisitanteModule } from './visitante/visitante.module';
 import { WizardFotoModule } from './wizard-foto/wizard-foto.module';
+import { TurmaModule } from './turma/turma.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { WizardFotoModule } from './wizard-foto/wizard-foto.module';
     NotificacaoModule,
     VisitanteModule,
     WizardFotoModule,
+    TurmaModule,
   ],
   controllers: [AppController],
   providers: [

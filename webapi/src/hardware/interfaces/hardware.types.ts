@@ -31,3 +31,27 @@ export interface HardwareUser {
   faceExtension?: string;
   fingers?: string[];
 }
+
+/**
+ * Resultado da gravação do departamento no equipamento. `aplicado: false` quando o grupo
+ * solicitado não existe no equipamento (o vínculo anterior é preservado) ou a gravação falhou —
+ * nesse caso quem sincroniza NÃO deve carimbar o hash da pessoa como sincronizado.
+ */
+export interface GrupoAplicado {
+  solicitado: string | null;
+  aplicado: boolean;
+  motivo?: 'nao_encontrado' | 'erro';
+}
+
+/** Grupo de acesso (departamento + horário) já canonizado: 7 posições (dom..sab), intervalos em minutos. */
+export interface HardwareAccessGroup {
+  nome: string;
+  dias: Array<Array<[number, number]>>;
+}
+
+/** Ids do grupo de acesso no equipamento (Control iD: group_id / access_rule_id / time_zone_id). */
+export interface HardwareAccessGroupRef {
+  groupId?: string;
+  accessRuleId?: string;
+  timeZoneId?: string;
+}

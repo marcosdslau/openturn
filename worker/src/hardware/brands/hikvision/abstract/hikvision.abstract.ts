@@ -1,5 +1,7 @@
 import { PrismaClient, EQPEquipamento } from '@prisma/client';
 import {
+  HardwareAccessGroup,
+  HardwareAccessGroupRef,
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
@@ -108,6 +110,31 @@ export abstract class AbstractHikvisionProvider implements IHardwareProvider {
 
   async enroll(type: 'face' | 'biometry', userId: number): Promise<void> {
     this.logger.log(`[Hikvision] Enrolling ${type} for user ${userId}`);
+  }
+
+  // Grupos de acesso (controle por turma): ainda não implementado para Hikvision.
+  supportsAccessGroups(): boolean {
+    return false;
+  }
+
+  async syncAccessGroup(
+    _equipmentId: number,
+    _group: HardwareAccessGroup,
+    _ref?: HardwareAccessGroupRef,
+  ): Promise<HardwareAccessGroupRef> {
+    throw new Error('[Hikvision] syncAccessGroup não implementado');
+  }
+
+  async removeAccessGroup(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<void> {
+    throw new Error('[Hikvision] removeAccessGroup não implementado');
+  }
+
+  async countAccessGroupMembers(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<number> {
+    throw new Error('[Hikvision] countAccessGroupMembers não implementado');
+  }
+
+  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
+    throw new Error('[Hikvision] listAccessGroups não implementado');
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

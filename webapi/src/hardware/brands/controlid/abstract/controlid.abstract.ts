@@ -2,9 +2,13 @@ import { BadRequestException, Logger } from '@nestjs/common';
 import { EQPEquipamento, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
+  GrupoAplicado,
+  HardwareAccessGroup,
+  HardwareAccessGroupRef,
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
+import { createControlIdAccessGroup } from '../access-group/controlid-access-group';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
 import {
   ControlIDConfig,
@@ -325,7 +329,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   async syncPerson(
     equipmentId: number,
     person: HardwareUser,
-  ): Promise<{ idNoEquipamento: string }> {
+  ): Promise<{ idNoEquipamento: string; grupo: GrupoAplicado }> {
     await this.ensureSession();
 
     const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique(
@@ -374,28 +378,26 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       });
     }
 
-    if (exists) {
-      await this.modifyPerson(
-        equipmentId,
-        person.pescodigo,
-        person.name,
-        person.password,
-        person.cpf,
-        person.limiar,
-        person.grupo,
-      );
-    } else {
-      await this.createPerson(
-        equipmentId,
-        person.pescodigo,
-        person.id,
-        person.name,
-        person.password,
-        person.cpf,
-        person.limiar,
-        person.grupo,
-      );
-    }
+    const grupo = exists
+      ? await this.modifyPersonImpl(
+          equipmentId,
+          person.pescodigo,
+          person.name,
+          person.password,
+          person.cpf,
+          person.limiar,
+          person.grupo,
+        )
+      : await this.createPersonImpl(
+          equipmentId,
+          person.pescodigo,
+          person.id,
+          person.name,
+          person.password,
+          person.cpf,
+          person.limiar,
+          person.grupo,
+        );
 
     if (person.tags) {
       const tagsResponse = await this.withRetry(async () => {
@@ -441,7 +443,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       await this.setFingers(hardwareId, person.fingers);
     }
 
-    return { idNoEquipamento: hardwareId.toString() };
+    return { idNoEquipamento: hardwareId.toString(), grupo };
   }
 
   /**
@@ -470,18 +472,22 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
    * produz negativas de giro ("entrada/saída não autorizada") por regra de departamento
    * antigo. Por isso a gravação é sempre limpar-tudo-e-criar, nunca um diff sobre a
    * lista lida — a lista lida pode não refletir vínculos criados fora do nosso fluxo.
+   *
+   * Retorna `aplicado: false` quando o grupo não existe no equipamento ou a gravação falhou:
+   * quem sincroniza não deve carimbar o hash da pessoa nesses casos, senão ela fica presa no
+   * departamento antigo sem nunca ser reenviada.
    */
   protected async syncUserGroupsFromDepartamento(
     hardwareId: number,
     grupo: string | null | undefined,
-  ): Promise<void> {
+  ): Promise<GrupoAplicado> {
     try {
       const label = (grupo ?? '').trim();
 
       // Sem departamento definido: o usuário não deve pertencer a nenhum grupo.
       if (!label) {
         await this.clearUserGroups(hardwareId);
-        return;
+        return { solicitado: null, aplicado: true };
       }
 
       const groupsRes = await this.postWithRetry('/load_objects.fcgi', {
@@ -511,7 +517,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         this.logger.warn(
           `Departamento/grupo "${label}" não encontrado no equipamento (${this.config.host}). Grupos cadastrados: ${names || '(nenhum)'}`,
         );
-        return;
+        return { solicitado: label, aplicado: false, motivo: 'nao_encontrado' };
       }
 
       const targetId = Number(target.id);
@@ -527,10 +533,12 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
           `Usuário ${hardwareId} tinha ${removidos} departamentos em ${this.config.host}; substituídos por "${label}" (group_id=${targetId}).`,
         );
       }
+      return { solicitado: label, aplicado: true };
     } catch (error: any) {
       this.logger.warn(
         `Falha ao sincronizar departamento (PESGrupo) para usuário ${hardwareId}: ${this.getErrorDetails(error)}`,
       );
+      return { solicitado: (grupo ?? '').trim() || null, aplicado: false, motivo: 'erro' };
     }
   }
 
@@ -543,6 +551,18 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     limiar?: number,
     grupo?: string,
   ): Promise<void> {
+    await this.modifyPersonImpl(equipmentId, pescodigo, name, password, cpf, limiar, grupo);
+  }
+
+  protected async modifyPersonImpl(
+    equipmentId: number,
+    pescodigo: number,
+    name: string,
+    password?: string,
+    cpf?: string,
+    limiar?: number,
+    grupo?: string,
+  ): Promise<GrupoAplicado> {
     const mapping = await this.prisma.rls.pESEquipamentoMapeamento.findUnique({
       where: {
         PESCodigo_EQPCodigo: { PESCodigo: pescodigo, EQPCodigo: equipmentId },
@@ -571,7 +591,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       });
     });
 
-    await this.syncUserGroupsFromDepartamento(hardwareId, grupo);
+    return this.syncUserGroupsFromDepartamento(hardwareId, grupo);
   }
 
   async createPerson(
@@ -584,6 +604,19 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
     limiar?: number,
     grupo?: string,
   ): Promise<void> {
+    await this.createPersonImpl(equipmentId, pescodigo, id, name, password, cpf, limiar, grupo);
+  }
+
+  protected async createPersonImpl(
+    equipmentId: number,
+    pescodigo: number,
+    id: number,
+    name: string,
+    password?: string,
+    cpf?: string,
+    limiar?: number,
+    grupo?: string,
+  ): Promise<GrupoAplicado> {
     const hardwareId = id;
     await this.prisma.rls.pESEquipamentoMapeamento.upsert({
       where: {
@@ -613,7 +646,7 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
       });
     });
 
-    await this.syncUserGroupsFromDepartamento(hardwareId, grupo);
+    return this.syncUserGroupsFromDepartamento(hardwareId, grupo);
   }
 
   async setTag(userId: number, tag: string): Promise<void> {
@@ -1281,6 +1314,43 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
         );
       }
     }
+  }
+
+  // ── Grupos de acesso (controle de acesso por turma) ──
+
+  private accessGroups() {
+    return createControlIdAccessGroup((fcgiPath, body) => this.postWithRetry(fcgiPath, body));
+  }
+
+  supportsAccessGroups(): boolean {
+    return true;
+  }
+
+  async syncAccessGroup(
+    equipmentId: number,
+    group: HardwareAccessGroup,
+    ref?: HardwareAccessGroupRef,
+  ): Promise<HardwareAccessGroupRef> {
+    const r = await this.accessGroups().sync(group, ref);
+    this.logger.log(
+      `[ControlID] syncAccessGroup EQP=${equipmentId} host=${this.config.host} "${group.nome}" group=${r.groupId} rule=${r.accessRuleId} tz=${r.timeZoneId}`,
+    );
+    return r;
+  }
+
+  async removeAccessGroup(equipmentId: number, ref: HardwareAccessGroupRef): Promise<void> {
+    await this.accessGroups().remove(ref);
+    this.logger.log(
+      `[ControlID] removeAccessGroup EQP=${equipmentId} host=${this.config.host} group=${ref.groupId ?? '-'}`,
+    );
+  }
+
+  async countAccessGroupMembers(_equipmentId: number, ref: HardwareAccessGroupRef): Promise<number> {
+    return this.accessGroups().countMembers(ref);
+  }
+
+  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
+    return this.accessGroups().list();
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {
