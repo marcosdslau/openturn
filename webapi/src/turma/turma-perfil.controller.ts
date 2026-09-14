@@ -23,7 +23,7 @@ export class TurmaPerfilController {
   @Post('preview')
   @RequirePermission('turma', 'read')
   preview(@Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number, @Body() dto: PerfilPreviewDto) {
-    return this.service.executar(instituicaoCodigo, (core) => core.previewPerfil(dto.horarios, dto.TRMCodigo));
+    return this.service.executar(instituicaoCodigo, (core) => core.previewPerfil(dto.regras, dto.TRMCodigo));
   }
 
   @Put(':phaCodigo')

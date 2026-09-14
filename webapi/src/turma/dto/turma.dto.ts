@@ -7,6 +7,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -52,15 +53,43 @@ export class TurmaEscopoDto {
   EQPCodigos?: number[];
 }
 
-export class TurmaValidacaoDto {
-  @IsBoolean()
-  ativa: boolean;
+export class RegraSentidoDto {
+  /** livre = sempre liberado; horario = só nas faixas; bloqueado = sem permissão nesse sentido. */
+  @IsIn(['livre', 'horario', 'bloqueado'])
+  modo: 'livre' | 'horario' | 'bloqueado';
 
+  @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)
   @ValidateNested({ each: true })
   @Type(() => TurmaHorarioDto)
-  horarios: TurmaHorarioDto[];
+  horarios?: TurmaHorarioDto[];
+}
+
+/** Regra independente para cada sentido (SpecControlId.md). */
+export class RegrasSentidoDto {
+  /** Entrada na Área Interna — entrar na escola. */
+  @IsObject({ message: 'Informe a regra de entrada na Área Interna' })
+  @ValidateNested()
+  @Type(() => RegraSentidoDto)
+  interna: RegraSentidoDto;
+
+  /** Entrada na Área Externa — sair da escola. */
+  @IsObject({ message: 'Informe a regra de entrada na Área Externa' })
+  @ValidateNested()
+  @Type(() => RegraSentidoDto)
+  externa: RegraSentidoDto;
+}
+
+export class TurmaValidacaoDto {
+  @IsBoolean()
+  ativa: boolean;
+
+  @ValidateIf((o: TurmaValidacaoDto) => o.ativa === true)
+  @IsObject({ message: 'Informe as regras de entrada e saída' })
+  @ValidateNested()
+  @Type(() => RegrasSentidoDto)
+  regras?: RegrasSentidoDto;
 
   @ValidateNested()
   @Type(() => TurmaEscopoDto)
@@ -86,11 +115,10 @@ export class TurmaSincronizarDto {
 }
 
 export class PerfilPreviewDto {
-  @IsArray()
-  @ArrayMaxSize(10)
-  @ValidateNested({ each: true })
-  @Type(() => TurmaHorarioDto)
-  horarios: TurmaHorarioDto[];
+  @IsObject({ message: 'Informe as regras de entrada e saída' })
+  @ValidateNested()
+  @Type(() => RegrasSentidoDto)
+  regras: RegrasSentidoDto;
 
   @IsOptional()
   @IsInt()
@@ -117,6 +145,23 @@ export class ImportacaoAnoAnteriorDto {
   @ValidateNested({ each: true })
   @Type(() => ParImportacaoDto)
   pares: ParImportacaoDto[];
+}
+
+export class TurmaPessoasFiltroDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  limit?: number;
+
+  /** Nome, nome social ou número da matrícula. */
+  @IsOptional() @IsString() busca?: string;
 }
 
 export class TurmaFiltroDto {
@@ -157,4 +202,16 @@ export class TurmaFiltroDto {
   @IsOptional()
   @IsIn(['true', 'false', 'todas'])
   ativa?: 'true' | 'false' | 'todas';
+}
+
+export class SentidoEquipamentoDto {
+  /** true = portais trocados em relação ao giro físico (resultado do teste em bancada). */
+  @IsOptional()
+  @IsBoolean()
+  invertido?: boolean;
+
+  /** true = teste funcional em bancada confirmado. */
+  @IsOptional()
+  @IsBoolean()
+  validado?: boolean;
 }

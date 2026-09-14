@@ -7,7 +7,7 @@ import Checkbox from "@/components/form/input/Checkbox";
 import { useToast } from "@/context/ToastContext";
 import { apiPost } from "@/lib/api";
 import ResultadoSync from "./ResultadoSync";
-import { resumirFaixas, type ParImportacao, type ResultadoEquipamento } from "./turma-tipos";
+import { SENTIDOS, SENTIDO_INFO, resumirRegra, type ParImportacao, type ResultadoEquipamento } from "./turma-tipos";
 
 interface Props {
     isOpen: boolean;
@@ -100,9 +100,12 @@ export default function ImportacaoAnoAnteriorModal({ isOpen, onClose, instituica
                                         <p className="font-medium text-gray-800 dark:text-white/90">
                                             {p.destino.rotulo} <span className="font-normal text-gray-500">← {p.origem.rotulo}</span>
                                         </p>
-                                        <p className="text-gray-600 dark:text-gray-400">
-                                            {p.origem.PHANome}: {resumirFaixas(p.origem.horarios)}
-                                        </p>
+                                        <p className="font-mono text-xs text-gray-500">{p.origem.PHANome}</p>
+                                        {SENTIDOS.map((s) => (
+                                            <p key={s} className="text-gray-600 dark:text-gray-400">
+                                                {SENTIDO_INFO[s].titulo}: {resumirRegra(p.origem.regras[s])}
+                                            </p>
+                                        ))}
                                         <p className="text-xs text-gray-500">
                                             {p.origem.escopo.todos
                                                 ? "Todos os equipamentos"

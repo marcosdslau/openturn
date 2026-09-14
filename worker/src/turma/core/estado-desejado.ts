@@ -14,6 +14,11 @@ export interface TurmaEstado {
 export interface EquipamentoEstado {
   EQPCodigo: number;
   EQPAtivo: boolean;
+  /**
+   * Área Interna/Externa e portais preparados no equipamento (EQSEquipamentoSentido).
+   * Sem isso a regra por sentido não pode ser aplicada: o equipamento fica fora do escopo efetivo.
+   */
+  sentidoPreparado: boolean;
 }
 
 /** Linha de TRMTurma (com `escopo` incluído) → TurmaEstado. */
@@ -45,7 +50,7 @@ export function turmaVigente(turma: Pick<TurmaEstado, 'TRMValidacaoAtiva' | 'TRM
 }
 
 export function perfilDeveExistir(phaCodigo: number, eqp: EquipamentoEstado, turmas: TurmaEstado[]): boolean {
-  if (!eqp.EQPAtivo) return false;
+  if (!eqp.EQPAtivo || !eqp.sentidoPreparado) return false;
   return turmas.some((t) => t.PHACodigo === phaCodigo && turmaVigente(t) && noEscopo(t, eqp.EQPCodigo));
 }
 
@@ -77,14 +82,22 @@ export function diferencaSimetrica(antes: number[], depois: number[]): number[] 
 
 /**
  * Departamento da pessoa num equipamento (§7.2): perfil da turma efetiva quando o
- * equipamento está no escopo e a turma está vigente; senão o grupo padrão (PESGrupo).
+ * equipamento está no escopo, tem as áreas preparadas e a turma está vigente;
+ * senão o grupo padrão (PESGrupo).
  */
 export function grupoNoEquipamento(
   pessoa: { PESGrupo: string | null },
   turmaEfetiva: (TurmaEstado & { perfilNome: string | null }) | null,
   eqpCodigo: number,
+  sentidoPreparado: boolean,
 ): string | null {
-  if (turmaEfetiva && turmaVigente(turmaEfetiva) && turmaEfetiva.perfilNome && noEscopo(turmaEfetiva, eqpCodigo)) {
+  if (
+    sentidoPreparado &&
+    turmaEfetiva &&
+    turmaVigente(turmaEfetiva) &&
+    turmaEfetiva.perfilNome &&
+    noEscopo(turmaEfetiva, eqpCodigo)
+  ) {
     return turmaEfetiva.perfilNome;
   }
   return pessoa.PESGrupo ?? null;

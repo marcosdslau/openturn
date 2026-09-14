@@ -5,11 +5,12 @@ import { HardwareModule } from '../hardware/hardware.module';
 import { TurmaAcessoService } from './turma-acesso.service';
 import { TurmaController } from './turma.controller';
 import { TurmaPerfilController } from './turma-perfil.controller';
+import { TurmaSentidoController } from './turma-sentido.controller';
 
 @Module({
   imports: [AuthModule, PrismaModule, HardwareModule],
   // Ordem importa: rotas estáticas de perfil antes de `turma/:trmCodigo`.
-  controllers: [TurmaPerfilController, TurmaController],
+  controllers: [TurmaPerfilController, TurmaSentidoController, TurmaController],
   providers: [TurmaAcessoService],
   exports: [TurmaAcessoService],
 })

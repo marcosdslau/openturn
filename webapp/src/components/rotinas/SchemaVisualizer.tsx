@@ -25,15 +25,26 @@ export function SchemaVisualizer() {
     const [scale, setScale] = useState(1);
     const [pan, setPan] = useState<Position>({ x: 0, y: 0 });
 
-    // Table Positions
+    // Table Positions — colunas de 400px; alturas calculadas por HEADER + campos × ROW (sem sobreposição).
+    // Tabela sem posição aqui não é desenhada.
     const [positions, setPositions] = useState<Record<string, Position>>({
+        // Pessoas e passagens
         PESPessoa: { x: 50, y: 50 },
+        REGRegistroPassagem: { x: 50, y: 680 },
+        RPDRegistrosDiarios: { x: 50, y: 1030 },
         MATMatricula: { x: 450, y: 50 },
-        EQPEquipamento: { x: 50, y: 400 },
-        PESEquipamentoMapeamento: { x: 450, y: 400 },
-        REGRegistroPassagem: { x: 50, y: 750 },
-        INSInstituicao: { x: 850, y: 50 },
-        ERPConfiguracao: { x: 850, y: 400 },
+        PESEquipamentoMapeamento: { x: 450, y: 430 },
+        EQPEquipamento: { x: 450, y: 700 },
+        // Controle de acesso por turma
+        TRMTurma: { x: 850, y: 50 },
+        TEQTurmaEquipamento: { x: 850, y: 730 },
+        EQSEquipamentoSentido: { x: 850, y: 900 },
+        PHAPerfilHorario: { x: 1250, y: 50 },
+        PHAJanela: { x: 1250, y: 330 },
+        PHEPerfilEquipamento: { x: 1250, y: 780 },
+        // Instituição
+        INSInstituicao: { x: 1650, y: 50 },
+        ERPConfiguracao: { x: 1650, y: 290 },
     });
 
     const [dragging, setDragging] = useState<DragState | null>(null);
@@ -231,6 +242,14 @@ export function SchemaVisualizer() {
         setScale(newScale);
         setPan({ x: newPanX, y: newPanY });
     };
+
+    // Abre enquadrado: com todas as tabelas, a escala 100% deixaria a maior parte fora da tela.
+    const enquadrouAoAbrir = useRef(false);
+    useEffect(() => {
+        if (enquadrouAoAbrir.current || !containerRef.current) return;
+        enquadrouAoAbrir.current = true;
+        handleFitToScreen();
+    });
 
     return (
         <div

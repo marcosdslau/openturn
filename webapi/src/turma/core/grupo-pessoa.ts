@@ -9,6 +9,10 @@ import { grupoNoEquipamento, paraTurmaEstado } from './estado-desejado';
  * (`buildHardwareUser` na webapi e no worker). Usa o nome ATUAL do perfil da turma,
  * não o denormalizado em PESGrupoHorario — assim um envio que acontece entre a troca
  * de perfil e a rotina de vínculo já leva o perfil novo.
+ *
+ * Equipamento sem Área Interna/Externa preparadas não aplica regra de turma: a pessoa
+ * fica no grupo padrão lá (senão ficaria pendente para sempre esperando um grupo que
+ * nunca será criado).
  */
 export async function resolverGruposDaPessoa(
   prisma: PrismaClient,
@@ -30,17 +34,30 @@ export async function resolverGruposDaPessoa(
   }
 
   let turma: (ReturnType<typeof paraTurmaEstado> & { perfilNome: string | null }) | null = null;
+  const preparados = new Set<number>();
   if (trmCodigo != null) {
-    const t = await prisma.tRMTurma.findFirst({
-      where: { TRMCodigo: trmCodigo, INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo },
-      include: { escopo: { select: { EQPCodigo: true } }, perfil: { select: { PHANome: true } } },
-    });
+    const [t, sentidos] = await Promise.all([
+      prisma.tRMTurma.findFirst({
+        where: { TRMCodigo: trmCodigo, INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo },
+        include: { escopo: { select: { EQPCodigo: true } }, perfil: { select: { PHANome: true } } },
+      }),
+      prisma.eQSEquipamentoSentido.findMany({
+        where: {
+          INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo,
+          EQPCodigo: { in: eqpCodigos },
+          EQSPortalInternaId: { not: null },
+          EQSPortalExternaId: { not: null },
+        },
+        select: { EQPCodigo: true },
+      }),
+    ]);
     if (t) turma = { ...paraTurmaEstado(t), perfilNome: t.perfil?.PHANome ?? null };
+    for (const s of sentidos) preparados.add(s.EQPCodigo);
   }
 
   const mapa = new Map<number, string | null>();
   for (const eqp of eqpCodigos) {
-    mapa.set(eqp, grupoNoEquipamento(pessoa, turma, eqp));
+    mapa.set(eqp, grupoNoEquipamento(pessoa, turma, eqp, preparados.has(eqp)));
   }
   return mapa;
 }

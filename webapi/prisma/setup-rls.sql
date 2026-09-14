@@ -95,3 +95,7 @@ CREATE POLICY tenant_isolation_teq ON "TEQTurmaEquipamento"
 ALTER TABLE "PHEPerfilEquipamento" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_phe ON "PHEPerfilEquipamento"
   USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "EQSEquipamentoSentido" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_eqs ON "EQSEquipamentoSentido"
+  USING ("INSInstituicaoCodigo" = current_tenant());

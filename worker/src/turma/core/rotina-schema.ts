@@ -10,13 +10,21 @@ export const TURMA_MODELOS_ROTINA = [
   'pHAJanela',
   'tEQTurmaEquipamento',
   'pHEPerfilEquipamento',
+  'eQSEquipamentoSentido',
 ];
 
 /**
  * Chaves como aparecem em `context.db`. Escrita direta pularia perfil, invalidação de
  * pessoas e lock — alterações passam por `context.turmas` (§12.6 da spec).
  */
-const MODELOS_SOMENTE_LEITURA = new Set(['TRMTurma', 'PHAPerfilHorario', 'PHAJanela', 'TEQTurmaEquipamento', 'PHEPerfilEquipamento']);
+const MODELOS_SOMENTE_LEITURA = new Set([
+  'TRMTurma',
+  'PHAPerfilHorario',
+  'PHAJanela',
+  'TEQTurmaEquipamento',
+  'PHEPerfilEquipamento',
+  'EQSEquipamentoSentido',
+]);
 const METODOS_LEITURA = new Set(['findMany', 'findFirst', 'findFirstOrThrow', 'findUnique', 'findUniqueOrThrow', 'count', 'aggregate', 'groupBy']);
 
 export function assertEscritaTurmaPermitida(model: string, metodo: string): void {
@@ -61,6 +69,8 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
       { name: 'PHANome', type: 'String' },
       { name: 'PHAHashJanelas', type: 'String' },
       { name: 'PHAHashConfig', type: 'String' },
+      { name: 'PHAModoInterna', type: 'Enum' },
+      { name: 'PHAModoExterna', type: 'Enum' },
       { name: 'updatedAt', type: 'DateTime' },
     ],
   },
@@ -69,6 +79,7 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
     fields: [
       { name: 'PHJCodigo', type: 'Int', pk: true },
       { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario' },
+      { name: 'PHJSentido', type: 'Enum' },
       { name: 'PHJHoraInicio', type: 'String' },
       { name: 'PHJHoraFim', type: 'String' },
       { name: 'PHJDom', type: 'Boolean' },
@@ -96,11 +107,29 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
       { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario' },
       { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
       { name: 'PHEIdGrupo', type: 'String' },
-      { name: 'PHEIdRegraAcesso', type: 'String' },
-      { name: 'PHEIdHorario', type: 'String' },
+      { name: 'PHEIdRegraInterna', type: 'String' },
+      { name: 'PHEIdHorarioInterna', type: 'String' },
+      { name: 'PHEIdRegraExterna', type: 'String' },
+      { name: 'PHEIdHorarioExterna', type: 'String' },
       { name: 'PHESyncHash', type: 'String' },
       { name: 'PHESyncedAt', type: 'DateTime' },
       { name: 'PHEUltimoErro', type: 'String' },
+    ],
+  },
+  EQSEquipamentoSentido: {
+    alias: 'EquipamentoSentido',
+    fields: [
+      { name: 'EQSCodigo', type: 'Int', pk: true },
+      { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
+      { name: 'EQSAreaInternaId', type: 'String' },
+      { name: 'EQSAreaExternaId', type: 'String' },
+      { name: 'EQSPortalInternaId', type: 'String' },
+      { name: 'EQSPortalExternaId', type: 'String' },
+      { name: 'EQSInvertido', type: 'Boolean' },
+      { name: 'EQSCatraConfig', type: 'Json' },
+      { name: 'EQSPreparadoEm', type: 'DateTime' },
+      { name: 'EQSValidadoEm', type: 'DateTime' },
+      { name: 'EQSUltimoErro', type: 'String' },
     ],
   },
 };
@@ -134,6 +163,8 @@ const DESPACHO: Record<string, (core: TurmaAcessoCore, args: any[], origem: Orig
   listar: (c, a) => c.listar(a[0] ?? {}),
   opcoesFiltro: (c) => c.opcoesFiltro(),
   obter: (c, a) => c.obter(a[0]),
+  // Sem foto via RPC: base64 de dezenas de fotos não cabe numa chamada de rotina.
+  listarPessoas: (c, a) => c.listarPessoas(a[0], { ...(a[1] ?? {}), comFoto: false }),
   listarPerfis: (c) => c.listarPerfis(),
   previewPerfil: (c, a) => c.previewPerfil(a[0], a[1]),
   salvarValidacao: (c, a, o) => c.salvarValidacao(a[0], a[1], o),
@@ -147,6 +178,11 @@ const DESPACHO: Record<string, (core: TurmaAcessoCore, args: any[], origem: Orig
   importarCatalogo: (c, a) => c.importarCatalogo(a[0]),
   sugestoesImportacaoAnoAnterior: (c) => c.sugestoesImportacaoAnoAnterior(),
   importarAnoAnterior: (c, a, o) => c.importarAnoAnterior(a[0], o),
+  lerRegraAplicada: (c, a) => c.lerRegraAplicada(a[0], a[1]),
+  listarEquipamentosSentido: (c) => c.listarEquipamentosSentido(),
+  lerSentidoEquipamento: (c, a) => c.lerSentidoEquipamento(a[0]),
+  prepararSentidoEquipamento: (c, a, o) => c.prepararSentidoEquipamento(a[0], o),
+  atualizarSentidoEquipamento: (c, a, o) => c.atualizarSentidoEquipamento(a[0], a[1] ?? {}, o),
 };
 
 export const TURMAS_METODOS_RPC = Object.keys(DESPACHO);

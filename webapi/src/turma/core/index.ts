@@ -11,6 +11,7 @@ export * from './perfil-canonico';
 export * from './perfil-nome';
 export * from './estado-desejado';
 export * from './ports';
+export * from './inspecao';
 export * from './grupo-pessoa';
 export * from './turma-acesso.core';
 export * from './rotina-schema';

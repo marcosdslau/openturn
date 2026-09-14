@@ -1,4 +1,5 @@
 import {
+  BadGatewayException,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -8,6 +9,7 @@ import {
 } from '@nestjs/common';
 import Redis from 'ioredis';
 import { PrismaService } from '../common/prisma/prisma.service';
+import { resizeBase64Image } from '../common/utils/image.utils';
 import { getRedisConnectionOptions } from '../common/redis/redis-connection';
 import { redisTurmaSyncLockKey } from '../common/redis/redis-keys';
 import { HardwareService } from '../hardware/hardware.service';
@@ -56,10 +58,27 @@ export class TurmaAcessoService implements OnModuleDestroy {
         const corpo = { message: err.message, detalhes: err.detalhes ?? null };
         if (err.codigo === 'nao_encontrado') throw new NotFoundException(corpo);
         if (err.codigo === 'conflito') throw new ConflictException(corpo);
+        if (err.codigo === 'equipamento') throw new BadGatewayException(corpo);
         throw new BadRequestException(corpo);
       }
       throw err;
     }
+  }
+
+  /** Pessoas da turma com a foto reduzida para miniatura (mesmo tamanho da listagem de pessoas). */
+  async listarPessoasComMiniatura(
+    instituicaoCodigo: number,
+    trmCodigo: number,
+    filtro: { busca?: string; page?: number; limit?: number },
+  ) {
+    const r = await this.executar(instituicaoCodigo, (core) => core.listarPessoas(trmCodigo, { ...filtro, comFoto: true }));
+    const data = await Promise.all(
+      r.data.map(async ({ PESFotoBase64, ...p }) => ({
+        ...p,
+        PESFotoBase64: PESFotoBase64 ? await resizeBase64Image(PESFotoBase64, 72, 72) : null,
+      })),
+    );
+    return { ...r, data };
   }
 
   private lock(): LockPort {

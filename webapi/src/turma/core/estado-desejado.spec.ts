@@ -19,7 +19,7 @@ const turma = (over: Partial<TurmaEstado> = {}): TurmaEstado => ({
   escopo: [],
   ...over,
 });
-const eqp = (EQPCodigo: number, EQPAtivo = true) => ({ EQPCodigo, EQPAtivo });
+const eqp = (EQPCodigo: number, EQPAtivo = true, sentidoPreparado = true) => ({ EQPCodigo, EQPAtivo, sentidoPreparado });
 
 describe('escopo e estado desejado (§7)', () => {
   it('"todos" vale para qualquer equipamento, inclusive futuros', () => {
@@ -43,8 +43,9 @@ describe('escopo e estado desejado (§7)', () => {
     expect(perfilDeveExistir(10, eqp(3), [turmaA, semTres])).toBe(true);
   });
 
-  it('perfil não deve existir em equipamento inativo, turma inativa, desativada ou sem perfil', () => {
+  it('perfil não deve existir em equipamento inativo, sem áreas preparadas, turma inativa, desativada ou sem perfil', () => {
     expect(perfilDeveExistir(10, eqp(1, false), [turma({ TRMTodosEquipamentos: true })])).toBe(false);
+    expect(perfilDeveExistir(10, eqp(1, true, false), [turma({ TRMTodosEquipamentos: true })])).toBe(false);
     expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, TRMAtiva: false })])).toBe(false);
     expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, TRMValidacaoAtiva: false })])).toBe(false);
     expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, PHACodigo: 11 })])).toBe(false);
@@ -67,14 +68,18 @@ describe('grupoNoEquipamento (§7.2)', () => {
   const efetiva = { ...turma({ escopo: [1, 2, 3] }), perfilNome: 'MATUTINO-01' };
 
   it('perfil nos equipamentos do escopo, grupo padrão nos demais', () => {
-    expect(grupoNoEquipamento(pessoa, efetiva, 1)).toBe('MATUTINO-01');
-    expect(grupoNoEquipamento(pessoa, efetiva, 4)).toBe('Student');
+    expect(grupoNoEquipamento(pessoa, efetiva, 1, true)).toBe('MATUTINO-01');
+    expect(grupoNoEquipamento(pessoa, efetiva, 4, true)).toBe('Student');
+  });
+
+  it('equipamento no escopo mas sem áreas preparadas: grupo padrão (senão a pessoa ficaria pendente para sempre)', () => {
+    expect(grupoNoEquipamento(pessoa, efetiva, 1, false)).toBe('Student');
   });
 
   it('sem turma, ou turma não vigente, volta ao grupo padrão', () => {
-    expect(grupoNoEquipamento(pessoa, null, 1)).toBe('Student');
-    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMValidacaoAtiva: false }, 1)).toBe('Student');
-    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMAtiva: false }, 1)).toBe('Student');
+    expect(grupoNoEquipamento(pessoa, null, 1, true)).toBe('Student');
+    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMValidacaoAtiva: false }, 1, true)).toBe('Student');
+    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMAtiva: false }, 1, true)).toBe('Student');
   });
 });
 

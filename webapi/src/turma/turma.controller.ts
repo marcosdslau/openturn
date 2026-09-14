@@ -5,6 +5,7 @@ import { RequirePermission } from '../auth/permissions.decorator';
 import {
   ImportacaoAnoAnteriorDto,
   TurmaFiltroDto,
+  TurmaPessoasFiltroDto,
   TurmaSincronizarDto,
   TurmaValidacaoDto,
   TurmaValidacaoLoteDto,
@@ -67,6 +68,17 @@ export class TurmaController {
     return this.service.executar(instituicaoCodigo, (core) => core.reconciliar());
   }
 
+  /** Pessoas vinculadas à turma, com miniatura da foto (lista dados pessoais: exige leitura de pessoa). */
+  @Get(':trmCodigo/pessoas')
+  @RequirePermission('pessoa', 'read')
+  listarPessoas(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('trmCodigo', ParseIntPipe) trmCodigo: number,
+    @Query() filtro: TurmaPessoasFiltroDto,
+  ) {
+    return this.service.listarPessoasComMiniatura(instituicaoCodigo, trmCodigo, filtro);
+  }
+
   @Get(':trmCodigo')
   @RequirePermission('turma', 'read')
   obter(
@@ -74,6 +86,17 @@ export class TurmaController {
     @Param('trmCodigo', ParseIntPipe) trmCodigo: number,
   ) {
     return this.service.executar(instituicaoCodigo, (core) => core.obter(trmCodigo));
+  }
+
+  /** Lê do equipamento o que está de fato gravado para a turma e compara com o configurado. */
+  @Get(':trmCodigo/aplicado/:eqpCodigo')
+  @RequirePermission('turma', 'read')
+  lerAplicado(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Param('trmCodigo', ParseIntPipe) trmCodigo: number,
+    @Param('eqpCodigo', ParseIntPipe) eqpCodigo: number,
+  ) {
+    return this.service.executar(instituicaoCodigo, (core) => core.lerRegraAplicada(trmCodigo, eqpCodigo));
   }
 
   @Put(':trmCodigo/validacao')

@@ -1,44 +1,143 @@
 import type { EQPEquipamento } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import type { Intervalo } from './perfil-canonico';
+import type { ModoSentido, Sentido } from './tipos';
 
-/** Horário já canonizado: 7 posições (dom..sab), intervalos em minutos, meia-noite já dividida. */
+/** Regra de um sentido já canonizada: dias só em modo 'horario' (7 posições dom..sab, minutos). */
+export interface RegraSentidoHardware {
+  modo: ModoSentido;
+  dias: Intervalo[][] | null;
+}
+
+/** Departamento + regra por sentido (SpecControlId.md §5 — modelo allow-only). */
 export interface HardwareAccessGroup {
+  /** Identificador estável do perfil (PHACodigo) — compõe nomes únicos de horários no equipamento. */
+  codigo: string;
   nome: string;
-  dias: Intervalo[][];
+  interna: RegraSentidoHardware;
+  externa: RegraSentidoHardware;
+}
+
+export interface HardwareRuleRef {
+  accessRuleId?: string;
+  timeZoneId?: string;
 }
 
 export interface HardwareAccessGroupRef {
   groupId?: string;
-  accessRuleId?: string;
-  timeZoneId?: string;
+  interna?: HardwareRuleRef;
+  externa?: HardwareRuleRef;
+}
+
+/** Portal (id no equipamento) de cada sentido, já considerando a inversão confirmada em bancada. */
+export type HardwareDirectionPortals = Record<Sentido, string>;
+
+export interface HostCatraConfig {
+  host: string;
+  catra_role?: string | null;
+  catra_side_to_enter?: string | null;
+  catra_default_fsm?: string | null;
+  erro?: string;
+}
+
+export interface HardwareArea {
+  id: string;
+  nome: string;
+}
+
+export interface HardwarePortal {
+  id: string;
+  nome: string;
+  areaFromId: string | null;
+  areaToId: string | null;
+}
+
+/** Resultado da preparação de Área Interna/Externa e dos dois portais (SpecControlId.md §6.1–6.2). */
+export interface HardwareDirectionSetup {
+  areaInternaId: string;
+  areaExternaId: string;
+  /** area_from = Externa, area_to = Interna (entrar na escola). */
+  portalInternaId: string;
+  /** area_from = Interna, area_to = Externa (sair da escola). */
+  portalExternaId: string;
+  criados: { areas: number; portais: number };
+  /** Portais que já existiam e não são os de sentido. */
+  portaisPreexistentes: HardwarePortal[];
+  /** Regras gerais (ex.: "Sempre Liberado" dos grupos padrão) replicadas nos portais de sentido. */
+  regrasReplicadas: number;
+  catra: HostCatraConfig[];
+}
+
+export interface HardwareDirectionReading {
+  catra: HostCatraConfig[];
+  areas: HardwareArea[];
+  portais: HardwarePortal[];
+}
+
+export interface HardwareSpan {
+  start: number;
+  end: number;
+  /** dom..sab, 0/1 */
+  dias: number[];
+  feriados: number[];
+}
+
+/** O que está de fato gravado no equipamento para um departamento. */
+export interface HardwareAccessGroupInspection {
+  encontrado: boolean;
+  grupo: { id: string; nome: string } | null;
+  membros: number;
+  areas: HardwareArea[];
+  portais: HardwarePortal[];
+  regras: Array<{
+    id: string;
+    nome: string;
+    /** 1 = permissão, 0 = bloqueio */
+    tipo: number;
+    portais: string[];
+    horarios: Array<{ id: string; nome: string; spans: HardwareSpan[] }>;
+  }>;
 }
 
 /** O que cada lado (webapi / worker) injeta para o núcleo falar com o hardware. */
 export interface AccessGroupPort {
   suporta(eqp: EQPEquipamento): Promise<boolean>;
-  sync(eqp: EQPEquipamento, grupo: HardwareAccessGroup, ref?: HardwareAccessGroupRef): Promise<HardwareAccessGroupRef>;
+  prepararSentido(eqp: EQPEquipamento): Promise<HardwareDirectionSetup>;
+  lerSentido(eqp: EQPEquipamento): Promise<HardwareDirectionReading>;
+  sync(
+    eqp: EQPEquipamento,
+    grupo: HardwareAccessGroup,
+    ref: HardwareAccessGroupRef | undefined,
+    portais: HardwareDirectionPortals,
+  ): Promise<HardwareAccessGroupRef>;
   remover(eqp: EQPEquipamento, ref: HardwareAccessGroupRef): Promise<void>;
   contarMembros(eqp: EQPEquipamento, ref: HardwareAccessGroupRef): Promise<number>;
   listarGrupos(eqp: EQPEquipamento): Promise<Array<{ id: string; nome: string }>>;
+  inspecionar(eqp: EQPEquipamento, ref: HardwareAccessGroupRef, nome: string): Promise<HardwareAccessGroupInspection>;
 }
 
 /** Subconjunto dos métodos de IHardwareProvider usados aqui (tipagem estrutural, sem import de hardware/). */
 export interface ProviderComGruposDeAcesso {
   supportsAccessGroups?: () => boolean;
-  syncAccessGroup?: (equipmentId: number, group: HardwareAccessGroup, ref?: HardwareAccessGroupRef) => Promise<HardwareAccessGroupRef>;
+  prepareAccessDirection?: (device: EQPEquipamento) => Promise<HardwareDirectionSetup>;
+  readAccessDirection?: (device: EQPEquipamento) => Promise<HardwareDirectionReading>;
+  syncAccessGroup?: (
+    equipmentId: number,
+    group: HardwareAccessGroup,
+    ref: HardwareAccessGroupRef | undefined,
+    portals: HardwareDirectionPortals,
+  ) => Promise<HardwareAccessGroupRef>;
   removeAccessGroup?: (equipmentId: number, ref: HardwareAccessGroupRef) => Promise<void>;
   countAccessGroupMembers?: (equipmentId: number, ref: HardwareAccessGroupRef) => Promise<number>;
   listAccessGroups?: (equipmentId: number) => Promise<Array<{ id: string; nome: string }>>;
+  inspectAccessGroup?: (equipmentId: number, ref: HardwareAccessGroupRef, nome: string) => Promise<HardwareAccessGroupInspection>;
 }
 
 /**
  * Porta de hardware genérica: cada lado só informa como resolver o provider de um
  * equipamento. Providers são reaproveitados dentro da mesma instância (uma operação).
  */
-export function criarAccessGroupPort(
-  resolver: (eqp: EQPEquipamento) => Promise<unknown>,
-): AccessGroupPort {
+export function criarAccessGroupPort(resolver: (eqp: EQPEquipamento) => Promise<unknown>): AccessGroupPort {
   const cache = new Map<number, Promise<ProviderComGruposDeAcesso | null>>();
 
   const provider = (eqp: EQPEquipamento) => {
@@ -67,8 +166,14 @@ export function criarAccessGroupPort(
       const p = await provider(eqp);
       return !!p && typeof p.supportsAccessGroups === 'function' && p.supportsAccessGroups();
     },
-    async sync(eqp, grupo, ref) {
-      return (await exigir(eqp)).syncAccessGroup!(eqp.EQPCodigo, grupo, ref);
+    async prepararSentido(eqp) {
+      return (await exigir(eqp)).prepareAccessDirection!(eqp);
+    },
+    async lerSentido(eqp) {
+      return (await exigir(eqp)).readAccessDirection!(eqp);
+    },
+    async sync(eqp, grupo, ref, portais) {
+      return (await exigir(eqp)).syncAccessGroup!(eqp.EQPCodigo, grupo, ref, portais);
     },
     async remover(eqp, ref) {
       await (await exigir(eqp)).removeAccessGroup!(eqp.EQPCodigo, ref);
@@ -78,6 +183,9 @@ export function criarAccessGroupPort(
     },
     async listarGrupos(eqp) {
       return (await exigir(eqp)).listAccessGroups!(eqp.EQPCodigo);
+    },
+    async inspecionar(eqp, ref, nome) {
+      return (await exigir(eqp)).inspectAccessGroup!(eqp.EQPCodigo, ref, nome);
     },
   };
 }

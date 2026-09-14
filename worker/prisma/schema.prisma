@@ -134,6 +134,7 @@ model INSInstituicao {
   perfisHorarioJanelas PHAJanela[]
   turmasEquipamentos  TEQTurmaEquipamento[]
   perfisEquipamentos  PHEPerfilEquipamento[]
+  equipamentosSentido EQSEquipamentoSentido[]
 }
 
 model PESPessoa {
@@ -227,6 +228,21 @@ model CIMCursosImplantacao {
 
 // === CONTROLE DE ACESSO POR TURMA (working/Controle-turma/README.md) ===
 
+/// Sentido de giro modelado como entrada em uma área (SpecControlId.md §4).
+enum SentidoArea {
+  /// Entrada na Área Interna — entrar na escola
+  INTERNA
+  /// Entrada na Área Externa — sair da escola
+  EXTERNA
+}
+
+/// Regra de um sentido: sempre liberado, só em faixas de horário, ou sem permissão.
+enum ModoSentido {
+  LIVRE
+  HORARIO
+  BLOQUEADO
+}
+
 /// Catálogo de turmas lido do ERP. Identidade = idClass (TRMIdExterno).
 model TRMTurma {
   TRMCodigo            Int            @id @default(autoincrement())
@@ -291,6 +307,10 @@ model PHAPerfilHorario {
   PHAHashJanelas String
   /// Hash do que vai ao equipamento (nome + canônico). Muda apenas quando PHANome muda.
   PHAHashConfig  String
+  /// Regra de Entrada na Área Interna (entrar na escola).
+  PHAModoInterna ModoSentido @default(HORARIO)
+  /// Regra de Entrada na Área Externa (sair da escola).
+  PHAModoExterna ModoSentido @default(HORARIO)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -311,6 +331,8 @@ model PHAJanela {
   PHACodigo            Int
   perfil               PHAPerfilHorario @relation(fields: [PHACodigo], references: [PHACodigo], onDelete: Cascade)
 
+  /// Sentido ao qual a faixa pertence (só perfis com modo HORARIO naquele sentido têm faixas).
+  PHJSentido    SentidoArea @default(INTERNA)
   /// "HH:mm" no horário local do equipamento. fim < inicio = cruza a meia-noite.
   PHJHoraInicio String
   PHJHoraFim    String
@@ -327,7 +349,7 @@ model PHAJanela {
   PHJFeriado3   Boolean @default(false)
   PHJOrdem      Int     @default(1)
 
-  @@index([PHACodigo])
+  @@index([PHACodigo, PHJSentido])
 }
 
 /// Escopo da turma: linha existe = equipamento selecionado (usado quando TRMTodosEquipamentos = false).
@@ -355,10 +377,12 @@ model PHEPerfilEquipamento {
   EQPCodigo            Int
   equipamento          EQPEquipamento   @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
 
-  /// Ids no hardware (ControlID: group_id / access_rule_id / time_zone_id).
-  PHEIdGrupo       String?
-  PHEIdRegraAcesso String?
-  PHEIdHorario     String?
+  /// Ids no hardware (ControlID): departamento e, por sentido, regra de acesso + horário.
+  PHEIdGrupo          String?
+  PHEIdRegraInterna   String?
+  PHEIdHorarioInterna String?
+  PHEIdRegraExterna   String?
+  PHEIdHorarioExterna String?
 
   /// Hash confirmado no hardware. Null = nada aplicado.
   PHESyncHash   String?
@@ -370,6 +394,38 @@ model PHEPerfilEquipamento {
 
   @@unique([PHACodigo, EQPCodigo])
   @@index([EQPCodigo])
+}
+
+/// Áreas e portais de sentido preparados em um equipamento (SpecControlId.md §3 e §6.1–6.2).
+/// Sem esta configuração o equipamento não recebe regras de turma.
+model EQSEquipamentoSentido {
+  EQSCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  EQPCodigo            Int            @unique
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// ids de areas no equipamento.
+  EQSAreaInternaId     String?
+  EQSAreaExternaId     String?
+  /// Portal com area_to = Área Interna (entrar na escola) e com area_to = Área Externa (sair da escola).
+  EQSPortalInternaId   String?
+  EQSPortalExternaId   String?
+  /// true = após teste em bancada, os portais ficaram trocados em relação ao giro físico: o sistema troca os papéis.
+  EQSInvertido         Boolean        @default(false)
+  /// Leitura de sec_box (catra_role, catra_side_to_enter, catra_default_fsm) de cada host do equipamento.
+  EQSCatraConfig       Json?
+  /// Portais que já existiam antes da preparação e quantas regras gerais foram replicadas nos portais novos.
+  EQSDiagnostico       Json?
+  EQSPreparadoEm       DateTime?
+  /// Teste funcional em bancada confirmado (SpecControlId.md §8). Não bloqueia uso; é exibido como alerta.
+  EQSValidadoEm        DateTime?
+  USRCodigoValidacao   Int?
+  usuarioValidacao     USRUsuario?    @relation("EqsValidacao", fields: [USRCodigoValidacao], references: [USRCodigo], onDelete: SetNull)
+  EQSUltimoErro        String?
+
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 }
 
 model EQPEquipamento {
@@ -394,6 +450,7 @@ model EQPEquipamento {
   mapeamentos          PESEquipamentoMapeamento[]
   turmasEscopo         TEQTurmaEquipamento[]
   perfisHorario        PHEPerfilEquipamento[]
+  sentido              EQSEquipamentoSentido?
 }
 
 model ERPConfiguracao {
@@ -445,6 +502,7 @@ model USRUsuario {
   rpdCriados          RPDRegistrosDiarios[] @relation("RpdCriacao")
   rpdAlterados        RPDRegistrosDiarios[] @relation("RpdAlteracao")
   turmasAlteradas     TRMTurma[]            @relation("TrmAlteracao")
+  sentidosValidados   EQSEquipamentoSentido[] @relation("EqsValidacao")
 }
 
 model USRSenhaResetToken {

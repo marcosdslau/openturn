@@ -3,7 +3,11 @@ import { EQPEquipamento } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
   HardwareAccessGroup,
+  HardwareAccessGroupInspection,
   HardwareAccessGroupRef,
+  HardwareDirectionPortals,
+  HardwareDirectionReading,
+  HardwareDirectionSetup,
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
@@ -147,12 +151,29 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
     return false;
   }
 
+  async prepareAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionSetup> {
+    throw new Error('[Topdata] prepareAccessDirection não implementado');
+  }
+
+  async readAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionReading> {
+    throw new Error('[Topdata] readAccessDirection não implementado');
+  }
+
   async syncAccessGroup(
     _equipmentId: number,
     _group: HardwareAccessGroup,
-    _ref?: HardwareAccessGroupRef,
+    _ref: HardwareAccessGroupRef | undefined,
+    _portals: HardwareDirectionPortals,
   ): Promise<HardwareAccessGroupRef> {
     throw new Error('[Topdata] syncAccessGroup não implementado');
+  }
+
+  async inspectAccessGroup(
+    _equipmentId: number,
+    _ref: HardwareAccessGroupRef,
+    _nome: string,
+  ): Promise<HardwareAccessGroupInspection> {
+    throw new Error('[Topdata] inspectAccessGroup não implementado');
   }
 
   async removeAccessGroup(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<void> {

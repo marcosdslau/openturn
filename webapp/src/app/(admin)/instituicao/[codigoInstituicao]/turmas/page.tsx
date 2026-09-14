@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { usePermissions } from "@/hooks/usePermissions";
 import { apiGet, apiPost } from "@/lib/api";
@@ -11,11 +11,21 @@ import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import TurmaValidacaoModal, { type TurmaAlvo } from "./components/TurmaValidacaoModal";
 import PerfisHorarioTab from "./components/PerfisHorarioTab";
 import ImportacaoAnoAnteriorModal from "./components/ImportacaoAnoAnteriorModal";
+import TurmaDiagramaModal from "./components/TurmaDiagramaModal";
+import EquipamentosSentidoTab from "./components/EquipamentosSentidoTab";
+import PessoasTurmaModal from "./components/PessoasTurmaModal";
+import { EyeIcon } from "@/icons";
+import { COR_SENTIDO } from "./components/DiagramaRegraTurma";
 import {
+    MODO_INFO,
+    SENTIDOS,
+    SENTIDO_INFO,
     rotuloTurma,
     selectClass,
+    type EquipamentoSentidoItem,
     type OpcoesFiltro,
     type ParImportacao,
+    type SemResultadoBusca,
     type TurmaItem,
 } from "./components/turma-tipos";
 
@@ -71,21 +81,81 @@ function montarQuery(page: number, limit: number, f: Filtros): string {
 function BadgeSync({ turma }: { turma: TurmaItem }) {
     if (!turma.TRMValidacaoAtiva || !turma.sync) return <span className="text-gray-400">—</span>;
     const s = turma.sync;
-    const alvo = s.total - s.naoSuportados;
+    const alvo = s.total - s.naoSuportados - (s.semSentido ?? 0);
     const cor = s.erros ? "error" : s.pendentes ? "warning" : "success";
     const detalhe = [
         s.pendentes ? `${s.pendentes} pendente(s)` : null,
         s.erros ? `${s.erros} com erro` : null,
         s.naoSuportados ? `${s.naoSuportados} sem suporte` : null,
+        s.semSentido ? `${s.semSentido} sem áreas preparadas` : null,
     ]
         .filter(Boolean)
         .join(", ");
     return (
-        <span title={detalhe || "Todos os equipamentos em dia"}>
+        <span title={detalhe || "Todos os equipamentos em dia"} className="inline-flex flex-wrap gap-1">
             <Badge size="sm" color={cor}>
                 {s.sincronizados}/{alvo}
             </Badge>
+            {s.semSentido > 0 && (
+                <Badge size="sm" color="warning">
+                    {s.semSentido} sem áreas
+                </Badge>
+            )}
         </span>
+    );
+}
+
+/** Busca vazia: diferencia "não existe" de "existe nas matrículas, mas não no catálogo do ERP". */
+function BuscaSemResultado({
+    filtros,
+    dica,
+    onMostrarForaDoErp,
+}: {
+    filtros: Filtros;
+    dica: SemResultadoBusca | null;
+    onMostrarForaDoErp: () => void;
+}) {
+    const busca = filtros.busca.trim();
+    const outrosFiltros = JSON.stringify({ ...filtros, busca: "" }) !== JSON.stringify(FILTROS_VAZIOS);
+    return (
+        <div className="mx-auto max-w-2xl space-y-1.5 text-sm">
+            <p className="text-gray-500 dark:text-gray-400">
+                {busca && !outrosFiltros ? (
+                    <>
+                        Nenhuma turma no catálogo com <strong>“{busca}”</strong>.
+                    </>
+                ) : (
+                    "Nenhuma turma com esses filtros."
+                )}
+            </p>
+            {dica && (
+                <>
+                    {dica.matriculas > 0 && (
+                        <p className="text-gray-600 dark:text-gray-300">
+                            Há <strong>{dica.matriculas}</strong> matrícula(s) ativa(s) com “{busca}” na tela Matrículas
+                            {dica.matriculasSemCatalogo > 0 && `, ${dica.matriculasSemCatalogo} sem vínculo com o catálogo`}. Esta tela
+                            mostra o catálogo de turmas do ERP, importado pela rotina de catálogo: a turma aparece aqui depois que a
+                            rotina a importar.
+                        </p>
+                    )}
+                    {dica.turmasForaDoErp > 0 && !filtros.incluirForaOrigem && (
+                        <p className="text-gray-600 dark:text-gray-300">
+                            {dica.turmasForaDoErp} turma(s) com esse termo saíram do ERP.{" "}
+                            <button type="button" onClick={onMostrarForaDoErp} className="font-medium text-brand-600 underline dark:text-brand-400">
+                                Mostrar turmas que saíram do ERP
+                            </button>
+                        </p>
+                    )}
+                    <p className="text-xs text-gray-400">
+                        {dica.turmasNoCatalogo > 0
+                            ? `Catálogo: ${dica.turmasNoCatalogo} turma(s), última atualização em ${
+                                  dica.catalogoAtualizadoEm ? new Date(dica.catalogoAtualizadoEm).toLocaleString("pt-BR") : "—"
+                              }.`
+                            : "O catálogo de turmas ainda não foi importado para esta instituição."}
+                    </p>
+                </>
+            )}
+        </div>
     );
 }
 
@@ -96,17 +166,24 @@ export default function TurmasPage() {
     const { showToast } = useToast();
     const podeEditar = can("turma", "update");
     const podeSincronizar = can("turma", "sync");
+    const podeVerPessoas = can("pessoa", "read");
 
-    const [aba, setAba] = useState<"turmas" | "perfis">("turmas");
+    const [aba, setAba] = useState<"turmas" | "perfis" | "equipamentos">("turmas");
     const [turmas, setTurmas] = useState<TurmaItem[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 20, totalPages: 0 });
     const [page, setPage] = useState(1);
     const [carregando, setCarregando] = useState(true);
+    const [erroCarga, setErroCarga] = useState<string | null>(null);
+    const [semResultado, setSemResultado] = useState<SemResultadoBusca | null>(null);
+    const cargaSeq = useRef(0);
     const [rascunho, setRascunho] = useState<Filtros>(FILTROS_VAZIOS);
     const [filtros, setFiltros] = useState<Filtros>(FILTROS_VAZIOS);
     const [opcoes, setOpcoes] = useState(OPCOES_VAZIAS);
     const [selecionadas, setSelecionadas] = useState<Map<number, TurmaAlvo>>(new Map());
     const [modalTurmas, setModalTurmas] = useState<TurmaAlvo[] | null>(null);
+    const [diagramaTurma, setDiagramaTurma] = useState<TurmaAlvo | null>(null);
+    const [pessoasTurma, setPessoasTurma] = useState<TurmaAlvo | null>(null);
+    const [equipamentosSentido, setEquipamentosSentido] = useState<EquipamentoSentidoItem[] | null>(null);
     const [pares, setPares] = useState<ParImportacao[]>([]);
     const [importacaoAberta, setImportacaoAberta] = useState(false);
     const [reconciliando, setReconciliando] = useState(false);
@@ -114,28 +191,43 @@ export default function TurmasPage() {
 
     const carregar = useCallback(async () => {
         if (!instituicaoId) return;
+        // Só a resposta da última consulta vale: uma resposta atrasada da listagem anterior
+        // não pode sobrescrever o resultado da busca.
+        const seq = ++cargaSeq.current;
         setCarregando(true);
         try {
-            const r = await apiGet<{ data: TurmaItem[]; meta: Meta }>(
+            const r = await apiGet<{ data: TurmaItem[]; meta: Meta; semResultado?: SemResultadoBusca | null }>(
                 `/instituicao/${instituicaoId}/turma?${montarQuery(page, 20, filtros)}`,
             );
+            if (seq !== cargaSeq.current) return;
             setTurmas(r.data ?? []);
             setMeta(r.meta);
+            setSemResultado(r.semResultado ?? null);
+            setErroCarga(null);
         } catch (e: unknown) {
-            showToast("error", "Erro ao carregar turmas", e instanceof Error ? e.message : String(e));
+            if (seq !== cargaSeq.current) return;
+            const mensagem = e instanceof Error ? e.message : String(e);
+            // Sem isso a tabela continuava mostrando a lista anterior, como se a busca não tivesse efeito.
+            setTurmas([]);
+            setMeta((m) => ({ ...m, total: 0, totalPages: 0 }));
+            setSemResultado(null);
+            setErroCarga(mensagem);
+            showToast("error", "Erro ao carregar turmas", mensagem);
         } finally {
-            setCarregando(false);
+            if (seq === cargaSeq.current) setCarregando(false);
         }
     }, [instituicaoId, page, filtros, showToast]);
 
     const carregarApoio = useCallback(async () => {
         if (!instituicaoId) return;
-        const [o, s] = await Promise.allSettled([
+        const [o, s, e] = await Promise.allSettled([
             apiGet<typeof OPCOES_VAZIAS>(`/instituicao/${instituicaoId}/turma/opcoes-filtro`),
             apiGet<{ pares: ParImportacao[] }>(`/instituicao/${instituicaoId}/turma/importacao-ano-anterior`),
+            apiGet<EquipamentoSentidoItem[]>(`/instituicao/${instituicaoId}/turma/sentido`),
         ]);
         if (o.status === "fulfilled") setOpcoes({ ...OPCOES_VAZIAS, ...o.value });
         if (s.status === "fulfilled") setPares(s.value.pares ?? []);
+        if (e.status === "fulfilled") setEquipamentosSentido(e.value);
     }, [instituicaoId]);
 
     useEffect(() => {
@@ -196,6 +288,10 @@ export default function TurmasPage() {
         }
     };
 
+    const aptos = (equipamentosSentido ?? []).filter((e) => e.EQPAtivo && e.suportado);
+    const semAreas = aptos.filter((e) => !e.sentido.preparado);
+    const semValidacao = aptos.filter((e) => e.sentido.preparado && !e.sentido.validadoEm);
+
     const temFiltro = useMemo(() => JSON.stringify(filtros) !== JSON.stringify(FILTROS_VAZIOS), [filtros]);
 
     const campoSelect = (chave: keyof Filtros, rotulo: string, itens: Array<{ value: string; label: string }>) => (
@@ -224,7 +320,7 @@ export default function TurmasPage() {
                 <div>
                     <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Turmas</h2>
                     <p className="text-sm text-gray-500 dark:text-gray-400">
-                        Controle de acesso por turma: horários e equipamentos em que a regra vale.
+                        Controle de acesso por turma: entrada e saída (Área Interna / Área Externa), horários e equipamentos.
                     </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -253,11 +349,33 @@ export default function TurmasPage() {
                 </div>
             )}
 
-            <div className="flex gap-1 border-b border-gray-200 dark:border-gray-800" role="tablist">
+            {aba !== "equipamentos" && semAreas.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
+                    <p className="text-sm text-warning-800 dark:text-warning-300">
+                        {semAreas.length === aptos.length ? (
+                            <>
+                                <strong>Nenhum equipamento</strong> tem a Área Interna e a Área Externa preparadas: as regras de turma não podem ser
+                                aplicadas.
+                            </>
+                        ) : (
+                            <>
+                                <strong>{semAreas.length} equipamento(s)</strong> sem áreas preparadas (
+                                {semAreas.map((e) => e.EQPDescricao ?? e.EQPCodigo).join(", ")}): neles as regras de turma não são aplicadas.
+                            </>
+                        )}
+                    </p>
+                    <Button size="sm" variant="outline" onClick={() => setAba("equipamentos")}>
+                        Preparar áreas
+                    </Button>
+                </div>
+            )}
+
+            <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-800" role="tablist">
                 {(
                     [
                         ["turmas", "Turmas"],
                         ["perfis", "Perfis de horário"],
+                        ["equipamentos", `Equipamentos (áreas)${semValidacao.length ? ` · ${semValidacao.length} a validar` : ""}`],
                     ] as const
                 ).map(([valor, rotulo]) => (
                     <button
@@ -265,7 +383,7 @@ export default function TurmasPage() {
                         role="tab"
                         aria-selected={aba === valor}
                         onClick={() => setAba(valor)}
-                        className={`-mb-px border-b-2 px-4 py-2 text-sm font-medium ${
+                        className={`-mb-px shrink-0 border-b-2 px-4 py-2 text-sm font-medium ${
                             aba === valor
                                 ? "border-brand-500 text-brand-600 dark:text-brand-400"
                                 : "border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400"
@@ -276,7 +394,9 @@ export default function TurmasPage() {
                 ))}
             </div>
 
-            {aba === "perfis" ? (
+            {aba === "equipamentos" ? (
+                <EquipamentosSentidoTab instituicaoId={instituicaoId} podeEditar={podeEditar} versao={versao} onAlterado={aposSalvar} />
+            ) : aba === "perfis" ? (
                 <PerfisHorarioTab instituicaoId={instituicaoId} podeEditar={podeEditar} versao={versao} />
             ) : (
                 <>
@@ -369,7 +489,7 @@ export default function TurmasPage() {
                                             />
                                         </th>
                                     )}
-                                    {["Ano", "Curso", "Série / Turma", "Turno", "Pessoas", "Controle", "Horário", "Equipamentos", "Sync", ""].map((h) => (
+                                    {["Ano", "Curso", "Série / Turma", "Turno", "Pessoas", "Controle", "Regra", "Equipamentos", "Sync", ""].map((h) => (
                                         <th key={h} className="px-4 py-3 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
                                             {h}
                                         </th>
@@ -383,12 +503,32 @@ export default function TurmasPage() {
                                             Carregando...
                                         </td>
                                     </tr>
+                                ) : erroCarga ? (
+                                    <tr>
+                                        <td colSpan={11} className="px-5 py-8 text-center text-sm text-error-600 dark:text-error-400">
+                                            Não foi possível carregar as turmas: {erroCarga}{" "}
+                                            <button type="button" onClick={carregar} className="font-medium underline">
+                                                Tentar novamente
+                                            </button>
+                                        </td>
+                                    </tr>
                                 ) : turmas.length === 0 ? (
                                     <tr>
                                         <td colSpan={11} className="px-5 py-8 text-center text-gray-400">
-                                            {temFiltro
-                                                ? "Nenhuma turma com esses filtros."
-                                                : "Nenhuma turma. O catálogo é alimentado pela rotina de turmas a partir do ERP."}
+                                            {!temFiltro ? (
+                                                "Nenhuma turma. O catálogo é alimentado pela rotina de turmas a partir do ERP."
+                                            ) : (
+                                                <BuscaSemResultado
+                                                    filtros={filtros}
+                                                    dica={semResultado}
+                                                    onMostrarForaDoErp={() => {
+                                                        const f = { ...filtros, incluirForaOrigem: true };
+                                                        setRascunho(f);
+                                                        setFiltros(f);
+                                                        setPage(1);
+                                                    }}
+                                                />
+                                            )}
                                         </td>
                                     </tr>
                                 ) : (
@@ -423,7 +563,22 @@ export default function TurmasPage() {
                                                 )}
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{t.TRMTurno ?? "—"}</td>
-                                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">{t.TRMQtdePessoas}</td>
+                                            <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="min-w-[2ch] tabular-nums">{t.TRMQtdePessoas}</span>
+                                                    {podeVerPessoas && t.TRMQtdePessoas > 0 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPessoasTurma(alvo(t))}
+                                                            title="Ver pessoas da turma"
+                                                            aria-label={`Ver pessoas da turma ${rotuloTurma(t)}`}
+                                                            className="flex h-7 w-7 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-brand-600 dark:hover:bg-white/5 dark:hover:text-brand-400"
+                                                        >
+                                                            <EyeIcon className="h-4 w-4 fill-current" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
                                             <td className="px-4 py-3 text-sm">
                                                 <Badge size="sm" color={t.TRMValidacaoAtiva ? "success" : "light"}>
                                                     {t.TRMValidacaoAtiva ? "Ativo" : "Inativo"}
@@ -436,6 +591,17 @@ export default function TurmasPage() {
                                                         {t.perfil.qtdeTurmas > 1 && (
                                                             <span className="block text-xs text-gray-500">{t.perfil.qtdeTurmas} turmas</span>
                                                         )}
+                                                        <span className="mt-1 flex flex-col gap-0.5 text-xs">
+                                                            {SENTIDOS.map((s) => (
+                                                                <span key={s} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                                                                    <span className={`inline-block h-2 w-2 rounded-full ${COR_SENTIDO[s].barra}`} aria-hidden />
+                                                                    <span className="text-gray-500">{SENTIDO_INFO[s].curto}:</span>
+                                                                    <span className={t.perfil!.modos[s] === "bloqueado" ? "text-error-600" : ""}>
+                                                                        {MODO_INFO[t.perfil!.modos[s]]?.rotulo ?? t.perfil!.modos[s]}
+                                                                    </span>
+                                                                </span>
+                                                            ))}
+                                                        </span>
                                                     </>
                                                 ) : (
                                                     "—"
@@ -452,9 +618,16 @@ export default function TurmasPage() {
                                                 <BadgeSync turma={t} />
                                             </td>
                                             <td className="px-4 py-3 text-right">
-                                                <Button size="sm" variant="outline" onClick={() => setModalTurmas([alvo(t)])}>
-                                                    {podeEditar ? "Configurar" : "Ver"}
-                                                </Button>
+                                                <div className="flex justify-end gap-2">
+                                                    {t.perfil && (
+                                                        <Button size="sm" variant="outline" onClick={() => setDiagramaTurma(alvo(t))}>
+                                                            Diagrama
+                                                        </Button>
+                                                    )}
+                                                    <Button size="sm" variant="outline" onClick={() => setModalTurmas([alvo(t)])}>
+                                                        {podeEditar ? "Configurar" : "Ver"}
+                                                    </Button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))
@@ -494,6 +667,40 @@ export default function TurmasPage() {
                     onSaved={() => {
                         if (modalTurmas.length > 1) setSelecionadas(new Map());
                         aposSalvar();
+                    }}
+                    onVerAplicado={
+                        modalTurmas.length === 1
+                            ? () => {
+                                  setDiagramaTurma(modalTurmas[0]);
+                                  setModalTurmas(null);
+                              }
+                            : undefined
+                    }
+                    onIrParaEquipamentos={() => {
+                        setModalTurmas(null);
+                        setAba("equipamentos");
+                    }}
+                />
+            )}
+
+            {pessoasTurma && (
+                <PessoasTurmaModal isOpen onClose={() => setPessoasTurma(null)} instituicaoId={instituicaoId} turma={pessoasTurma} />
+            )}
+
+            {diagramaTurma && (
+                <TurmaDiagramaModal
+                    isOpen
+                    onClose={() => setDiagramaTurma(null)}
+                    instituicaoId={instituicaoId}
+                    turma={diagramaTurma}
+                    podeEditar={podeEditar}
+                    onEditar={() => {
+                        setModalTurmas([diagramaTurma]);
+                        setDiagramaTurma(null);
+                    }}
+                    onIrParaEquipamentos={() => {
+                        setDiagramaTurma(null);
+                        setAba("equipamentos");
                     }}
                 />
             )}

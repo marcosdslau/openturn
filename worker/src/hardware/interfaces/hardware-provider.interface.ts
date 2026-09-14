@@ -1,7 +1,12 @@
+import { EQPEquipamento } from '@prisma/client';
 import {
   GrupoAplicado,
   HardwareAccessGroup,
+  HardwareAccessGroupInspection,
   HardwareAccessGroupRef,
+  HardwareDirectionPortals,
+  HardwareDirectionReading,
+  HardwareDirectionSetup,
   HardwareUser,
 } from './hardware.types';
 import { IHardwareEquipmentConfiguration } from './hardware-equipment-config.interface';
@@ -58,14 +63,30 @@ export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
   /** false = a marca/modelo não implementa grupos de acesso; os demais métodos lançam. */
   supportsAccessGroups(): boolean;
 
-  /** Cria/atualiza departamento + regra + horário. Idempotente; renomeia pelo id quando o nome muda. */
+  /**
+   * Cria (ou reconhece) Área Interna, Área Externa e os portais de sentido; replica as regras gerais
+   * nos portais novos e lê a configuração da catraca em cada host. Idempotente.
+   */
+  prepareAccessDirection(device: EQPEquipamento): Promise<HardwareDirectionSetup>;
+
+  /** Lê configuração da catraca, áreas e portais (sem alterar nada). */
+  readAccessDirection(device: EQPEquipamento): Promise<HardwareDirectionReading>;
+
+  /**
+   * Cria/atualiza departamento e, por sentido, regra de permissão ligada só ao portal daquele sentido
+   * + horário. Sentido bloqueado = sem regra. Idempotente; renomeia pelo id quando o nome muda.
+   */
   syncAccessGroup(
     equipmentId: number,
     group: HardwareAccessGroup,
-    ref?: HardwareAccessGroupRef,
+    ref: HardwareAccessGroupRef | undefined,
+    portals: HardwareDirectionPortals,
   ): Promise<HardwareAccessGroupRef>;
 
-  /** Remove departamento, regra e horário. Só chamar com o grupo sem membros. */
+  /** O que está gravado no equipamento para o departamento (regras, portais, horários). */
+  inspectAccessGroup(equipmentId: number, ref: HardwareAccessGroupRef, nome: string): Promise<HardwareAccessGroupInspection>;
+
+  /** Remove departamento, regras e horários. Só chamar com o grupo sem membros. */
   removeAccessGroup(equipmentId: number, ref: HardwareAccessGroupRef): Promise<void>;
 
   /** Quantidade de usuários vinculados ao departamento, consultada no próprio equipamento. */
