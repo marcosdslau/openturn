@@ -11,6 +11,7 @@ import {
   ControlIDMode,
   ControlIdRelayMultiHostContext,
   normalizeControlIdModel,
+  resolverHostControlId,
 } from './controlid.types';
 import { ControlIdDefaultProvider } from './models/controlid-default.provider';
 import { IdBlockControlIDProvider } from './models/idblock.provider';
@@ -31,12 +32,11 @@ export class ControlIdBrandFactory implements IBrandFactory {
   ): Promise<IHardwareProvider> {
     const cfg = (equipment.EQPConfig || {}) as unknown as Partial<ControlIDConfig>;
 
-    const host =
-      overrideHost ||
-      cfg.host ||
-      cfg.ip_entry ||
-      cfg.ip_exit ||
-      equipment.EQPEnderecoIp;
+    const host = resolverHostControlId(
+      cfg,
+      equipment.EQPEnderecoIp,
+      overrideHost,
+    )?.host;
     if (!host) {
       throw new Error(
         `Invalid configuration for equipment ${equipment.EQPCodigo}: No valid host/IP found.`,

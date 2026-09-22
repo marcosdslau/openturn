@@ -3,14 +3,13 @@ import { AuthModule } from '../auth/auth.module';
 import { PrismaModule } from '../common/prisma/prisma.module';
 import { HardwareModule } from '../hardware/hardware.module';
 import { TurmaAcessoService } from './turma-acesso.service';
+import { EquipamentoAcessoController } from './equipamento-acesso.controller';
 import { TurmaController } from './turma.controller';
-import { TurmaPerfilController } from './turma-perfil.controller';
-import { TurmaSentidoController } from './turma-sentido.controller';
 
 @Module({
   imports: [AuthModule, PrismaModule, HardwareModule],
-  // Ordem importa: rotas estáticas de perfil antes de `turma/:trmCodigo`.
-  controllers: [TurmaPerfilController, TurmaSentidoController, TurmaController],
+  // Ordem importa: rotas estáticas antes de `turma/:trmCodigo`.
+  controllers: [EquipamentoAcessoController, TurmaController],
   providers: [TurmaAcessoService],
   exports: [TurmaAcessoService],
 })

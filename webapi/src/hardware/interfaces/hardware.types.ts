@@ -113,6 +113,100 @@ export interface HardwareDirectionReading {
   portais: HardwarePortal[];
 }
 
+/** Intervalo como o equipamento guarda: segundos desde 00:00, com 86399 = fim do dia. */
+export interface HardwareSpan {
+  start: number;
+  end: number;
+  /** dom..sab, 0/1 */
+  dias: number[];
+  /** hol1..hol3, 0/1 */
+  feriados: number[];
+}
+
+/** Horário do equipamento (`time_zones` + `time_spans`) como está gravado. */
+export interface HardwareAccessHorario {
+  id: string;
+  nome: string;
+  spans: HardwareSpan[];
+}
+
+/** Regra de acesso com seus vínculos, como está gravada no equipamento. */
+export interface HardwareAccessRegra {
+  id: string;
+  nome: string;
+  /** 1 = permissão, 0 = bloqueio. */
+  tipo: number;
+  horarioIds: string[];
+  /** Portais aos quais a regra está ligada — é isto que define em que sentido ela vale. */
+  portalIds: string[];
+  grupoIds: string[];
+}
+
+/** Intervalo a gravar no equipamento: segundos desde 00:00 e os dias em que vale. */
+export interface HardwareSpanEntrada {
+  start: number;
+  end: number;
+  /** dom..sab */
+  dias: boolean[];
+  /** hol1..hol3 */
+  feriados?: boolean[];
+}
+
+/** Um host do equipamento e de onde ele saiu no cadastro. */
+export interface HardwareAccessHost {
+  host: string;
+  /** Campo de origem, ex.: "EQPConfig.ip_entry". `EQPEnderecoIp` é o ÚLTIMO fallback da precedência. */
+  origem: string;
+  /** true = é com este host que o sistema fala por padrão. */
+  efetivo: boolean;
+}
+
+/** Retrato lido de um host específico — para comparar se os hosts têm o mesmo banco de objetos. */
+export interface HardwareAccessHostSnapshot extends HardwareAccessHost {
+  snapshot?: HardwareAccessSnapshot;
+  erro?: string;
+}
+
+/**
+ * Escrita na configuração de acesso do equipamento. Operações cruas e sem opinião: quem chama
+ * decide a ordem, valida e atualiza o espelho. Departamentos e regras entram na fase 3.
+ */
+export interface HardwareAccessConfigOps {
+  criarArea(nome: string): Promise<string>;
+  renomearArea(id: string, nome: string): Promise<void>;
+  /** Aresta dirigida: quem passa sai de `areaFromId` e ENTRA em `areaToId`. */
+  criarPortal(nome: string, areaFromId: string, areaToId: string): Promise<string>;
+  criarHorario(nome: string): Promise<string>;
+  renomearHorario(id: string, nome: string): Promise<void>;
+  substituirIntervalos(id: string, spans: HardwareSpanEntrada[]): Promise<void>;
+  /** Não mexe nos vínculos: barrar horário em uso é responsabilidade de quem chama. */
+  removerHorario(id: string): Promise<void>;
+  criarGrupo(nome: string): Promise<string>;
+  renomearGrupo(id: string, nome: string): Promise<void>;
+  /** Regra de PERMISSÃO (`type: 1`). O modelo é allow-only: bloqueio nunca é criado. */
+  criarRegra(nome: string): Promise<string>;
+  renomearRegra(id: string, nome: string): Promise<void>;
+  definirHorariosDaRegra(regraId: string, horarioIds: string[]): Promise<void>;
+  /** É o portal que define o SENTIDO da regra — nem o departamento nem a regra têm sentido próprio. */
+  definirPortaisDaRegra(regraId: string, portalIds: string[]): Promise<void>;
+  ligarRegraAoGrupo(grupoId: string, regraId: string): Promise<void>;
+  /** Apaga vínculos e depois a regra, na ordem que as chaves estrangeiras exigem. */
+  removerRegra(regraId: string): Promise<void>;
+  desligarRegraDoGrupo(grupoId: string, regraId: string): Promise<void>;
+}
+
+/**
+ * Retrato completo da configuração de acesso de um equipamento, base do espelho
+ * (docs/controle-por-turma/PLANO-IMPLEMENTACAO.md §3).
+ */
+export interface HardwareAccessSnapshot {
+  areas: HardwareArea[];
+  portais: HardwarePortal[];
+  horarios: HardwareAccessHorario[];
+  grupos: Array<{ id: string; nome: string }>;
+  regras: HardwareAccessRegra[];
+}
+
 export interface HardwareAccessGroupInspection {
   encontrado: boolean;
   grupo: { id: string; nome: string } | null;
@@ -124,6 +218,6 @@ export interface HardwareAccessGroupInspection {
     nome: string;
     tipo: number;
     portais: string[];
-    horarios: Array<{ id: string; nome: string; spans: Array<{ start: number; end: number; dias: number[]; feriados: number[] }> }>;
+    horarios: HardwareAccessHorario[];
   }>;
 }

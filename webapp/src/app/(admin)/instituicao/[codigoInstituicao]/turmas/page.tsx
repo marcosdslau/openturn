@@ -9,13 +9,10 @@ import Button from "@/components/ui/button/Button";
 import Badge from "@/components/ui/badge/Badge";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
 import TurmaValidacaoModal, { type TurmaAlvo } from "./components/TurmaValidacaoModal";
-import PerfisHorarioTab from "./components/PerfisHorarioTab";
+import DepartamentosTab from "./components/DepartamentosTab";
 import ImportacaoAnoAnteriorModal from "./components/ImportacaoAnoAnteriorModal";
-import TurmaDiagramaModal from "./components/TurmaDiagramaModal";
-import EquipamentosSentidoTab from "./components/EquipamentosSentidoTab";
 import PessoasTurmaModal from "./components/PessoasTurmaModal";
 import { EyeIcon } from "@/icons";
-import { COR_SENTIDO } from "./components/DiagramaRegraTurma";
 import {
     MODO_INFO,
     SENTIDOS,
@@ -168,7 +165,7 @@ export default function TurmasPage() {
     const podeSincronizar = can("turma", "sync");
     const podeVerPessoas = can("pessoa", "read");
 
-    const [aba, setAba] = useState<"turmas" | "perfis" | "equipamentos">("turmas");
+    const [aba, setAba] = useState<"turmas" | "departamentos">("turmas");
     const [turmas, setTurmas] = useState<TurmaItem[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 20, totalPages: 0 });
     const [page, setPage] = useState(1);
@@ -181,7 +178,6 @@ export default function TurmasPage() {
     const [opcoes, setOpcoes] = useState(OPCOES_VAZIAS);
     const [selecionadas, setSelecionadas] = useState<Map<number, TurmaAlvo>>(new Map());
     const [modalTurmas, setModalTurmas] = useState<TurmaAlvo[] | null>(null);
-    const [diagramaTurma, setDiagramaTurma] = useState<TurmaAlvo | null>(null);
     const [pessoasTurma, setPessoasTurma] = useState<TurmaAlvo | null>(null);
     const [equipamentosSentido, setEquipamentosSentido] = useState<EquipamentoSentidoItem[] | null>(null);
     const [pares, setPares] = useState<ParImportacao[]>([]);
@@ -349,33 +345,12 @@ export default function TurmasPage() {
                 </div>
             )}
 
-            {aba !== "equipamentos" && semAreas.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-warning-200 bg-warning-50 p-4 dark:border-warning-500/30 dark:bg-warning-500/10">
-                    <p className="text-sm text-warning-800 dark:text-warning-300">
-                        {semAreas.length === aptos.length ? (
-                            <>
-                                <strong>Nenhum equipamento</strong> tem a Área Interna e a Área Externa preparadas: as regras de turma não podem ser
-                                aplicadas.
-                            </>
-                        ) : (
-                            <>
-                                <strong>{semAreas.length} equipamento(s)</strong> sem áreas preparadas (
-                                {semAreas.map((e) => e.EQPDescricao ?? e.EQPCodigo).join(", ")}): neles as regras de turma não são aplicadas.
-                            </>
-                        )}
-                    </p>
-                    <Button size="sm" variant="outline" onClick={() => setAba("equipamentos")}>
-                        Preparar áreas
-                    </Button>
-                </div>
-            )}
 
             <div className="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-gray-800" role="tablist">
                 {(
                     [
                         ["turmas", "Turmas"],
-                        ["perfis", "Perfis de horário"],
-                        ["equipamentos", `Equipamentos (áreas)${semValidacao.length ? ` · ${semValidacao.length} a validar` : ""}`],
+                        ["departamentos", "Departamentos"],
                     ] as const
                 ).map(([valor, rotulo]) => (
                     <button
@@ -394,10 +369,8 @@ export default function TurmasPage() {
                 ))}
             </div>
 
-            {aba === "equipamentos" ? (
-                <EquipamentosSentidoTab instituicaoId={instituicaoId} podeEditar={podeEditar} versao={versao} onAlterado={aposSalvar} />
-            ) : aba === "perfis" ? (
-                <PerfisHorarioTab instituicaoId={instituicaoId} podeEditar={podeEditar} versao={versao} />
+            {aba === "departamentos" ? (
+                <DepartamentosTab instituicaoId={instituicaoId} versao={versao} />
             ) : (
                 <>
                     <form
@@ -585,22 +558,11 @@ export default function TurmasPage() {
                                                 </Badge>
                                             </td>
                                             <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300">
-                                                {t.TRMValidacaoAtiva && t.perfil ? (
+                                                {t.TRMValidacaoAtiva && t.departamento ? (
                                                     <>
-                                                        <span className="font-mono text-gray-800 dark:text-white/90">{t.perfil.PHANome}</span>
-                                                        {t.perfil.qtdeTurmas > 1 && (
-                                                            <span className="block text-xs text-gray-500">{t.perfil.qtdeTurmas} turmas</span>
-                                                        )}
-                                                        <span className="mt-1 flex flex-col gap-0.5 text-xs">
-                                                            {SENTIDOS.map((s) => (
-                                                                <span key={s} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-                                                                    <span className={`inline-block h-2 w-2 rounded-full ${COR_SENTIDO[s].barra}`} aria-hidden />
-                                                                    <span className="text-gray-500">{SENTIDO_INFO[s].curto}:</span>
-                                                                    <span className={t.perfil!.modos[s] === "bloqueado" ? "text-error-600" : ""}>
-                                                                        {MODO_INFO[t.perfil!.modos[s]]?.rotulo ?? t.perfil!.modos[s]}
-                                                                    </span>
-                                                                </span>
-                                                            ))}
+                                                        <span className="text-gray-800 dark:text-white/90">{t.departamento!.DEPNome}</span>
+                                                        <span className="block text-xs text-gray-500">
+                                                            adotado em {t.departamento!.adotadoEm} equipamento(s)
                                                         </span>
                                                     </>
                                                 ) : (
@@ -619,11 +581,6 @@ export default function TurmasPage() {
                                             </td>
                                             <td className="px-4 py-3 text-right">
                                                 <div className="flex justify-end gap-2">
-                                                    {t.perfil && (
-                                                        <Button size="sm" variant="outline" onClick={() => setDiagramaTurma(alvo(t))}>
-                                                            Diagrama
-                                                        </Button>
-                                                    )}
                                                     <Button size="sm" variant="outline" onClick={() => setModalTurmas([alvo(t)])}>
                                                         {podeEditar ? "Configurar" : "Ver"}
                                                     </Button>
@@ -668,41 +625,15 @@ export default function TurmasPage() {
                         if (modalTurmas.length > 1) setSelecionadas(new Map());
                         aposSalvar();
                     }}
-                    onVerAplicado={
-                        modalTurmas.length === 1
-                            ? () => {
-                                  setDiagramaTurma(modalTurmas[0]);
-                                  setModalTurmas(null);
-                              }
-                            : undefined
-                    }
                     onIrParaEquipamentos={() => {
                         setModalTurmas(null);
-                        setAba("equipamentos");
+                        setAba("departamentos");
                     }}
                 />
             )}
 
             {pessoasTurma && (
                 <PessoasTurmaModal isOpen onClose={() => setPessoasTurma(null)} instituicaoId={instituicaoId} turma={pessoasTurma} />
-            )}
-
-            {diagramaTurma && (
-                <TurmaDiagramaModal
-                    isOpen
-                    onClose={() => setDiagramaTurma(null)}
-                    instituicaoId={instituicaoId}
-                    turma={diagramaTurma}
-                    podeEditar={podeEditar}
-                    onEditar={() => {
-                        setModalTurmas([diagramaTurma]);
-                        setDiagramaTurma(null);
-                    }}
-                    onIrParaEquipamentos={() => {
-                        setDiagramaTurma(null);
-                        setAba("equipamentos");
-                    }}
-                />
             )}
 
             <ImportacaoAnoAnteriorModal

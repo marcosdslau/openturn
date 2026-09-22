@@ -6,7 +6,6 @@ import {
   ImportacaoAnoAnteriorDto,
   TurmaFiltroDto,
   TurmaPessoasFiltroDto,
-  TurmaSincronizarDto,
   TurmaValidacaoDto,
   TurmaValidacaoLoteDto,
 } from './dto/turma.dto';
@@ -23,6 +22,13 @@ export class TurmaController {
   listar(@Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number, @Query() filtro: TurmaFiltroDto) {
     const ativa = filtro.ativa === 'todas' ? 'todas' : filtro.ativa === 'false' ? false : true;
     return this.service.executar(instituicaoCodigo, (core) => core.listar({ ...filtro, ativa }));
+  }
+
+  /** Departamentos da instituição — é o que a turma escolhe. */
+  @Get('departamentos')
+  @RequirePermission('turma', 'read')
+  departamentos(@Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number) {
+    return this.service.executar(instituicaoCodigo, (core) => core.listarDepartamentos());
   }
 
   @Get('opcoes-filtro')
@@ -64,10 +70,6 @@ export class TurmaController {
 
   @Post('reconciliar')
   @RequirePermission('turma', 'sync')
-  reconciliar(@Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number) {
-    return this.service.executar(instituicaoCodigo, (core) => core.reconciliar());
-  }
-
   /** Pessoas vinculadas à turma, com miniatura da foto (lista dados pessoais: exige leitura de pessoa). */
   @Get(':trmCodigo/pessoas')
   @RequirePermission('pessoa', 'read')
@@ -89,16 +91,6 @@ export class TurmaController {
   }
 
   /** Lê do equipamento o que está de fato gravado para a turma e compara com o configurado. */
-  @Get(':trmCodigo/aplicado/:eqpCodigo')
-  @RequirePermission('turma', 'read')
-  lerAplicado(
-    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-    @Param('trmCodigo', ParseIntPipe) trmCodigo: number,
-    @Param('eqpCodigo', ParseIntPipe) eqpCodigo: number,
-  ) {
-    return this.service.executar(instituicaoCodigo, (core) => core.lerRegraAplicada(trmCodigo, eqpCodigo));
-  }
-
   @Put(':trmCodigo/validacao')
   @RequirePermission('turma', 'update')
   salvar(
@@ -112,15 +104,4 @@ export class TurmaController {
     );
   }
 
-  @Post(':trmCodigo/sincronizar')
-  @RequirePermission('turma', 'sync')
-  sincronizar(
-    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
-    @Param('trmCodigo', ParseIntPipe) trmCodigo: number,
-    @Body() dto: TurmaSincronizarDto,
-  ) {
-    return this.service.executar(instituicaoCodigo, (core) =>
-      core.sincronizar({ TRMCodigo: trmCodigo, EQPCodigos: dto.EQPCodigos, forcar: dto.forcar }),
-    );
-  }
 }

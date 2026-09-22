@@ -3,21 +3,19 @@ import { EQPEquipamento, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../common/prisma/prisma.service';
 import {
   GrupoAplicado,
-  HardwareAccessGroup,
-  HardwareAccessGroupInspection,
-  HardwareAccessGroupRef,
-  HardwareDirectionPortals,
-  HardwareDirectionReading,
-  HardwareDirectionSetup,
+  HardwareAccessConfigOps,
+  HardwareAccessHost,
+  HardwareAccessHostSnapshot,
+  HardwareAccessSnapshot,
   HardwareEquipmentConfigType,
   HardwareUser,
-  HostCatraConfig,
 } from '../../../interfaces/hardware.types';
-import { createControlIdAccessGroup } from '../access-group/controlid-access-group';
+import { createControlIdAccessConfig } from '../access-group/controlid-access-config';
 import { IHardwareProvider } from '../../../interfaces/hardware-provider.interface';
 import {
   ControlIDConfig,
   ControlIdRelayMultiHostContext,
+  hostsControlId,
 } from '../controlid.types';
 import { IHttpTransport } from '../../../transport/http-transport.interface';
 import { DirectHttpTransport } from '../../../transport/direct-http.transport';
@@ -1331,90 +1329,59 @@ export abstract class AbstractControlIDProvider implements IHardwareProvider {
   }
 
   // ── Grupos de acesso (controle de acesso por turma) ──
-
-  private accessGroups() {
-    return createControlIdAccessGroup((fcgiPath, body) => this.postWithRetry(fcgiPath, body));
+  private accessConfig() {
+    return createControlIdAccessConfig((fcgiPath, body) => this.postWithRetry(fcgiPath, body));
   }
 
   supportsAccessGroups(): boolean {
     return true;
   }
+  accessConfigOps(_equipmentId: number): HardwareAccessConfigOps {
+    return this.accessConfig();
+  }
 
-  /** sec_box de cada host do equipamento (primário e faciais) — SpecControlId.md §3.1. */
-  private async readCatraConfigAllHosts(device: EQPEquipamento): Promise<HostCatraConfig[]> {
-    const hosts = this.collectMonitorTargetHosts(device);
-    const texto = (v: unknown) => (v == null ? null : String(v));
+  /** Hosts do equipamento e com qual deles ESTE provider fala. Só lê o cadastro, não acessa rede. */
+  accessHosts(device: EQPEquipamento): HardwareAccessHost[] {
+    const cfg = (device.EQPConfig || {}) as unknown as ControlIDConfig;
+    const atual = this.monitorEndpointKey(this.config.host);
+    return hostsControlId(cfg, device.EQPEnderecoIp).map((h) => ({
+      host: h.host,
+      origem: h.origem,
+      efetivo: !!atual && this.monitorEndpointKey(h.host) === atual,
+    }));
+  }
+
+  /**
+   * Lê a configuração de acesso host a host. Serve para responder uma pergunta que o código não
+   * responde sozinho: se os leitores faciais têm banco de objetos próprio (áreas, horários e
+   * departamentos separados) ou se compartilham o da catraca. Enquanto isso for desconhecido, o
+   * espelho assume UM banco por equipamento.
+   */
+  async readAccessConfigAllHosts(device: EQPEquipamento): Promise<HardwareAccessHostSnapshot[]> {
+    const hosts = this.accessHosts(device);
     return Promise.all(
-      hosts.map(async (host): Promise<HostCatraConfig> => {
+      hosts.map(async (h): Promise<HardwareAccessHostSnapshot> => {
         try {
-          const data = (await this.postOnHost(this.transportForHost(device, host), '/get_configuration.fcgi', {
-            sec_box: ['catra_role', 'catra_side_to_enter', 'catra_default_fsm'],
-          })) as Record<string, any>;
-          const box = (data?.sec_box ?? data ?? {}) as Record<string, unknown>;
-          return {
-            host,
-            catra_role: texto(box.catra_role),
-            catra_side_to_enter: texto(box.catra_side_to_enter),
-            catra_default_fsm: texto(box.catra_default_fsm),
-          };
+          const transport = this.transportForHost(device, h.host);
+          const cfg = createControlIdAccessConfig(async (fcgiPath, body) => ({
+            data: await this.postOnHost(transport, fcgiPath, body),
+          }));
+          return { ...h, snapshot: await cfg.readAll() };
         } catch (error: any) {
-          return { host, erro: this.getErrorDetails(error) };
+          return { ...h, erro: this.getErrorDetails(error) };
         }
       }),
     );
   }
 
-  async prepareAccessDirection(device: EQPEquipamento): Promise<HardwareDirectionSetup> {
-    const setup = await this.accessGroups().prepareDirection();
-    const catra = await this.readCatraConfigAllHosts(device);
+  async readAccessConfig(equipmentId: number): Promise<HardwareAccessSnapshot> {
+    const s = await this.accessConfig().readAll();
     this.logger.log(
-      `[ControlID] prepareAccessDirection EQP=${device.EQPCodigo} host=${this.config.host} ` +
-        `áreas(int=${setup.areaInternaId}, ext=${setup.areaExternaId}) portais(int=${setup.portalInternaId}, ext=${setup.portalExternaId}) ` +
-        `criados=${JSON.stringify(setup.criados)} regrasReplicadas=${setup.regrasReplicadas}`,
+      `[ControlID] readAccessConfig EQP=${equipmentId} host=${this.config.host} ` +
+        `áreas=${s.areas.length} portais=${s.portais.length} horários=${s.horarios.length} ` +
+        `grupos=${s.grupos.length} regras=${s.regras.length}`,
     );
-    return { ...setup, catra };
-  }
-
-  async readAccessDirection(device: EQPEquipamento): Promise<HardwareDirectionReading> {
-    const leitura = await this.accessGroups().readDirection();
-    return { ...leitura, catra: await this.readCatraConfigAllHosts(device) };
-  }
-
-  async syncAccessGroup(
-    equipmentId: number,
-    group: HardwareAccessGroup,
-    ref: HardwareAccessGroupRef | undefined,
-    portals: HardwareDirectionPortals,
-  ): Promise<HardwareAccessGroupRef> {
-    const r = await this.accessGroups().sync(group, ref, portals);
-    this.logger.log(
-      `[ControlID] syncAccessGroup EQP=${equipmentId} host=${this.config.host} "${group.nome}" group=${r.groupId} ` +
-        `interna=${group.interna.modo}(${r.interna?.accessRuleId ?? '-'}) externa=${group.externa.modo}(${r.externa?.accessRuleId ?? '-'})`,
-    );
-    return r;
-  }
-
-  async inspectAccessGroup(
-    _equipmentId: number,
-    ref: HardwareAccessGroupRef,
-    nome: string,
-  ): Promise<HardwareAccessGroupInspection> {
-    return this.accessGroups().inspect(ref, nome);
-  }
-
-  async removeAccessGroup(equipmentId: number, ref: HardwareAccessGroupRef): Promise<void> {
-    await this.accessGroups().remove(ref);
-    this.logger.log(
-      `[ControlID] removeAccessGroup EQP=${equipmentId} host=${this.config.host} group=${ref.groupId ?? '-'}`,
-    );
-  }
-
-  async countAccessGroupMembers(_equipmentId: number, ref: HardwareAccessGroupRef): Promise<number> {
-    return this.accessGroups().countMembers(ref);
-  }
-
-  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
-    return this.accessGroups().list();
+    return s;
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

@@ -1,55 +1,44 @@
-import type {
-  EQPEquipamento,
-  EQSEquipamentoSentido,
-  PHAJanela,
-  PHAPerfilHorario,
-  PHEPerfilEquipamento,
-  Prisma,
-  PrismaClient,
-} from '@prisma/client';
+import type { EQPEquipamento, Prisma, PrismaClient } from '@prisma/client';
 import {
   chaveCorrespondenciaAnual,
   diferencaSimetrica,
   elegerTurma,
-  hashDesejado,
   noEscopo,
   paraTurmaEstado,
-  perfilDeveExistir,
   resolverEscopo,
   resolverTurmaDaMatricula,
-  turmaVigente,
-  type EquipamentoEstado,
   type TurmaEstado,
 } from './estado-desejado';
-import { resolverGruposDaPessoa } from './grupo-pessoa';
-import { hashEstavel } from './hash-estavel';
-import { compararRegras, regrasAplicadas } from './inspecao';
 import {
-  canonizarRegras,
-  hashConfig,
-  hashJanelas,
-  modoParaDb,
-  normalizarRegras,
-  regrasDoPerfil,
-  regrasParaLinhas,
-  validarRegras,
-  type CanonicoRegras,
-} from './perfil-canonico';
-import { normalizarNomePerfil, sugerirNomePerfil, validarNomePerfil } from './perfil-nome';
-import type {
-  AccessGroupPort,
-  HardwareAccessGroupRef,
-  HardwareDirectionPortals,
-  HostCatraConfig,
-  LockPort,
-} from './ports';
+  atualizarHorario,
+  criarArea,
+  criarHorario,
+  criarPortal,
+  removerHorario,
+  renomearArea,
+  type ContextoAcesso,
+  type JanelaDevice,
+} from './acesso-equipamento.core';
+import {
+  adotarDepartamento,
+  candidatosDepartamento,
+  criarDepartamento,
+  desadotarDepartamento,
+  renomearDepartamento,
+  revisarDepartamento,
+  salvarRegrasDepartamento,
+  type RegraDesejada,
+} from './acesso-departamento.core';
+import { lerEquipamento, type ResumoEspelho } from './espelho';
+import { compararHosts, type ComparacaoHosts } from './hosts-acesso';
+import { resolverGruposDaPessoa } from './grupo-pessoa';
+import type { AccessGroupPort, LockPort } from './ports';
 import {
   TurmaAcessoErro,
   type CatalogoEntrada,
   type EscopoEntrada,
   type JanelaEntrada,
   type Origem,
-  type RegrasEntrada,
   type ResultadoEquipamento,
   type StatusEquipamento,
   type ValidacaoEntrada,
@@ -82,7 +71,7 @@ export interface FiltroTurmas {
   curso?: string;
   serie?: string;
   turno?: string;
-  perfil?: number;
+  departamento?: number;
   equipamento?: number;
   validacaoAtiva?: boolean;
   /** Padrão: só turmas ativas. `'todas'` inclui as que saíram da origem. */
@@ -95,8 +84,6 @@ export interface ParImportacao {
   TRMCodigoDestino: number;
 }
 
-type EquipamentoComSentido = EQPEquipamento & { sentido: EQSEquipamentoSentido | null };
-type PerfilParaSync = PHAPerfilHorario & { janelas: PHAJanela[]; equipamentos: PHEPerfilEquipamento[] };
 
 function mensagemDe(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -127,54 +114,8 @@ function paraData(v: string | Date | null | undefined): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function sentidoPreparado(e: { sentido?: EQSEquipamentoSentido | null }): boolean {
-  return !!e.sentido?.EQSPortalInternaId && !!e.sentido?.EQSPortalExternaId;
-}
-
-function estadoEquipamento(e: EquipamentoComSentido): EquipamentoEstado {
-  return { EQPCodigo: e.EQPCodigo, EQPAtivo: e.EQPAtivo, sentidoPreparado: sentidoPreparado(e) };
-}
-
 /** Portal de cada sentido, já aplicando a inversão confirmada em bancada. */
-function portaisDoEquipamento(s: EQSEquipamentoSentido): HardwareDirectionPortals {
-  const a = String(s.EQSPortalInternaId);
-  const b = String(s.EQSPortalExternaId);
-  return s.EQSInvertido ? { interna: b, externa: a } : { interna: a, externa: b };
-}
-
-function refDoPhe(phe: PHEPerfilEquipamento | null | undefined): HardwareAccessGroupRef | undefined {
-  if (!phe) return undefined;
-  const ou = (v: string | null) => v ?? undefined;
-  return {
-    groupId: ou(phe.PHEIdGrupo),
-    interna: { accessRuleId: ou(phe.PHEIdRegraInterna), timeZoneId: ou(phe.PHEIdHorarioInterna) },
-    externa: { accessRuleId: ou(phe.PHEIdRegraExterna), timeZoneId: ou(phe.PHEIdHorarioExterna) },
-  };
-}
-
-function canonicoDoPerfil(perfil: PHAPerfilHorario & { janelas: PHAJanela[] }): CanonicoRegras {
-  return canonizarRegras(regrasDoPerfil(perfil));
-}
-
 /** Alertas da leitura de sec_box (SpecControlId.md §3.3). */
-function alertasCatra(catra: HostCatraConfig[]): string[] {
-  if (!catra.length) return ['Nenhum host do equipamento respondeu à leitura da configuração da catraca'];
-  const alertas: string[] = [];
-  for (const h of catra) {
-    if (h.erro) {
-      alertas.push(`${h.host}: não foi possível ler a configuração da catraca (${h.erro})`);
-      continue;
-    }
-    if (h.catra_default_fsm != null && String(h.catra_default_fsm) !== '0') {
-      alertas.push(
-        `${h.host}: catra_default_fsm = "${h.catra_default_fsm}". Com valor diferente de "0" pelo menos um sentido fica ` +
-          'liberado ou bloqueado pelo hardware e as regras de turma não são consultadas nele',
-      );
-    }
-  }
-  return alertas;
-}
-
 /**
  * Todas as operações de negócio do controle de acesso por turma.
  *
@@ -204,7 +145,7 @@ export class TurmaAcessoCore {
     if (filtro.curso) and.push({ TRMCurso: filtro.curso });
     if (filtro.serie) and.push({ TRMSerie: filtro.serie });
     if (filtro.turno) and.push({ TRMTurno: filtro.turno });
-    if (filtro.perfil) and.push({ PHACodigo: Number(filtro.perfil) });
+    if (filtro.departamento) and.push({ DEPCodigo: Number(filtro.departamento) });
     if (filtro.validacaoAtiva !== undefined) and.push({ TRMValidacaoAtiva: !!filtro.validacaoAtiva });
     if (filtro.equipamento) {
       and.push({
@@ -230,14 +171,13 @@ export class TurmaAcessoCore {
         where,
         include: {
           escopo: { select: { EQPCodigo: true } },
-          perfil: {
+          departamento: {
             select: {
-              PHACodigo: true,
-              PHANome: true,
-              PHAHashConfig: true,
-              PHAModoInterna: true,
-              PHAModoExterna: true,
-              equipamentos: { select: { EQPCodigo: true, PHESyncHash: true, PHEUltimoErro: true } },
+              DEPCodigo: true,
+              DEPNome: true,
+              equipamentos: {
+                select: { EQPCodigo: true, DEQNome: true, DEQRevisadoEm: true, DEQUltimoErro: true, _count: { select: { regras: true } } },
+              },
             },
           },
         },
@@ -260,19 +200,7 @@ export class TurmaAcessoCore {
 
     const ativos = equipamentos.filter((e) => e.EQPAtivo);
     const suporte = await this.mapaSuporte(ativos);
-    const preparados = new Set(ativos.filter(sentidoPreparado).map((e) => e.EQPCodigo));
     const ativosCodigos = ativos.map((e) => e.EQPCodigo);
-
-    const perfisCodigos = [...new Set(turmas.map((t) => t.PHACodigo).filter((c): c is number => c != null))];
-    const usoPorPerfil = new Map<number, number>();
-    if (perfisCodigos.length) {
-      const grupos = await this.prisma.tRMTurma.groupBy({
-        by: ['PHACodigo'],
-        where: { INSInstituicaoCodigo: this.ins, PHACodigo: { in: perfisCodigos }, TRMValidacaoAtiva: true, TRMAtiva: true },
-        _count: { _all: true },
-      });
-      for (const g of grupos) if (g.PHACodigo != null) usoPorPerfil.set(g.PHACodigo, g._count._all);
-    }
 
     const data = turmas.map((t) => {
       const estado = paraTurmaEstado(t);
@@ -285,21 +213,21 @@ export class TurmaAcessoCore {
         naoSuportados: number;
         semSentido: number;
       } | null = null;
-      if (t.TRMValidacaoAtiva && t.perfil) {
+      if (t.TRMValidacaoAtiva && t.departamento) {
+        // Modelo novo: "em dia" = departamento adotado, com regra e conferido. `semSentido` passa a
+        // contar equipamento sem adoção — é o mesmo sintoma para a tela: a regra não vale lá.
         sync = { total: alvo.length, sincronizados: 0, pendentes: 0, erros: 0, naoSuportados: 0, semSentido: 0 };
+        const adotados = new Map(t.departamento.equipamentos.map((d) => [d.EQPCodigo, d]));
         for (const eqp of alvo) {
           if (!suporte.get(eqp)) {
             sync.naoSuportados++;
             continue;
           }
-          if (!preparados.has(eqp)) {
-            sync.semSentido++;
-            continue;
-          }
-          const phe = t.perfil.equipamentos.find((e) => e.EQPCodigo === eqp);
-          if (phe?.PHESyncHash === t.perfil.PHAHashConfig) sync.sincronizados++;
-          else if (phe?.PHEUltimoErro) sync.erros++;
-          else sync.pendentes++;
+          const deq = adotados.get(eqp);
+          if (!deq) sync.semSentido++;
+          else if (deq.DEQUltimoErro) sync.erros++;
+          else if (!deq._count.regras || !deq.DEQRevisadoEm) sync.pendentes++;
+          else sync.sincronizados++;
         }
       }
       return {
@@ -316,12 +244,11 @@ export class TurmaAcessoCore {
         TRMPrioridade: t.TRMPrioridade,
         TRMQtdePessoas: t.TRMQtdePessoas,
         TRMAlteradoEm: t.TRMAlteradoEm,
-        perfil: t.perfil
+        departamento: t.departamento
           ? {
-              PHACodigo: t.perfil.PHACodigo,
-              PHANome: t.perfil.PHANome,
-              qtdeTurmas: usoPorPerfil.get(t.perfil.PHACodigo) ?? 0,
-              modos: { interna: t.perfil.PHAModoInterna.toLowerCase(), externa: t.perfil.PHAModoExterna.toLowerCase() },
+              DEPCodigo: t.departamento.DEPCodigo,
+              DEPNome: t.departamento.DEPNome,
+              adotadoEm: t.departamento.equipamentos.length,
             }
           : null,
         escopo: { todos: t.TRMTodosEquipamentos, EQPCodigos: estado.escopo, total: alvo.length },
@@ -364,15 +291,15 @@ export class TurmaAcessoCore {
   }
 
   async opcoesFiltro() {
-    const [turmas, perfis, equipamentos] = await Promise.all([
+    const [turmas, departamentos, equipamentos] = await Promise.all([
       this.prisma.tRMTurma.findMany({
         where: { INSInstituicaoCodigo: this.ins, TRMAtiva: true },
         select: { TRMAnoReferencia: true, TRMCurso: true, TRMSerie: true, TRMTurno: true },
       }),
-      this.prisma.pHAPerfilHorario.findMany({
+      this.prisma.dEPDepartamento.findMany({
         where: { INSInstituicaoCodigo: this.ins },
-        select: { PHACodigo: true, PHANome: true },
-        orderBy: { PHANome: 'asc' },
+        select: { DEPCodigo: true, DEPNome: true },
+        orderBy: { DEPNome: 'asc' },
       }),
       this.prisma.eQPEquipamento.findMany({
         where: { INSInstituicaoCodigo: this.ins, EQPAtivo: true },
@@ -387,9 +314,46 @@ export class TurmaAcessoCore {
       cursos: distintos(turmas.map((t) => t.TRMCurso)),
       series: distintos(turmas.map((t) => t.TRMSerie)),
       turnos: distintos(turmas.map((t) => t.TRMTurno)),
-      perfis,
       equipamentos,
     };
+  }
+
+  /** Departamentos da instituição, com onde estão adotados e quantas turmas os usam. */
+  async listarDepartamentos() {
+    const deps = await this.prisma.dEPDepartamento.findMany({
+      where: { INSInstituicaoCodigo: this.ins },
+      include: {
+        equipamentos: {
+          select: {
+            EQPCodigo: true,
+            DEQNome: true,
+            DEQRevisadoEm: true,
+            DEQUltimoErro: true,
+            _count: { select: { regras: true } },
+            equipamento: { select: { EQPDescricao: true, EQPAtivo: true } },
+          },
+        },
+        turmas: { select: { TRMCodigo: true, TRMTurma: true, TRMCurso: true, TRMSerie: true, TRMTurno: true, TRMAnoReferencia: true, TRMValidacaoAtiva: true } },
+      },
+      orderBy: { DEPNome: 'asc' },
+    });
+
+    return deps.map((d) => ({
+      DEPCodigo: d.DEPCodigo,
+      DEPNome: d.DEPNome,
+      DEPDescricao: d.DEPDescricao,
+      equipamentos: d.equipamentos.map((e) => ({
+        EQPCodigo: e.EQPCodigo,
+        EQPDescricao: e.equipamento.EQPDescricao,
+        EQPAtivo: e.equipamento.EQPAtivo,
+        nome: e.DEQNome,
+        revisado: !!e.DEQRevisadoEm,
+        regras: e._count.regras,
+        erro: e.DEQUltimoErro,
+      })),
+      turmas: d.turmas.filter((t) => t.TRMValidacaoAtiva).map(rotuloTurma),
+      qtdeTurmas: d.turmas.filter((t) => t.TRMValidacaoAtiva).length,
+    }));
   }
 
   async obter(trmCodigo: number) {
@@ -398,14 +362,14 @@ export class TurmaAcessoCore {
       include: {
         escopo: { select: { EQPCodigo: true } },
         usuarioAlteracao: { select: { USRNome: true } },
-        perfil: {
-          include: {
-            janelas: { orderBy: { PHJOrdem: 'asc' } },
-            equipamentos: true,
-            turmas: {
-              where: { TRMValidacaoAtiva: true, TRMAtiva: true },
-              select: { TRMCodigo: true, TRMSerie: true, TRMTurma: true, TRMTurno: true, TRMAnoReferencia: true },
+        departamento: {
+          select: {
+            DEPCodigo: true,
+            DEPNome: true,
+            equipamentos: {
+              select: { EQPCodigo: true, DEQNome: true, DEQRevisadoEm: true, DEQUltimoErro: true, _count: { select: { regras: true } } },
             },
+            turmas: { select: { TRMCodigo: true, TRMTurma: true, TRMCurso: true, TRMSerie: true, TRMTurno: true, TRMAnoReferencia: true } },
           },
         },
       },
@@ -440,27 +404,24 @@ export class TurmaAcessoCore {
         usuario: turma.usuarioAlteracao?.USRNome ?? null,
         rotina: turma.ROTCodigoAlteracao,
       },
-      regras: turma.perfil ? regrasDoPerfil(turma.perfil) : null,
-      /** Forma canônica (dias em minutos) das regras salvas — base do diagrama. */
-      canonico: turma.perfil ? canonicoDoPerfil(turma.perfil) : null,
-      perfil: turma.perfil
+      departamento: turma.departamento
         ? {
-            PHACodigo: turma.perfil.PHACodigo,
-            PHANome: turma.perfil.PHANome,
-            outrasTurmas: turma.perfil.turmas.filter((t) => t.TRMCodigo !== turma.TRMCodigo).map(rotuloTurma),
+            DEPCodigo: turma.departamento.DEPCodigo,
+            DEPNome: turma.departamento.DEPNome,
+            outrasTurmas: turma.departamento.turmas.filter((t) => t.TRMCodigo !== turma.TRMCodigo).map(rotuloTurma),
           }
         : null,
       escopo: { todos: turma.TRMTodosEquipamentos, EQPCodigos: estado.escopo },
       equipamentos: equipamentos.map((e) => {
-        const phe = turma.perfil?.equipamentos.find((p) => p.EQPCodigo === e.EQPCodigo);
-        const preparado = sentidoPreparado(e);
+        const deq = turma.departamento?.equipamentos.find((d) => d.EQPCodigo === e.EQPCodigo);
+        // "em dia" no modelo novo: adotado, com regra e conferido por alguém.
         let sync: { status: 'em_dia' | 'pendente' | 'erro'; em: Date | null; erro: string | null } | null = null;
-        if (turma.TRMValidacaoAtiva && turma.perfil && alvo.has(e.EQPCodigo) && suporte.get(e.EQPCodigo) && preparado) {
-          const emDia = phe?.PHESyncHash === turma.perfil.PHAHashConfig;
+        if (turma.TRMValidacaoAtiva && turma.departamento && alvo.has(e.EQPCodigo) && suporte.get(e.EQPCodigo)) {
+          const emDia = !!deq && !!deq._count.regras && !!deq.DEQRevisadoEm && !deq.DEQUltimoErro;
           sync = {
-            status: emDia ? 'em_dia' : phe?.PHEUltimoErro ? 'erro' : 'pendente',
-            em: phe?.PHESyncedAt ?? null,
-            erro: emDia ? null : (phe?.PHEUltimoErro ?? null),
+            status: deq?.DEQUltimoErro ? 'erro' : emDia ? 'em_dia' : 'pendente',
+            em: deq?.DEQRevisadoEm ?? null,
+            erro: deq?.DEQUltimoErro ?? null,
           };
         }
         return {
@@ -470,11 +431,17 @@ export class TurmaAcessoCore {
           EQPModelo: e.EQPModelo,
           EQPAtivo: e.EQPAtivo,
           suportado: !!suporte.get(e.EQPCodigo),
-          sentido: {
-            preparado,
-            validado: !!e.sentido?.EQSValidadoEm,
-            invertido: !!e.sentido?.EQSInvertido,
-          },
+          /** Situação do departamento da turma neste equipamento (null = fora do escopo). */
+          departamento:
+            turma.departamento && alvo.has(e.EQPCodigo)
+              ? {
+                  adotado: !!deq,
+                  nome: deq?.DEQNome ?? null,
+                  revisado: !!deq?.DEQRevisadoEm,
+                  regras: deq?._count.regras ?? 0,
+                  erro: deq?.DEQUltimoErro ?? null,
+                }
+              : null,
           selecionado: estado.escopo.includes(e.EQPCodigo),
           noEscopo: alvo.has(e.EQPCodigo),
           sync,
@@ -558,139 +525,32 @@ export class TurmaAcessoCore {
     };
   }
 
-  /** Aba "Perfis de horário" (§13.4): uso, regras e estado nos equipamentos. */
-  async listarPerfis() {
-    const [perfis, turmasLinhas, equipamentos] = await Promise.all([
-      this.prisma.pHAPerfilHorario.findMany({
-        where: { INSInstituicaoCodigo: this.ins },
-        include: { janelas: { orderBy: { PHJOrdem: 'asc' } }, equipamentos: true },
-        orderBy: { PHANome: 'asc' },
-      }),
-      this.prisma.tRMTurma.findMany({
-        where: { INSInstituicaoCodigo: this.ins, PHACodigo: { not: null } },
-        include: { escopo: { select: { EQPCodigo: true } } },
-      }),
-      this.equipamentosDaInstituicao(),
-    ]);
-    const turmas = turmasLinhas.map(paraTurmaEstado);
-    const suporte = await this.mapaSuporte(equipamentos.filter((e) => e.EQPAtivo));
-
-    return perfis.map((p) => {
-      const vigentes = turmasLinhas.filter((t) => t.PHACodigo === p.PHACodigo && t.TRMValidacaoAtiva && t.TRMAtiva);
-      const alvo = equipamentos.filter((e) => perfilDeveExistir(p.PHACodigo, estadoEquipamento(e), turmas));
-      const semSentido = equipamentos.filter(
-        (e) =>
-          e.EQPAtivo &&
-          !sentidoPreparado(e) &&
-          turmas.some((t) => t.PHACodigo === p.PHACodigo && turmaVigente(t) && noEscopo(t, e.EQPCodigo)),
-      ).length;
-      const contagem = { total: alvo.length, sincronizados: 0, pendentes: 0, erros: 0, naoSuportados: 0, semSentido };
-      for (const e of alvo) {
-        if (!suporte.get(e.EQPCodigo)) {
-          contagem.naoSuportados++;
-          continue;
-        }
-        const phe = p.equipamentos.find((x) => x.EQPCodigo === e.EQPCodigo);
-        if (phe?.PHESyncHash === p.PHAHashConfig) contagem.sincronizados++;
-        else if (phe?.PHEUltimoErro) contagem.erros++;
-        else contagem.pendentes++;
-      }
-      const removendo = p.equipamentos
-        .filter((phe) => (phe.PHESyncHash || phe.PHEIdGrupo) && !alvo.some((e) => e.EQPCodigo === phe.EQPCodigo))
-        .map((phe) => ({
-          EQPCodigo: phe.EQPCodigo,
-          EQPDescricao: equipamentos.find((e) => e.EQPCodigo === phe.EQPCodigo)?.EQPDescricao ?? null,
-          mensagem: phe.PHEUltimoErro,
-        }));
-
-      return {
-        PHACodigo: p.PHACodigo,
-        PHANome: p.PHANome,
-        regras: regrasDoPerfil(p),
-        canonico: canonicoDoPerfil(p),
-        turmas: vigentes.map((t) => ({ TRMCodigo: t.TRMCodigo, rotulo: rotuloTurma(t) })),
-        emUso: vigentes.length > 0,
-        equipamentos: contagem,
-        removendo,
-      };
-    });
-  }
-
-  /**
-   * Mostra, antes de salvar, se as regras caem num perfil existente ou criam um novo (§6.2),
-   * e devolve a forma canônica para o diagrama. Aceita `regras` ou o formato anterior (lista de faixas).
-   */
-  async previewPerfil(regrasOuHorarios: RegrasEntrada | JanelaEntrada[], trmCodigo?: number | null) {
-    const regras = Array.isArray(regrasOuHorarios)
-      ? normalizarRegras({ horarios: regrasOuHorarios })
-      : normalizarRegras({ regras: regrasOuHorarios });
-    const vazio = { canonico: null, perfilExistente: null, nomeSugerido: null, perfilAtual: null, mesmoPerfilAtual: false };
-    const erros = validarRegras(regras);
-    if (erros.length) return { erros, ...vazio };
-
-    const canonico = canonizarRegras(regras!);
-    const turma = trmCodigo
-      ? await this.prisma.tRMTurma.findFirst({ where: { TRMCodigo: Number(trmCodigo), INSInstituicaoCodigo: this.ins } })
-      : null;
-
-    const existente = await this.prisma.pHAPerfilHorario.findFirst({
-      where: { INSInstituicaoCodigo: this.ins, PHAHashJanelas: hashJanelas(canonico) },
-      include: {
-        turmas: {
-          where: { TRMValidacaoAtiva: true, TRMAtiva: true },
-          select: { TRMCodigo: true, TRMSerie: true, TRMTurma: true, TRMTurno: true, TRMAnoReferencia: true },
-        },
-      },
-    });
-
-    let perfilAtual: { PHACodigo: number; PHANome: string; outrasTurmas: number } | null = null;
-    if (turma?.PHACodigo && turma.TRMValidacaoAtiva) {
-      const atual = await this.prisma.pHAPerfilHorario.findFirst({
-        where: { PHACodigo: turma.PHACodigo, INSInstituicaoCodigo: this.ins },
-        include: { _count: { select: { turmas: { where: { TRMValidacaoAtiva: true, TRMAtiva: true } } } } },
-      });
-      if (atual) {
-        perfilAtual = { PHACodigo: atual.PHACodigo, PHANome: atual.PHANome, outrasTurmas: Math.max(0, atual._count.turmas - 1) };
-      }
-    }
-
-    if (existente) {
-      return {
-        erros: [],
-        canonico,
-        perfilExistente: {
-          PHACodigo: existente.PHACodigo,
-          PHANome: existente.PHANome,
-          turmas: existente.turmas.filter((t) => t.TRMCodigo !== turma?.TRMCodigo).map(rotuloTurma),
-        },
-        nomeSugerido: null,
-        perfilAtual,
-        mesmoPerfilAtual: perfilAtual?.PHACodigo === existente.PHACodigo,
-      };
-    }
-
-    return {
-      erros: [],
-      canonico,
-      perfilExistente: null,
-      nomeSugerido: sugerirNomePerfil(turma?.TRMTurno, await this.nomesReservados()),
-      perfilAtual,
-      mesmoPerfilAtual: false,
-    };
-  }
-
   // ── gravação ─────────────────────────────────────────────────────────────
 
   async salvarValidacao(trmCodigo: number, entrada: ValidacaoEntrada, origem: Origem) {
     return this.salvarValidacaoEmLote([trmCodigo], entrada, origem);
   }
 
-  /** §11.4: valida → perfil → transação (turma + escopo + invalidação) → sync direto nos equipamentos. */
+  /**
+   * Ativa/desativa o controle da turma. A turma só escolhe DEPARTAMENTO e ESCOPO — horários, áreas
+   * e regras são configurados por equipamento e vêm do departamento.
+   *
+   * Não escreve nada em catraca: o departamento já existe lá (foi criado ou adotado na tela do
+   * equipamento). O que muda aqui é quem entra em qual grupo, e isso vai pela rotina de vínculo.
+   */
   async salvarValidacaoEmLote(trmCodigos: number[], entrada: ValidacaoEntrada, origem: Origem) {
     const codigos = inteiros(trmCodigos);
     if (!codigos.length) throw new TurmaAcessoErro('Informe ao menos uma turma', 'validacao');
     if (!entrada || typeof entrada.ativa !== 'boolean') {
       throw new TurmaAcessoErro('Informe se a validação está ativa', 'validacao');
+    }
+    const legado = entrada as { regras?: unknown; horarios?: unknown };
+    if (legado.regras || legado.horarios) {
+      throw new TurmaAcessoErro(
+        'Horário na turma não existe mais. Configure áreas, horários e regras no equipamento ' +
+          '(Equipamentos → Configuração) e informe aqui apenas `DEPCodigo`.',
+        'validacao',
+      );
     }
 
     const turmas = await this.prisma.tRMTurma.findMany({
@@ -707,22 +567,22 @@ export class TurmaAcessoCore {
     const equipamentos = await this.equipamentosDaInstituicao();
     const ativosCodigos = equipamentos.filter((e) => e.EQPAtivo).map((e) => e.EQPCodigo);
 
-    let perfilNovo: (PHAPerfilHorario & { janelas: PHAJanela[] }) | null = null;
-    let perfilCriado = false;
+    let departamento: { DEPCodigo: number; DEPNome: string } | null = null;
     let escopoNovo: { todos: boolean; EQPCodigos: number[] } | null = null;
 
     if (entrada.ativa) {
-      const regras = normalizarRegras(entrada);
-      const erros = validarRegras(regras);
-      if (erros.length) throw new TurmaAcessoErro(`Regra inválida: ${erros.join('; ')}`, 'validacao', { erros });
+      if (!Number.isInteger(Number(entrada.DEPCodigo))) {
+        throw new TurmaAcessoErro('Informe o departamento da turma', 'validacao');
+      }
+      const dep = await this.prisma.dEPDepartamento.findFirst({
+        where: { DEPCodigo: Number(entrada.DEPCodigo), INSInstituicaoCodigo: this.ins },
+        select: { DEPCodigo: true, DEPNome: true },
+      });
+      if (!dep) throw new TurmaAcessoErro('Departamento não encontrado', 'nao_encontrado');
+      departamento = dep;
       escopoNovo = await this.validarEscopo(entrada.escopo, equipamentos);
-      const r = await this.obterOuCriarPerfil(regras!, turmas[0].TRMTurno);
-      perfilNovo = r.perfil;
-      perfilCriado = r.criado;
     }
 
-    const perfisAfetados = new Set<number>();
-    if (perfilNovo) perfisAfetados.add(perfilNovo.PHACodigo);
     let pessoasInvalidadas = 0;
     const auditoria = this.auditoria(origem);
 
@@ -730,10 +590,9 @@ export class TurmaAcessoCore {
       async (tx) => {
         for (const turma of turmas) {
           const antes = paraTurmaEstado(turma);
-          if (turma.PHACodigo) perfisAfetados.add(turma.PHACodigo);
 
           if (!entrada.ativa) {
-            // Desativar preserva perfil e escopo: a tela reabre com a última configuração.
+            // Desativar preserva departamento e escopo: a tela reabre com a última configuração.
             await tx.tRMTurma.update({ where: { TRMCodigo: turma.TRMCodigo }, data: { TRMValidacaoAtiva: false, ...auditoria } });
             continue;
           }
@@ -741,7 +600,7 @@ export class TurmaAcessoCore {
           await tx.tRMTurma.update({
             where: { TRMCodigo: turma.TRMCodigo },
             data: {
-              PHACodigo: perfilNovo!.PHACodigo,
+              DEPCodigo: departamento!.DEPCodigo,
               TRMValidacaoAtiva: true,
               TRMTodosEquipamentos: escopoNovo!.todos,
               ...auditoria,
@@ -758,502 +617,356 @@ export class TurmaAcessoCore {
             });
           }
 
-          // §7.4: mudar escopo não move PESPessoa.updatedAt — invalida os pares afetados.
-          if (antes.TRMValidacaoAtiva) {
-            const escopoAntes = resolverEscopo(antes, ativosCodigos);
-            const escopoDepois = resolverEscopo(
-              { TRMTodosEquipamentos: escopoNovo!.todos, escopo: escopoNovo!.EQPCodigos },
-              ativosCodigos,
-            );
-            const afetados = diferencaSimetrica(escopoAntes, escopoDepois);
-            if (afetados.length) pessoasInvalidadas += await this.invalidarPessoasDaTurma(tx, turma.TRMCodigo, afetados);
-          }
+          // Trocar de departamento muda o nome do grupo da pessoa, mas não move PESPessoa.updatedAt:
+          // sem invalidar, o envio seguinte acharia que já está em dia.
+          const trocouDepartamento = antes.DEPCodigo !== departamento!.DEPCodigo;
+          const escopoAntes = antes.TRMValidacaoAtiva ? resolverEscopo(antes, ativosCodigos) : [];
+          const escopoDepois = resolverEscopo(
+            { TRMTodosEquipamentos: escopoNovo!.todos, escopo: escopoNovo!.EQPCodigos },
+            ativosCodigos,
+          );
+          const afetados = trocouDepartamento
+            ? [...new Set([...escopoAntes, ...escopoDepois])]
+            : diferencaSimetrica(escopoAntes, escopoDepois);
+          if (afetados.length) pessoasInvalidadas += await this.invalidarPessoasDaTurma(tx, turma.TRMCodigo, afetados);
         }
       },
       { timeout: TIMEOUT_TRANSACAO_MS },
     );
 
-    const resultados = await this.sincronizarPerfis([...perfisAfetados], {});
+    const resultados = entrada.ativa ? await this.verificarDepartamentos({ TRMCodigos: codigos }) : [];
 
     return {
       TRMCodigos: codigos,
       ativa: entrada.ativa,
-      perfil: perfilNovo
-        ? {
-            PHACodigo: perfilNovo.PHACodigo,
-            PHANome: perfilNovo.PHANome,
-            criado: perfilCriado,
-            regras: regrasDoPerfil(perfilNovo),
-            canonico: canonicoDoPerfil(perfilNovo),
-          }
-        : null,
+      departamento,
       pessoasInvalidadas,
       resultados,
     };
   }
 
-  async renomearPerfil(phaCodigo: number, nome: string, _origem: Origem) {
-    const perfil = await this.prisma.pHAPerfilHorario.findFirst({
-      where: { PHACodigo: Number(phaCodigo), INSInstituicaoCodigo: this.ins },
-      include: { janelas: { orderBy: { PHJOrdem: 'asc' } } },
-    });
-    if (!perfil) throw new TurmaAcessoErro('Perfil de horário não encontrado', 'nao_encontrado');
-
-    const novo = normalizarNomePerfil(nome);
-    if (novo === perfil.PHANome) return { PHACodigo: perfil.PHACodigo, PHANome: perfil.PHANome, resultados: [] };
-
-    const erro = validarNomePerfil(novo, await this.nomesReservados(perfil.PHACodigo));
-    if (erro) throw new TurmaAcessoErro(erro, 'validacao');
-
-    try {
-      await this.prisma.pHAPerfilHorario.update({
-        where: { PHACodigo: perfil.PHACodigo },
-        data: { PHANome: novo, PHAHashConfig: hashConfig(novo, canonicoDoPerfil(perfil)) },
-      });
-    } catch (err) {
-      if (violouUnique(err)) throw new TurmaAcessoErro(`O nome "${novo}" já está em uso`, 'conflito');
-      throw err;
-    }
-
-    // O equipamento é renomeado por id; os membros migram de nome na rotina de vínculo.
-    return { PHACodigo: perfil.PHACodigo, PHANome: novo, resultados: await this.sincronizarPerfis([perfil.PHACodigo], {}) };
-  }
-
-  // ── sincronização com o hardware ─────────────────────────────────────────
-
-  async sincronizar(opcoes: { PHACodigo?: number; TRMCodigo?: number; EQPCodigos?: number[]; forcar?: boolean } = {}) {
-    let perfis: number[];
-    if (opcoes.TRMCodigo) {
-      const turma = await this.prisma.tRMTurma.findFirst({
-        where: { TRMCodigo: Number(opcoes.TRMCodigo), INSInstituicaoCodigo: this.ins },
-        select: { PHACodigo: true },
-      });
-      if (!turma) throw new TurmaAcessoErro('Turma não encontrada', 'nao_encontrado');
-      perfis = turma.PHACodigo ? [turma.PHACodigo] : [];
-    } else if (opcoes.PHACodigo) {
-      perfis = [Number(opcoes.PHACodigo)];
-    } else {
-      perfis = await this.todosPerfis();
-    }
-    const resultados = await this.sincronizarPerfis(perfis, { EQPCodigos: opcoes.EQPCodigos, forcar: !!opcoes.forcar });
-    return { resumo: this.resumir(resultados), resultados };
-  }
-
   /**
-   * Rotina de reconciliação (§12.5): perfis legados, device offline, equipamento novo,
-   * perfil sem uso e grupos padrão ausentes.
+   * Situação do departamento de cada turma em cada equipamento do escopo. Só consulta o espelho —
+   * para confrontar com o que está gravado na catraca, use `POST /acesso/ler` antes.
    */
-  async reconciliar(opcoes: { EQPCodigos?: number[] } = {}) {
-    const perfisLegadosNormalizados = await this.normalizarPerfisLegados();
-    const resultados = await this.sincronizarPerfis(await this.todosPerfis(), { EQPCodigos: opcoes.EQPCodigos });
+  async verificarDepartamentos(opcoes: { TRMCodigos?: number[]; DEPCodigos?: number[] } = {}): Promise<ResultadoEquipamento[]> {
+    const where: Prisma.TRMTurmaWhereInput = {
+      INSInstituicaoCodigo: this.ins,
+      TRMValidacaoAtiva: true,
+      TRMAtiva: true,
+      DEPCodigo: { not: null },
+    };
+    const trm = inteiros(opcoes.TRMCodigos);
+    if (trm.length) where.TRMCodigo = { in: trm };
+    const dep = inteiros(opcoes.DEPCodigos);
+    if (dep.length) where.DEPCodigo = { in: dep };
 
-    const gruposPadrao = (
-      await this.prisma.pESPessoa.findMany({
-        where: { INSInstituicaoCodigo: this.ins, PESAtivo: true, PESGrupo: { not: null } },
-        distinct: ['PESGrupo'],
-        select: { PESGrupo: true },
-      })
-    )
-      .map((p) => (p.PESGrupo ?? '').trim())
-      .filter(Boolean);
-
-    const filtro = inteiros(opcoes.EQPCodigos);
-    const gruposPadraoAusentes: Array<{ EQPCodigo: number; EQPDescricao: string | null; faltando: string[] }> = [];
-    for (const eqp of (await this.equipamentosDaInstituicao()).filter((e) => e.EQPAtivo)) {
-      if (filtro.length && !filtro.includes(eqp.EQPCodigo)) continue;
-      if (!(await this.op.hardware.suporta(eqp))) continue;
-      try {
-        const nomes = (await this.op.hardware.listarGrupos(eqp)).map((g) => g.nome.trim().toLowerCase());
-        const faltando = gruposPadrao.filter((g) => !nomes.includes(g.toLowerCase()));
-        if (faltando.length) {
-          gruposPadraoAusentes.push({ EQPCodigo: eqp.EQPCodigo, EQPDescricao: eqp.EQPDescricao, faltando });
-          await this.notificar(
-            `turma:${this.ins}:grupos-padrao:${eqp.EQPCodigo}`,
-            'erro',
-            `Grupos padrão ausentes em ${eqp.EQPDescricao ?? `equipamento ${eqp.EQPCodigo}`}`,
-            `Pessoas fora do escopo de turma voltam para estes grupos, que não existem no equipamento: ${faltando.join(', ')}. ` +
-              'Enquanto faltarem, essas pessoas ficam pendentes de sincronização.',
-            'turma_grupos_padrao',
-            String(eqp.EQPCodigo),
-          );
-        }
-      } catch (err) {
-        this.log('warn', `Não foi possível listar grupos do EQP ${eqp.EQPCodigo}: ${mensagemDe(err)}`);
-      }
-    }
-
-    return { resumo: this.resumir(resultados), resultados, gruposPadraoAusentes, perfisLegadosNormalizados };
-  }
-
-  /**
-   * Aplica o estado desejado de cada (perfil, equipamento). Equipamentos em paralelo;
-   * dentro de um equipamento, sequencial e sob lock (§10.5).
-   */
-  private async sincronizarPerfis(
-    phaCodigos: number[],
-    opcoes: { EQPCodigos?: number[]; forcar?: boolean },
-  ): Promise<ResultadoEquipamento[]> {
-    const codigos = inteiros(phaCodigos);
-    if (!codigos.length) return [];
-
-    const [perfis, turmasLinhas, equipamentos] = await Promise.all([
-      this.prisma.pHAPerfilHorario.findMany({
-        where: { INSInstituicaoCodigo: this.ins, PHACodigo: { in: codigos } },
-        include: { janelas: { orderBy: { PHJOrdem: 'asc' } }, equipamentos: true },
-      }),
+    const [turmas, equipamentos] = await Promise.all([
       this.prisma.tRMTurma.findMany({
-        where: { INSInstituicaoCodigo: this.ins, PHACodigo: { in: codigos } },
-        include: { escopo: { select: { EQPCodigo: true } } },
+        where,
+        include: {
+          escopo: { select: { EQPCodigo: true } },
+          departamento: {
+            select: {
+              DEPCodigo: true,
+              DEPNome: true,
+              equipamentos: {
+                select: { EQPCodigo: true, DEQNome: true, DEQRevisadoEm: true, DEQUltimoErro: true, _count: { select: { regras: true } } },
+              },
+            },
+          },
+        },
       }),
       this.equipamentosDaInstituicao(),
     ]);
-    const turmas = turmasLinhas.map(paraTurmaEstado);
-    const filtro = inteiros(opcoes.EQPCodigos);
+    if (!turmas.length) return [];
 
-    const porEquipamento = new Map<number, Array<{ perfil: PerfilParaSync; canonico: CanonicoRegras }>>();
-    for (const perfil of perfis) {
-      const canonico = canonicoDoPerfil(perfil);
-      for (const eqp of equipamentos) {
-        if (filtro.length && !filtro.includes(eqp.EQPCodigo)) continue;
-        const temLinha = perfil.equipamentos.some((p) => p.EQPCodigo === eqp.EQPCodigo);
-        const emEscopo = turmas.some((t) => t.PHACodigo === perfil.PHACodigo && turmaVigente(t) && noEscopo(t, eqp.EQPCodigo));
-        if (!temLinha && !(eqp.EQPAtivo && emEscopo)) continue;
-        const lista = porEquipamento.get(eqp.EQPCodigo) ?? [];
-        lista.push({ perfil, canonico });
-        porEquipamento.set(eqp.EQPCodigo, lista);
-      }
-    }
-
-    const porCodigo = new Map(equipamentos.map((e) => [e.EQPCodigo, e]));
+    const suporte = await this.mapaSuporte(equipamentos.filter((e) => e.EQPAtivo));
     const resultados: ResultadoEquipamento[] = [];
 
-    await Promise.all(
-      [...porEquipamento].map(async ([eqpCodigo, itens]) => {
-        const eqp = porCodigo.get(eqpCodigo)!;
-        try {
-          const r = await this.op.lock.comLock(this.op.chaveLock(this.ins, eqpCodigo), LOCK_TTL_MS, async () => {
-            const saida: ResultadoEquipamento[] = [];
-            for (const item of itens) saida.push(await this.sincronizarPar(eqp, item.perfil, item.canonico, turmas, !!opcoes.forcar));
-            return saida;
-          });
-          if (r.ocupado) {
-            resultados.push(
-              ...itens.map((i) =>
-                this.resultado(eqp, i.perfil, 'ocupado', 'Outro processo está sincronizando este equipamento; será concluído em seguida'),
-              ),
-            );
-          } else {
-            resultados.push(...r.valor);
-          }
-        } catch (err) {
-          resultados.push(...itens.map((i) => this.resultado(eqp, i.perfil, 'erro', `Lock indisponível: ${mensagemDe(err)}`)));
+    for (const turma of turmas) {
+      const estado = paraTurmaEstado(turma);
+      const adotados = new Map(
+        (turma.departamento?.equipamentos ?? []).map((d) => [d.EQPCodigo, d]),
+      );
+      for (const eqp of equipamentos) {
+        if (!noEscopo(estado, eqp.EQPCodigo)) continue;
+
+        const base = {
+          EQPCodigo: eqp.EQPCodigo,
+          EQPDescricao: eqp.EQPDescricao,
+          PHACodigo: turma.departamento!.DEPCodigo,
+          PHANome: turma.departamento!.DEPNome,
+        };
+        if (!eqp.EQPAtivo) {
+          resultados.push({ ...base, status: 'inativo' });
+          continue;
         }
-      }),
-    );
+        if (!suporte.get(eqp.EQPCodigo)) {
+          resultados.push({ ...base, status: 'nao_suportado', mensagem: 'Marca/modelo sem suporte a departamentos' });
+          continue;
+        }
+        const deq = adotados.get(eqp.EQPCodigo);
+        if (!deq) {
+          resultados.push({
+            ...base,
+            status: 'departamento_nao_adotado',
+            mensagem: 'Adote o departamento na configuração deste equipamento; até lá as pessoas ficam no grupo padrão',
+          });
+          continue;
+        }
+        if (deq.DEQUltimoErro) {
+          resultados.push({ ...base, status: 'erro', mensagem: deq.DEQUltimoErro });
+          continue;
+        }
+        if (!deq._count.regras) {
+          resultados.push({ ...base, status: 'sem_regra', mensagem: `"${deq.DEQNome}" não tem nenhuma regra: ninguém passa` });
+          continue;
+        }
+        if (!deq.DEQRevisadoEm) {
+          resultados.push({ ...base, status: 'departamento_nao_revisado', mensagem: `"${deq.DEQNome}" ainda não foi conferido` });
+          continue;
+        }
+        resultados.push({ ...base, status: 'aplicado' });
+      }
+    }
 
     return resultados.sort(
       (a, b) => (a.EQPDescricao ?? '').localeCompare(b.EQPDescricao ?? '', 'pt-BR') || a.PHANome.localeCompare(b.PHANome),
     );
   }
 
-  private async sincronizarPar(
-    eqp: EquipamentoComSentido,
-    perfil: PerfilParaSync,
-    canonico: CanonicoRegras,
-    turmas: TurmaEstado[],
-    forcar: boolean,
-  ): Promise<ResultadoEquipamento> {
-    const phe = perfil.equipamentos.find((p) => p.EQPCodigo === eqp.EQPCodigo) ?? null;
-    const estado = estadoEquipamento(eqp);
-    const desejado = hashDesejado(perfil, estado, turmas);
-    const ref = refDoPhe(phe);
-    const chave = { PHACodigo_EQPCodigo: { PHACodigo: perfil.PHACodigo, EQPCodigo: eqp.EQPCodigo } };
-
-    const gravar = (data: Partial<PHEPerfilEquipamento>) =>
-      this.prisma.pHEPerfilEquipamento.upsert({
-        where: chave,
-        create: { INSInstituicaoCodigo: this.ins, PHACodigo: perfil.PHACodigo, EQPCodigo: eqp.EQPCodigo, ...data },
-        update: data,
-      });
-
-    if (!eqp.EQPAtivo) return this.resultado(eqp, perfil, 'inativo', 'Equipamento inativo — nada é enviado');
-
-    const nadaAplicado = !phe?.PHESyncHash && !phe?.PHEIdGrupo;
-    if (desejado === null && nadaAplicado) {
-      if (phe) await this.prisma.pHEPerfilEquipamento.deleteMany({ where: { PHECodigo: phe.PHECodigo } });
-      if (!estado.sentidoPreparado) {
-        return this.resultado(
-          eqp,
-          perfil,
-          'sentido_nao_preparado',
-          'Prepare a Área Interna e a Área Externa deste equipamento para aplicar a regra por sentido',
-        );
-      }
-      return this.resultado(eqp, perfil, 'sem_mudanca');
-    }
-    if (!forcar && desejado !== null && phe?.PHESyncHash === desejado) {
-      return this.resultado(eqp, perfil, 'sem_mudanca');
-    }
-
-    const suporta = await this.op.hardware.suporta(eqp);
-    try {
-      if (desejado !== null) {
-        if (!suporta) {
-          await gravar({ PHEUltimoErro: 'Marca/modelo sem suporte a controle de acesso por turma' });
-          return this.resultado(eqp, perfil, 'nao_suportado');
-        }
-        const novoRef = await this.op.hardware.sync(
-          eqp,
-          { codigo: String(perfil.PHACodigo), nome: perfil.PHANome, interna: canonico.interna, externa: canonico.externa },
-          ref,
-          portaisDoEquipamento(eqp.sentido!),
-        );
-        await gravar({
-          PHEIdGrupo: novoRef.groupId ?? null,
-          PHEIdRegraInterna: novoRef.interna?.accessRuleId ?? null,
-          PHEIdHorarioInterna: novoRef.interna?.timeZoneId ?? null,
-          PHEIdRegraExterna: novoRef.externa?.accessRuleId ?? null,
-          PHEIdHorarioExterna: novoRef.externa?.timeZoneId ?? null,
-          PHESyncHash: desejado,
-          PHESyncedAt: new Date(),
-          PHEUltimoErro: null,
-        });
-        return this.resultado(eqp, perfil, 'aplicado');
-      }
-
-      // Remoção (§7.5): só com o grupo vazio NO EQUIPAMENTO — é a única fonte que enxerga vínculos externos.
-      if (!suporta) {
-        await gravar({ PHEUltimoErro: 'Marca/modelo sem suporte para remover o perfil' });
-        return this.resultado(eqp, perfil, 'nao_suportado');
-      }
-      const membros = await this.op.hardware.contarMembros(eqp, ref ?? {});
-      if (membros > 0) {
-        const msg = `Aguardando ${membros} pessoa(s) saírem do grupo antes de remover o horário`;
-        await gravar({ PHEUltimoErro: msg });
-        return this.resultado(eqp, perfil, 'aguardando_membros', msg);
-      }
-      await this.op.hardware.remover(eqp, ref ?? {});
-      await this.prisma.pHEPerfilEquipamento.deleteMany({ where: chave.PHACodigo_EQPCodigo });
-      return this.resultado(eqp, perfil, 'removido');
-    } catch (err) {
-      const msg = mensagemDe(err);
-      this.log('warn', `EQP ${eqp.EQPCodigo} perfil ${perfil.PHANome}: ${msg}`);
-      await gravar({ PHEUltimoErro: msg.slice(0, 1000) }).catch(() => undefined);
-      return this.resultado(eqp, perfil, 'erro', msg);
-    }
-  }
+  // ── espelho da configuração de acesso do equipamento ─────────────────────
 
   /**
-   * O que está DE FATO gravado no equipamento para a turma: lê departamento, regras,
-   * portais e horários direto do hardware e compara com a configuração salva.
+   * Lê a configuração de acesso do equipamento e reconcilia o espelho local. Só leitura no
+   * hardware. Sob o lock do equipamento, para não cruzar com uma sincronização em andamento.
    */
-  async lerRegraAplicada(trmCodigo: number, eqpCodigo: number) {
-    const turma = await this.prisma.tRMTurma.findFirst({
-      where: { TRMCodigo: Number(trmCodigo), INSInstituicaoCodigo: this.ins },
-      include: {
-        escopo: { select: { EQPCodigo: true } },
-        perfil: { include: { janelas: { orderBy: { PHJOrdem: 'asc' } }, equipamentos: true } },
-      },
-    });
-    if (!turma) throw new TurmaAcessoErro('Turma não encontrada', 'nao_encontrado');
-    if (!turma.perfil) throw new TurmaAcessoErro('A turma ainda não tem perfil de horário', 'validacao');
-
-    const eqp = await this.equipamentoComSentido(eqpCodigo);
-    if (!sentidoPreparado(eqp)) {
-      throw new TurmaAcessoErro('Prepare a Área Interna e a Área Externa deste equipamento antes de ler a regra aplicada', 'validacao');
-    }
-    if (!(await this.op.hardware.suporta(eqp))) {
-      throw new TurmaAcessoErro('Marca/modelo sem suporte a controle de acesso por turma', 'validacao');
-    }
-
-    const phe = turma.perfil.equipamentos.find((p) => p.EQPCodigo === eqp.EQPCodigo) ?? null;
-    const portais = portaisDoEquipamento(eqp.sentido!);
-    let inspecao;
-    try {
-      inspecao = await this.op.hardware.inspecionar(eqp, refDoPhe(phe) ?? {}, turma.perfil.PHANome);
-    } catch (err) {
-      throw new TurmaAcessoErro(`Não foi possível ler o equipamento: ${mensagemDe(err)}`, 'equipamento');
-    }
-
-    const aplicado = regrasAplicadas(inspecao, portais);
-    const deveTer = turmaVigente(paraTurmaEstado(turma)) && noEscopo(paraTurmaEstado(turma), eqp.EQPCodigo);
-    const esperado = deveTer ? canonicoDoPerfil(turma.perfil) : null;
-
-    let diferencas: string[];
-    if (esperado) {
-      diferencas = inspecao.encontrado
-        ? compararRegras(esperado, aplicado)
-        : [`O departamento ${turma.perfil.PHANome} não existe no equipamento`];
-    } else {
-      diferencas = inspecao.encontrado
-        ? [`A turma não deveria ter regra neste equipamento, mas o departamento ${turma.perfil.PHANome} existe nele`]
-        : [];
-    }
-
-    return {
-      TRMCodigo: turma.TRMCodigo,
-      equipamento: { EQPCodigo: eqp.EQPCodigo, EQPDescricao: eqp.EQPDescricao },
-      perfil: { PHACodigo: turma.perfil.PHACodigo, PHANome: turma.perfil.PHANome },
-      portais,
-      invertido: eqp.sentido!.EQSInvertido,
-      esperado,
-      aplicado: inspecao.encontrado ? aplicado : null,
-      diferencas,
-      membros: inspecao.membros,
-      lidoEm: new Date(),
-      inspecao,
-    };
-  }
-
-  // ── áreas e portais por equipamento (SpecControlId.md §3, §6.1–6.2) ───────
-
-  async listarEquipamentosSentido() {
-    const [equipamentos, turmasLinhas] = await Promise.all([
-      this.equipamentosDaInstituicao(),
-      this.prisma.tRMTurma.findMany({
-        where: { INSInstituicaoCodigo: this.ins, TRMValidacaoAtiva: true, TRMAtiva: true, PHACodigo: { not: null } },
-        include: { escopo: { select: { EQPCodigo: true } } },
-      }),
-    ]);
-    const suporte = await this.mapaSuporte(equipamentos.filter((e) => e.EQPAtivo));
-    const turmas = turmasLinhas.map(paraTurmaEstado);
-    return equipamentos.map((e) => ({
-      EQPCodigo: e.EQPCodigo,
-      EQPDescricao: e.EQPDescricao,
-      EQPMarca: e.EQPMarca,
-      EQPModelo: e.EQPModelo,
-      EQPAtivo: e.EQPAtivo,
-      suportado: !!suporte.get(e.EQPCodigo),
-      turmasNoEscopo: turmas.filter((t) => noEscopo(t, e.EQPCodigo)).length,
-      sentido: this.visaoSentido(e.sentido),
-    }));
-  }
-
-  /**
-   * Cria (ou reconhece) Área Interna, Área Externa e os dois portais no equipamento, lê a
-   * configuração da catraca e replica as regras gerais nos portais novos. Idempotente.
-   */
-  async prepararSentidoEquipamento(eqpCodigo: number, _origem: Origem) {
+  async lerConfiguracaoEquipamento(eqpCodigo: number): Promise<ResumoEspelho> {
     const eqp = await this.equipamentoComSentido(eqpCodigo);
     if (!eqp.EQPAtivo) throw new TurmaAcessoErro('Equipamento inativo', 'validacao');
     if (!(await this.op.hardware.suporta(eqp))) {
-      throw new TurmaAcessoErro('Marca/modelo sem suporte a áreas de sentido (disponível para Control iD)', 'validacao');
+      throw new TurmaAcessoErro('Marca/modelo sem suporte a configuração de acesso (disponível para Control iD)', 'validacao');
     }
 
-    const antes = eqp.sentido;
-    const eraPreparado = sentidoPreparado(eqp);
-    let setup;
+    let r: { ocupado: false; valor: ResumoEspelho } | { ocupado: true };
     try {
-      const r = await this.op.lock.comLock(this.op.chaveLock(this.ins, eqp.EQPCodigo), LOCK_TTL_MS, () =>
-        this.op.hardware.prepararSentido(eqp),
+      r = await this.op.lock.comLock(this.op.chaveLock(this.ins, eqp.EQPCodigo), LOCK_TTL_MS, () =>
+        lerEquipamento(this.prisma, this.ins, this.op.hardware, eqp),
       );
-      if (r.ocupado) throw new TurmaAcessoErro('Outro processo está alterando este equipamento. Tente em instantes.', 'conflito');
-      setup = r.valor;
-    } catch (err) {
-      if (err instanceof TurmaAcessoErro) throw err;
-      const msg = mensagemDe(err);
-      await this.prisma.eQSEquipamentoSentido.upsert({
-        where: { EQPCodigo: eqp.EQPCodigo },
-        create: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo, EQSUltimoErro: msg.slice(0, 1000) },
-        update: { EQSUltimoErro: msg.slice(0, 1000) },
-      });
-      throw new TurmaAcessoErro(`Não foi possível preparar as áreas: ${msg}`, 'equipamento');
-    }
-
-    const alertas = alertasCatra(setup.catra);
-    const mudouPortais =
-      !antes || antes.EQSPortalInternaId !== setup.portalInternaId || antes.EQSPortalExternaId !== setup.portalExternaId;
-
-    const dados = {
-      EQSAreaInternaId: setup.areaInternaId,
-      EQSAreaExternaId: setup.areaExternaId,
-      EQSPortalInternaId: setup.portalInternaId,
-      EQSPortalExternaId: setup.portalExternaId,
-      EQSCatraConfig: setup.catra as unknown as Prisma.InputJsonValue,
-      EQSDiagnostico: {
-        criados: setup.criados,
-        portaisPreexistentes: setup.portaisPreexistentes,
-        regrasReplicadas: setup.regrasReplicadas,
-        alertas,
-      } as unknown as Prisma.InputJsonValue,
-      EQSPreparadoEm: new Date(),
-      EQSUltimoErro: null,
-      // Portais novos invalidam o teste de bancada e a inversão anteriores.
-      ...(mudouPortais && antes ? { EQSValidadoEm: null, USRCodigoValidacao: null, EQSInvertido: false } : {}),
-    };
-    await this.prisma.eQSEquipamentoSentido.upsert({
-      where: { EQPCodigo: eqp.EQPCodigo },
-      create: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo, ...dados },
-      update: dados,
-    });
-
-    if (mudouPortais) {
-      await this.prisma.pHEPerfilEquipamento.updateMany({
-        where: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo },
-        data: { PHESyncHash: null },
-      });
-    }
-    // Recém-preparado: pessoas das turmas vigentes precisam receber o departamento neste equipamento.
-    const pessoasInvalidadas = eraPreparado ? 0 : await this.invalidarPessoasDoEquipamento(eqp.EQPCodigo);
-
-    const resultados = await this.sincronizarPerfis(await this.todosPerfis(), { EQPCodigos: [eqp.EQPCodigo] });
-    const atualizado = await this.equipamentoComSentido(eqp.EQPCodigo);
-    return { sentido: this.visaoSentido(atualizado.sentido), alertas, pessoasInvalidadas, resultados };
-  }
-
-  /** Lê do equipamento a configuração da catraca, áreas e portais (diagnóstico, sem alterar nada). */
-  async lerSentidoEquipamento(eqpCodigo: number) {
-    const eqp = await this.equipamentoComSentido(eqpCodigo);
-    if (!(await this.op.hardware.suporta(eqp))) {
-      throw new TurmaAcessoErro('Marca/modelo sem suporte a áreas de sentido', 'validacao');
-    }
-    let leitura;
-    try {
-      leitura = await this.op.hardware.lerSentido(eqp);
     } catch (err) {
       throw new TurmaAcessoErro(`Não foi possível ler o equipamento: ${mensagemDe(err)}`, 'equipamento');
     }
-    const alertas = alertasCatra(leitura.catra);
-    const s = eqp.sentido;
-    if (s?.EQSPortalInternaId && !leitura.portais.some((p) => p.id === s.EQSPortalInternaId)) {
-      alertas.push('O portal de Entrada na Área Interna registrado não existe mais no equipamento: prepare as áreas novamente');
-    }
-    if (s?.EQSPortalExternaId && !leitura.portais.some((p) => p.id === s.EQSPortalExternaId)) {
-      alertas.push('O portal de Entrada na Área Externa registrado não existe mais no equipamento: prepare as áreas novamente');
-    }
-    return { sentido: this.visaoSentido(s), leitura, alertas };
+    if (r.ocupado) throw new TurmaAcessoErro('Outro processo está alterando este equipamento. Tente em instantes.', 'conflito');
+
+    const o = r.valor.observacoes;
+    this.log(
+      'info',
+      `espelho EQP=${eqp.EQPCodigo}: áreas=${r.valor.areas.criadas}+${r.valor.areas.atualizadas}-${r.valor.areas.removidas} ` +
+        `portais=${r.valor.portais.criados}+${r.valor.portais.atualizados}-${r.valor.portais.removidos} ` +
+        `horários=${r.valor.horarios.criados}+${r.valor.horarios.atualizados}-${r.valor.horarios.removidos} ` +
+        `bloqueios=${o.bloqueios} semHorário=${o.regrasSemHorario}${o.leituraVazia ? ' LEITURA VAZIA' : ''}`,
+    );
+    return r.valor;
   }
 
-  /** Inversão dos portais (resultado do teste em bancada) e marcação de validação. */
-  async atualizarSentidoEquipamento(eqpCodigo: number, dados: { invertido?: boolean; validado?: boolean }, origem: Origem) {
+  /**
+   * Com qual host o sistema fala neste equipamento. `EQPEnderecoIp` é o ÚLTIMO item da precedência
+   * (`EQPConfig.host` → `ip_entry` → `ip_exit` → `EQPEnderecoIp`), então "principal" no cadastro
+   * não significa "o que o sistema usa".
+   */
+  async hostsAcessoEquipamento(eqpCodigo: number) {
     const eqp = await this.equipamentoComSentido(eqpCodigo);
-    if (!sentidoPreparado(eqp)) throw new TurmaAcessoErro('Prepare as áreas deste equipamento primeiro', 'validacao');
-    const s = eqp.sentido!;
+    return this.op.hardware.hostsAcesso(eqp).catch(() => []);
+  }
 
-    const data: Prisma.EQSEquipamentoSentidoUpdateInput = {};
-    const inverteu = typeof dados?.invertido === 'boolean' && dados.invertido !== s.EQSInvertido;
-    if (inverteu) {
-      data.EQSInvertido = dados.invertido;
-      data.EQSValidadoEm = null;
-      data.usuarioValidacao = { disconnect: true };
+  /** Lê a configuração de cada host e responde se compartilham o mesmo banco de objetos. */
+  async compararHostsEquipamento(eqpCodigo: number): Promise<ComparacaoHosts> {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    if (!(await this.op.hardware.suporta(eqp))) {
+      throw new TurmaAcessoErro('Marca/modelo sem suporte a configuração de acesso', 'validacao');
     }
-    if (typeof dados?.validado === 'boolean') {
-      data.EQSValidadoEm = dados.validado ? new Date() : null;
-      data.usuarioValidacao =
-        dados.validado && origem && 'usuario' in origem ? { connect: { USRCodigo: origem.usuario } } : { disconnect: true };
+    let leituras;
+    try {
+      leituras = await this.op.hardware.lerConfiguracaoTodosHosts(eqp);
+    } catch (err) {
+      throw new TurmaAcessoErro(`Não foi possível ler os hosts: ${mensagemDe(err)}`, 'equipamento');
     }
-    await this.prisma.eQSEquipamentoSentido.update({ where: { EQPCodigo: eqp.EQPCodigo }, data });
+    const comparacao = compararHosts(leituras);
+    if (comparacao.veredicto === 'diferentes') {
+      this.log('warn', `EQP=${eqp.EQPCodigo}: hosts com bancos de objetos diferentes — ${comparacao.diferencas.join(' | ')}`);
+    }
+    return comparacao;
+  }
 
-    let resultados: ResultadoEquipamento[] = [];
-    if (inverteu) {
-      await this.prisma.pHEPerfilEquipamento.updateMany({
+  /** Espelho gravado (sem falar com o equipamento). */
+  async obterEspelhoEquipamento(eqpCodigo: number) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    const [areas, portais, horarios, departamentos] = await Promise.all([
+      this.prisma.aREArea.findMany({
         where: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo },
-        data: { PHESyncHash: null },
-      });
-      resultados = await this.sincronizarPerfis(await this.todosPerfis(), { EQPCodigos: [eqp.EQPCodigo] });
-    }
-    const atualizado = await this.equipamentoComSentido(eqp.EQPCodigo);
-    return { sentido: this.visaoSentido(atualizado.sentido), resultados };
+        orderBy: { ARENome: 'asc' },
+      }),
+      this.prisma.pTLPortal.findMany({
+        where: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo },
+        orderBy: { PTLNome: 'asc' },
+      }),
+      this.prisma.hORHorario.findMany({
+        where: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo },
+        include: { janelas: { orderBy: { HRJOrdem: 'asc' } }, areas: { select: { ARECodigo: true } } },
+        orderBy: { HORNome: 'asc' },
+      }),
+      this.prisma.dEQDepartamentoEquipamento.findMany({
+        where: { INSInstituicaoCodigo: this.ins, EQPCodigo: eqp.EQPCodigo },
+        include: {
+          departamento: { select: { DEPCodigo: true, DEPNome: true } },
+          regras: { include: { areas: { select: { ARECodigo: true } } } },
+        },
+        orderBy: { DEQNome: 'asc' },
+      }),
+    ]);
+
+    return {
+      EQPCodigo: eqp.EQPCodigo,
+      EQPDescricao: eqp.EQPDescricao,
+      // Qual host este espelho representa. Sem isso a tela não sabe de onde veio o que mostra.
+      hosts: await this.op.hardware.hostsAcesso(eqp).catch(() => []),
+      areas: areas.map((a) => ({ ARECodigo: a.ARECodigo, AREIdDevice: a.AREIdDevice, ARENome: a.ARENome })),
+      portais: portais.map((p) => ({
+        PTLCodigo: p.PTLCodigo,
+        PTLIdDevice: p.PTLIdDevice,
+        PTLNome: p.PTLNome,
+        PTLAreaDeCodigo: p.PTLAreaDeCodigo,
+        PTLAreaParaCodigo: p.PTLAreaParaCodigo,
+      })),
+      horarios: horarios.map((h) => ({
+        HORCodigo: h.HORCodigo,
+        HORIdDevice: h.HORIdDevice,
+        HORNome: h.HORNome,
+        areas: h.areas.map((a) => a.ARECodigo),
+        janelas: h.janelas.map((j) => ({
+          HRJCodigo: j.HRJCodigo,
+          inicioSeg: j.HRJInicioSeg,
+          fimSeg: j.HRJFimSeg,
+          dias: [j.HRJDom, j.HRJSeg, j.HRJTer, j.HRJQua, j.HRJQui, j.HRJSex, j.HRJSab],
+          feriados: [j.HRJFeriado1, j.HRJFeriado2, j.HRJFeriado3],
+        })),
+      })),
+      departamentos: departamentos.map((d) => ({
+        DEQCodigo: d.DEQCodigo,
+        DEQIdDevice: d.DEQIdDevice,
+        DEQNome: d.DEQNome,
+        DEPCodigo: d.departamento.DEPCodigo,
+        DEPNome: d.departamento.DEPNome,
+        revisadoEm: d.DEQRevisadoEm,
+        verificadoEm: d.DEQVerificadoEm,
+        ultimoErro: d.DEQUltimoErro,
+        regras: d.regras.map((r) => ({
+          DRGCodigo: r.DRGCodigo,
+          HORCodigo: r.HORCodigo,
+          idRegraDevice: r.DRGIdRegraDevice,
+          areas: r.areas.map((a) => a.ARECodigo),
+        })),
+      })),
+    };
+  }
+
+  // ── escrita na configuração de acesso (áreas, portais, horários) ─────────
+
+  private contextoAcesso(): ContextoAcesso {
+    return {
+      prisma: this.prisma,
+      ins: this.ins,
+      hardware: this.op.hardware,
+      lock: this.op.lock,
+      chaveLock: this.op.chaveLock,
+    };
+  }
+
+  /** Devolve o resultado da operação junto do espelho já atualizado, para a tela não reconsultar. */
+  private async comEspelho<T>(eqpCodigo: number, resultado: T) {
+    return { ...resultado, espelho: await this.obterEspelhoEquipamento(eqpCodigo) };
+  }
+
+  async criarAreaEquipamento(eqpCodigo: number, nome: string) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await criarArea(this.contextoAcesso(), eqp, nome));
+  }
+
+  async renomearAreaEquipamento(eqpCodigo: number, areCodigo: number, nome: string) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await renomearArea(this.contextoAcesso(), eqp, areCodigo, nome));
+  }
+
+  async criarPortalEquipamento(
+    eqpCodigo: number,
+    dados: { areaDeCodigo: number; areaParaCodigo: number; nome?: string },
+  ) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await criarPortal(this.contextoAcesso(), eqp, dados));
+  }
+
+  async criarHorarioEquipamento(
+    eqpCodigo: number,
+    dados: { nome: string; janelas: JanelaDevice[]; ARECodigos?: number[] },
+  ) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await criarHorario(this.contextoAcesso(), eqp, dados));
+  }
+
+  async atualizarHorarioEquipamento(
+    eqpCodigo: number,
+    horCodigo: number,
+    dados: { nome?: string; janelas?: JanelaDevice[]; ARECodigos?: number[] },
+  ) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await atualizarHorario(this.contextoAcesso(), eqp, horCodigo, dados));
+  }
+
+  async removerHorarioEquipamento(eqpCodigo: number, horCodigo: number) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await removerHorario(this.contextoAcesso(), eqp, horCodigo));
+  }
+
+  // ── departamentos do equipamento ─────────────────────────────────────────
+
+  async criarDepartamentoEquipamento(eqpCodigo: number, dados: { nome: string; DEPCodigo?: number }, origem: Origem) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await criarDepartamento(this.contextoAcesso(), eqp, dados, origem));
+  }
+
+  async renomearDepartamentoEquipamento(eqpCodigo: number, deqCodigo: number, nome: string) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await renomearDepartamento(this.contextoAcesso(), eqp, deqCodigo, nome));
+  }
+
+  async salvarRegrasDepartamentoEquipamento(eqpCodigo: number, deqCodigo: number, regras: RegraDesejada[]) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await salvarRegrasDepartamento(this.contextoAcesso(), eqp, deqCodigo, regras));
+  }
+
+  async revisarDepartamentoEquipamento(eqpCodigo: number, deqCodigo: number, origem: Origem) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await revisarDepartamento(this.contextoAcesso(), eqp, deqCodigo, origem));
+  }
+
+  /** Grupos do equipamento ainda sem adoção, com o que cada um já libera. Lê do equipamento. */
+  async candidatosDepartamentoEquipamento(eqpCodigo: number) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return candidatosDepartamento(this.contextoAcesso(), eqp);
+  }
+
+  async adotarDepartamentoEquipamento(
+    eqpCodigo: number,
+    dados: { DEQIdDevice: string; DEPCodigo?: number; DEPNome?: string },
+  ) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await adotarDepartamento(this.contextoAcesso(), eqp, dados));
+  }
+
+  async desadotarDepartamentoEquipamento(eqpCodigo: number, deqCodigo: number) {
+    const eqp = await this.equipamentoComSentido(eqpCodigo);
+    return this.comEspelho(eqpCodigo, await desadotarDepartamento(this.contextoAcesso(), eqp, deqCodigo));
   }
 
   // ── pessoas ──────────────────────────────────────────────────────────────
@@ -1280,7 +993,7 @@ export class TurmaAcessoCore {
    */
   async vincularPessoas() {
     const turmas = await this.prisma.tRMTurma.findMany({
-      where: { INSInstituicaoCodigo: this.ins, TRMValidacaoAtiva: true, TRMAtiva: true, PHACodigo: { not: null } },
+      where: { INSInstituicaoCodigo: this.ins, TRMValidacaoAtiva: true, TRMAtiva: true, DEPCodigo: { not: null } },
       select: {
         TRMCodigo: true,
         TRMPrioridade: true,
@@ -1288,7 +1001,7 @@ export class TurmaAcessoCore {
         TRMTurma: true,
         TRMTurno: true,
         TRMAnoReferencia: true,
-        perfil: { select: { PHANome: true } },
+        departamento: { select: { DEPNome: true } },
       },
     });
     const porTurma = new Map(turmas.map((t) => [t.TRMCodigo, t]));
@@ -1326,7 +1039,7 @@ export class TurmaAcessoCore {
       const candidatas = candidatasPorPessoa.get(p.PESCodigo) ?? [];
       const eleita = elegerTurma(candidatas);
       const novoCodigo = eleita?.TRMCodigo ?? null;
-      const novoGrupo = eleita ? (porTurma.get(eleita.TRMCodigo)?.perfil?.PHANome ?? null) : null;
+      const novoGrupo = eleita ? (porTurma.get(eleita.TRMCodigo)?.departamento?.DEPNome ?? null) : null;
 
       if (p.PESTRMCodigo !== novoCodigo || p.PESGrupoHorario !== novoGrupo) {
         const k = `${novoCodigo ?? ''}|${novoGrupo ?? ''}`;
@@ -1583,10 +1296,10 @@ export class TurmaAcessoCore {
         orderBy: [{ TRMCurso: 'asc' }, { TRMSerie: 'asc' }, { TRMTurma: 'asc' }],
       }),
       this.prisma.tRMTurma.findMany({
-        where: { INSInstituicaoCodigo: this.ins, TRMAtiva: false, TRMValidacaoAtiva: true, PHACodigo: { not: null } },
+        where: { INSInstituicaoCodigo: this.ins, TRMAtiva: false, TRMValidacaoAtiva: true, DEPCodigo: { not: null } },
         include: {
           escopo: { select: { EQPCodigo: true } },
-          perfil: { include: { janelas: { orderBy: { PHJOrdem: 'asc' } } } },
+          departamento: { select: { DEPCodigo: true, DEPNome: true } },
         },
       }),
     ]);
@@ -1606,9 +1319,8 @@ export class TurmaAcessoCore {
       origem: {
         TRMCodigo: number;
         rotulo: string;
-        PHANome: string;
-        regras: RegrasEntrada;
-        canonico: CanonicoRegras;
+        DEPCodigo: number;
+        DEPNome: string;
         escopo: EscopoEntrada;
       };
     }> = [];
@@ -1621,15 +1333,14 @@ export class TurmaAcessoCore {
         })
         .sort((a, b) => (ano(b.TRMAnoReferencia) ?? 0) - (ano(a.TRMAnoReferencia) ?? 0));
       const o = candidatas[0];
-      if (!o?.perfil) continue;
+      if (!o?.departamento) continue;
       pares.push({
         destino: { TRMCodigo: d.TRMCodigo, rotulo: rotuloTurma(d), TRMCurso: d.TRMCurso, TRMQtdePessoas: d.TRMQtdePessoas },
         origem: {
           TRMCodigo: o.TRMCodigo,
           rotulo: rotuloTurma(o),
-          PHANome: o.perfil.PHANome,
-          regras: regrasDoPerfil(o.perfil),
-          canonico: canonicoDoPerfil(o.perfil),
+          DEPCodigo: o.departamento.DEPCodigo,
+          DEPNome: o.departamento.DEPNome,
           escopo: { todos: o.TRMTodosEquipamentos, EQPCodigos: o.escopo.map((e) => e.EQPCodigo) },
         },
       });
@@ -1649,22 +1360,20 @@ export class TurmaAcessoCore {
         INSInstituicaoCodigo: this.ins,
         TRMCodigo: { in: lista.flatMap((p) => [Number(p.TRMCodigoOrigem), Number(p.TRMCodigoDestino)]) },
       },
-      include: { escopo: { select: { EQPCodigo: true } }, perfil: { include: { janelas: { orderBy: { PHJOrdem: 'asc' } } } } },
+      include: { escopo: { select: { EQPCodigo: true } }, departamento: { select: { DEPCodigo: true } } },
     });
     const porCodigo = new Map(turmas.map((t) => [t.TRMCodigo, t]));
     const ativos = new Set((await this.equipamentosDaInstituicao()).filter((e) => e.EQPAtivo).map((e) => e.EQPCodigo));
 
-    // Agrupa destinos com as mesmas regras + escopo: uma gravação (e um sync) por grupo.
     const grupos = new Map<string, { entrada: ValidacaoEntrada; destinos: number[] }>();
     const falhas: Array<{ TRMCodigoDestino: number; erro: string }> = [];
     for (const p of lista) {
       const o = porCodigo.get(Number(p.TRMCodigoOrigem));
       const d = porCodigo.get(Number(p.TRMCodigoDestino));
-      if (!o?.perfil || !d) {
-        falhas.push({ TRMCodigoDestino: Number(p.TRMCodigoDestino), erro: 'Turma de origem sem configuração ou destino inexistente' });
+      if (!o?.departamento || !d) {
+        falhas.push({ TRMCodigoDestino: Number(p.TRMCodigoDestino), erro: 'Turma de origem sem departamento ou destino inexistente' });
         continue;
       }
-      const regras = regrasDoPerfil(o.perfil);
       const escopo: EscopoEntrada = o.TRMTodosEquipamentos
         ? { todos: true }
         : { todos: false, EQPCodigos: o.escopo.map((e) => e.EQPCodigo).filter((c) => ativos.has(c)) };
@@ -1672,8 +1381,9 @@ export class TurmaAcessoCore {
         falhas.push({ TRMCodigoDestino: d.TRMCodigo, erro: 'Nenhum dos equipamentos da origem está ativo' });
         continue;
       }
-      const k = hashEstavel({ h: o.perfil.PHAHashJanelas, escopo });
-      const g = grupos.get(k) ?? { entrada: { ativa: true, regras, escopo }, destinos: [] };
+      // Agrupa por (departamento, escopo): uma gravação por grupo.
+      const k = JSON.stringify({ dep: o.departamento.DEPCodigo, escopo });
+      const g = grupos.get(k) ?? { entrada: { ativa: true, DEPCodigo: o.departamento.DEPCodigo, escopo }, destinos: [] };
       g.destinos.push(d.TRMCodigo);
       grupos.set(k, g);
     }
@@ -1695,115 +1405,27 @@ export class TurmaAcessoCore {
 
   // ── apoio ────────────────────────────────────────────────────────────────
 
-  private equipamentosDaInstituicao(): Promise<EquipamentoComSentido[]> {
+  private equipamentosDaInstituicao(): Promise<EQPEquipamento[]> {
     return this.prisma.eQPEquipamento.findMany({
       where: { INSInstituicaoCodigo: this.ins },
-      include: { sentido: true },
       orderBy: [{ EQPDescricao: 'asc' }, { EQPCodigo: 'asc' }],
     });
   }
 
-  private async equipamentoComSentido(eqpCodigo: number): Promise<EquipamentoComSentido> {
+  private async equipamentoComSentido(eqpCodigo: number): Promise<EQPEquipamento> {
     const eqp = await this.prisma.eQPEquipamento.findFirst({
       where: { EQPCodigo: Number(eqpCodigo), INSInstituicaoCodigo: this.ins },
-      include: { sentido: true },
     });
     if (!eqp) throw new TurmaAcessoErro('Equipamento não encontrado', 'nao_encontrado');
     return eqp;
   }
-
-  private visaoSentido(s: EQSEquipamentoSentido | null) {
-    if (!s) return { preparado: false, invertido: false, validadoEm: null, preparadoEm: null, portais: null, areas: null, catra: null, diagnostico: null, ultimoErro: null };
-    const preparado = !!s.EQSPortalInternaId && !!s.EQSPortalExternaId;
-    return {
-      preparado,
-      invertido: s.EQSInvertido,
-      validadoEm: s.EQSValidadoEm,
-      preparadoEm: s.EQSPreparadoEm,
-      portais: preparado ? portaisDoEquipamento(s) : null,
-      areas: s.EQSAreaInternaId ? { interna: s.EQSAreaInternaId, externa: s.EQSAreaExternaId } : null,
-      catra: (s.EQSCatraConfig as unknown as HostCatraConfig[] | null) ?? null,
-      diagnostico: (s.EQSDiagnostico as Record<string, unknown> | null) ?? null,
-      ultimoErro: s.EQSUltimoErro,
-    };
-  }
-
   private async mapaSuporte(equipamentos: EQPEquipamento[]) {
     const pares = await Promise.all(
       equipamentos.map(async (e) => [e.EQPCodigo, await this.op.hardware.suporta(e).catch(() => false)] as const),
     );
     return new Map<number, boolean>(pares);
   }
-
-  private async todosPerfis(): Promise<number[]> {
-    const perfis = await this.prisma.pHAPerfilHorario.findMany({
-      where: { INSInstituicaoCodigo: this.ins },
-      select: { PHACodigo: true },
-    });
-    return perfis.map((p) => p.PHACodigo);
-  }
-
-  /** Nomes que um perfil não pode usar: outros perfis e os grupos padrão (PESGrupo) da instituição. */
-  private async nomesReservados(excetoPha?: number): Promise<string[]> {
-    const [perfis, grupos] = await Promise.all([
-      this.prisma.pHAPerfilHorario.findMany({
-        where: { INSInstituicaoCodigo: this.ins, ...(excetoPha ? { PHACodigo: { not: excetoPha } } : {}) },
-        select: { PHANome: true },
-      }),
-      this.prisma.pESPessoa.findMany({
-        where: { INSInstituicaoCodigo: this.ins, PESGrupo: { not: null } },
-        distinct: ['PESGrupo'],
-        select: { PESGrupo: true },
-      }),
-    ]);
-    return [...perfis.map((p) => p.PHANome), ...grupos.map((g) => g.PESGrupo ?? '').filter(Boolean)];
-  }
-
-  private async obterOuCriarPerfil(regras: RegrasEntrada, turno: string | null) {
-    const canonico = canonizarRegras(regras);
-    const hash = hashJanelas(canonico);
-
-    for (let tentativa = 0; tentativa < 3; tentativa++) {
-      const existente = await this.prisma.pHAPerfilHorario.findFirst({
-        where: { INSInstituicaoCodigo: this.ins, PHAHashJanelas: hash },
-        include: { janelas: { orderBy: { PHJOrdem: 'asc' } } },
-      });
-      if (existente) return { perfil: existente, criado: false };
-
-      const nome = sugerirNomePerfil(turno, await this.nomesReservados());
-      try {
-        const perfil = await this.prisma.$transaction(async (tx) => {
-          const criado = await tx.pHAPerfilHorario.create({
-            data: {
-              INSInstituicaoCodigo: this.ins,
-              PHANome: nome,
-              PHAHashJanelas: hash,
-              PHAHashConfig: hashConfig(nome, canonico),
-              PHAModoInterna: modoParaDb(regras.interna.modo),
-              PHAModoExterna: modoParaDb(regras.externa.modo),
-            },
-          });
-          const linhas = regrasParaLinhas(regras);
-          if (linhas.length) {
-            await tx.pHAJanela.createMany({
-              data: linhas.map((l) => ({ INSInstituicaoCodigo: this.ins, PHACodigo: criado.PHACodigo, ...l })),
-            });
-          }
-          return tx.pHAPerfilHorario.findUniqueOrThrow({
-            where: { PHACodigo: criado.PHACodigo },
-            include: { janelas: { orderBy: { PHJOrdem: 'asc' } } },
-          });
-        });
-        return { perfil, criado: true };
-      } catch (err) {
-        // Corrida: outro save criou as mesmas regras ou tomou o nome sugerido — tenta de novo.
-        if (!violouUnique(err)) throw err;
-      }
-    }
-    throw new TurmaAcessoErro('Não foi possível criar o perfil de horário (conflito concorrente)', 'conflito');
-  }
-
-  private async validarEscopo(escopo: EscopoEntrada, equipamentos: EquipamentoComSentido[]) {
+  private async validarEscopo(escopo: EscopoEntrada, equipamentos: EQPEquipamento[]) {
     if (!escopo || typeof escopo.todos !== 'boolean') {
       throw new TurmaAcessoErro('Informe em quais equipamentos a regra vale', 'validacao');
     }
@@ -1814,12 +1436,6 @@ export class TurmaAcessoCore {
       const suporte = await this.mapaSuporte(ativos);
       if (![...suporte.values()].some(Boolean)) {
         throw new TurmaAcessoErro('Nenhum equipamento ativo suporta controle de acesso por turma', 'validacao');
-      }
-      if (!ativos.some((e) => suporte.get(e.EQPCodigo) && sentidoPreparado(e))) {
-        throw new TurmaAcessoErro(
-          'Nenhum equipamento tem a Área Interna e a Área Externa preparadas. Prepare as áreas na aba Equipamentos.',
-          'validacao',
-        );
       }
       return { todos: true, EQPCodigos: [] as number[] };
     }
@@ -1842,48 +1458,7 @@ export class TurmaAcessoCore {
         EQPCodigos: semSuporte,
       });
     }
-    const semSentido = codigos.filter((c) => !sentidoPreparado(porCodigo.get(c)!));
-    if (semSentido.length) {
-      throw new TurmaAcessoErro(
-        `Prepare a Área Interna e a Área Externa antes de selecionar: ${semSentido.map(nome).join(', ')}`,
-        'validacao',
-        { EQPCodigos: semSentido },
-      );
-    }
     return { todos: false, EQPCodigos: codigos };
-  }
-
-  /**
-   * Perfis migrados do formato anterior ao controle por sentido ficam com hash provisório
-   * ('legado-<código>'). Recalcula quando não houver outro perfil com as mesmas regras.
-   */
-  private async normalizarPerfisLegados(): Promise<number> {
-    const legados = await this.prisma.pHAPerfilHorario.findMany({
-      where: { INSInstituicaoCodigo: this.ins, PHAHashJanelas: { startsWith: 'legado-' } },
-      include: { janelas: { orderBy: { PHJOrdem: 'asc' } } },
-    });
-    let normalizados = 0;
-    for (const p of legados) {
-      const regras = regrasDoPerfil(p);
-      if (validarRegras(regras).length) continue;
-      const canonico = canonizarRegras(regras);
-      const hash = hashJanelas(canonico);
-      const duplicado = await this.prisma.pHAPerfilHorario.findFirst({
-        where: { INSInstituicaoCodigo: this.ins, PHAHashJanelas: hash, PHACodigo: { not: p.PHACodigo } },
-        select: { PHACodigo: true },
-      });
-      if (duplicado) continue;
-      try {
-        await this.prisma.pHAPerfilHorario.update({
-          where: { PHACodigo: p.PHACodigo },
-          data: { PHAHashJanelas: hash, PHAHashConfig: hashConfig(p.PHANome, canonico) },
-        });
-        normalizados++;
-      } catch (err) {
-        if (!violouUnique(err)) throw err;
-      }
-    }
-    return normalizados;
   }
 
   /** Pessoas das turmas vigentes com o equipamento no escopo: reenfileira nele (usado ao preparar as áreas). */
@@ -1893,7 +1468,7 @@ export class TurmaAcessoCore {
         INSInstituicaoCodigo: this.ins,
         TRMValidacaoAtiva: true,
         TRMAtiva: true,
-        PHACodigo: { not: null },
+        DEPCodigo: { not: null },
         OR: [{ TRMTodosEquipamentos: true }, { escopo: { some: { EQPCodigo: eqpCodigo } } }],
       },
       select: { TRMCodigo: true },
@@ -1936,22 +1511,6 @@ export class TurmaAcessoCore {
       TRMAlteradoEm: new Date(),
     };
   }
-
-  private resultado(
-    eqp: EQPEquipamento,
-    perfil: { PHACodigo: number; PHANome: string },
-    status: StatusEquipamento,
-    mensagem?: string,
-  ): ResultadoEquipamento {
-    return { EQPCodigo: eqp.EQPCodigo, EQPDescricao: eqp.EQPDescricao, PHACodigo: perfil.PHACodigo, PHANome: perfil.PHANome, status, mensagem };
-  }
-
-  private resumir(resultados: ResultadoEquipamento[]) {
-    const resumo: Partial<Record<StatusEquipamento, number>> = {};
-    for (const r of resultados) resumo[r.status] = (resumo[r.status] ?? 0) + 1;
-    return resumo;
-  }
-
   private async notificar(
     ckey: string,
     tipo: string,

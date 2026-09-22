@@ -1,7 +1,7 @@
 // ARQUIVO GERADO por worker/scripts/sync-shared.cjs a partir de webapi/src/turma/core/grupo-pessoa.ts
 // NÃO EDITE AQUI — altere na webapi e rode `npm run shared:sync` no worker.
 import type { PrismaClient } from '@prisma/client';
-import { grupoNoEquipamento, paraTurmaEstado } from './estado-desejado';
+import { grupoNoEquipamento, paraTurmaEstado, type TurmaEfetiva } from './estado-desejado';
 
 /**
  * Departamento que a pessoa deve ter em cada equipamento (§7.2 da spec).
@@ -12,9 +12,8 @@ import { grupoNoEquipamento, paraTurmaEstado } from './estado-desejado';
  * não o denormalizado em PESGrupoHorario — assim um envio que acontece entre a troca
  * de perfil e a rotina de vínculo já leva o perfil novo.
  *
- * Equipamento sem Área Interna/Externa preparadas não aplica regra de turma: a pessoa
- * fica no grupo padrão lá (senão ficaria pendente para sempre esperando um grupo que
- * nunca será criado).
+ * O nome vem do departamento ADOTADO naquele equipamento (`DEQNome`). Equipamento sem adoção →
+ * grupo padrão, porque não existe grupo nenhum para a pessoa lá.
  */
 export async function resolverGruposDaPessoa(
   prisma: PrismaClient,
@@ -35,31 +34,35 @@ export async function resolverGruposDaPessoa(
     trmCodigo = linha?.PESTRMCodigo ?? null;
   }
 
-  let turma: (ReturnType<typeof paraTurmaEstado> & { perfilNome: string | null }) | null = null;
-  const preparados = new Set<number>();
+  let turma: TurmaEfetiva | null = null;
   if (trmCodigo != null) {
-    const [t, sentidos] = await Promise.all([
-      prisma.tRMTurma.findFirst({
-        where: { TRMCodigo: trmCodigo, INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo },
-        include: { escopo: { select: { EQPCodigo: true } }, perfil: { select: { PHANome: true } } },
-      }),
-      prisma.eQSEquipamentoSentido.findMany({
-        where: {
-          INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo,
-          EQPCodigo: { in: eqpCodigos },
-          EQSPortalInternaId: { not: null },
-          EQSPortalExternaId: { not: null },
+    const t = await prisma.tRMTurma.findFirst({
+      where: { TRMCodigo: trmCodigo, INSInstituicaoCodigo: pessoa.INSInstituicaoCodigo },
+      include: {
+        escopo: { select: { EQPCodigo: true } },
+        departamento: {
+          select: {
+            equipamentos: {
+              where: { EQPCodigo: { in: eqpCodigos } },
+              select: { EQPCodigo: true, DEQNome: true },
+            },
+          },
         },
-        select: { EQPCodigo: true },
-      }),
-    ]);
-    if (t) turma = { ...paraTurmaEstado(t), perfilNome: t.perfil?.PHANome ?? null };
-    for (const s of sentidos) preparados.add(s.EQPCodigo);
+      },
+    });
+    if (t) {
+      turma = {
+        ...paraTurmaEstado(t),
+        departamentoPorEquipamento: new Map(
+          (t.departamento?.equipamentos ?? []).map((d) => [d.EQPCodigo, d.DEQNome]),
+        ),
+      };
+    }
   }
 
   const mapa = new Map<number, string | null>();
   for (const eqp of eqpCodigos) {
-    mapa.set(eqp, grupoNoEquipamento(pessoa, turma, eqp, preparados.has(eqp)));
+    mapa.set(eqp, grupoNoEquipamento(pessoa, turma, eqp));
   }
   return mapa;
 }

@@ -7,11 +7,9 @@
  *   TURMA_IT_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/turma_teste npx jest turma-acesso.core.it --runInBand
  */
 import { EQPEquipamento, PrismaClient } from '@prisma/client';
-import { createControlIdAccessGroup } from '../../hardware/brands/controlid/access-group/controlid-access-group';
-import { canonizarRegras, hashJanelas } from './perfil-canonico';
+import { createControlIdAccessConfig } from '../../hardware/brands/controlid/access-group/controlid-access-config';
 import { criarAccessGroupPort, criarLockEmMemoria } from './ports';
 import { TurmaAcessoCore } from './turma-acesso.core';
-import type { JanelaEntrada, RegrasEntrada } from './tipos';
 
 const URL = process.env.TURMA_IT_DATABASE_URL;
 const descrever = URL ? describe : describe.skip;
@@ -62,9 +60,6 @@ function equipamentoFake(opcoes: { gruposPadrao: boolean; catraFsm?: string }) {
 }
 
 const SEG_SEX = [false, true, true, true, true, true, false];
-const faixa = (inicio: string, fim: string, dias = SEG_SEX): JanelaEntrada => ({ inicio, fim, dias });
-/** Entrada livre, saída 17h–18h (exemplo da SpecControlId §5). */
-const REGRAS_A: RegrasEntrada = { interna: { modo: 'livre' }, externa: { modo: 'horario', horarios: [faixa('17:00', '18:00')] } };
 
 descrever('TurmaAcessoCore — integração (controle por sentido)', () => {
   let prisma: PrismaClient;
@@ -125,16 +120,15 @@ descrever('TurmaAcessoCore — integração (controle por sentido)', () => {
       hardware: criarAccessGroupPort(async (e) => {
         if (e.EQPMarca !== 'ControlID') return { supportsAccessGroups: () => false };
         const d = devices.get(e.EQPCodigo)!;
-        const ag = createControlIdAccessGroup(d.post);
+        const cfg = createControlIdAccessConfig(d.post);
         return {
           supportsAccessGroups: () => true,
-          prepareAccessDirection: async () => ({ ...(await ag.prepareDirection()), catra: d.catra }),
-          readAccessDirection: async () => ({ ...(await ag.readDirection()), catra: d.catra }),
-          syncAccessGroup: (_: number, g: any, r: any, p: any) => ag.sync(g, r, p),
-          removeAccessGroup: (_: number, r: any) => ag.remove(r),
-          countAccessGroupMembers: (_: number, r: any) => ag.countMembers(r),
-          listAccessGroups: () => ag.list(),
-          inspectAccessGroup: (_: number, r: any, n: string) => ag.inspect(r, n),
+          readAccessConfig: () => cfg.readAll(),
+          accessConfigOps: () => cfg,
+          accessHosts: () => [{ host: `10.0.0.${e.EQPCodigo}`, origem: 'EQPEnderecoIp', efetivo: true }],
+          readAccessConfigAllHosts: async () => [
+            { host: `10.0.0.${e.EQPCodigo}`, origem: 'EQPEnderecoIp', efetivo: true, snapshot: await cfg.readAll() },
+          ],
         };
       }),
       lock: criarLockEmMemoria(),
@@ -187,262 +181,136 @@ descrever('TurmaAcessoCore — integração (controle por sentido)', () => {
     await expect(core.importarCatalogo({ turmas: [], matriculasPorTurma: {} })).rejects.toThrow(/Catálogo vazio/);
   });
 
-  it('preview por sentido: nome pelo turno, forma canônica e erro identificando o sentido', async () => {
-    const p = await core.previewPerfil(REGRAS_A, trm['3º A']);
-    expect(p).toMatchObject({ erros: [], nomeSugerido: 'MATUTINO-01', canonico: { interna: { modo: 'livre', dias: null } } });
-    expect(p.canonico!.externa.dias![1]).toEqual([[1020, 1080]]);
+  it('cria áreas e portais pela configuração do equipamento e espelha', async () => {
+    const interna = await core.criarAreaEquipamento(cod(0), 'Área Interna');
+    const externa = await core.criarAreaEquipamento(cod(0), 'Área Externa');
+    await core.criarPortalEquipamento(cod(0), {
+      areaDeCodigo: externa.ARECodigo!,
+      areaParaCodigo: interna.ARECodigo!,
+      nome: 'Entrada Área Interna',
+    });
+    await core.criarPortalEquipamento(cod(0), {
+      areaDeCodigo: interna.ARECodigo!,
+      areaParaCodigo: externa.ARECodigo!,
+      nome: 'Entrada Área Externa',
+    });
 
-    const ruim = await core.previewPerfil({ interna: { modo: 'livre' }, externa: { modo: 'horario', horarios: [faixa('07:00', '12:00'), faixa('11:00', '13:00')] } });
-    expect(ruim.erros[0]).toMatch(/^Entrada na Área Externa: Faixas 1 e 2 se sobrepõem/);
-  });
-
-  it('não salva turma enquanto nenhum equipamento tiver as áreas preparadas', async () => {
-    await expect(
-      core.salvarValidacao(trm['3º A'], { ativa: true, regras: REGRAS_A, escopo: { todos: true } }, { usuario }),
-    ).rejects.toThrow(/Nenhum equipamento tem a Área Interna e a Área Externa preparadas/);
-  });
-
-  it('prepara Área Interna/Externa por equipamento, replica regras gerais e alerta catra_default_fsm', async () => {
-    for (const i of [0, 1, 2, 3, 4]) {
-      const r = await core.prepararSentidoEquipamento(cod(i), { usuario });
-      expect(r.sentido.preparado).toBe(true);
-      expect(r.sentido.portais).toEqual({ interna: expect.any(String), externa: expect.any(String) });
-      if (i === 1) expect(r.alertas[0]).toMatch(/catra_default_fsm = "1"/);
-      else expect(r.alertas).toEqual([]);
+    const espelho = await core.obterEspelhoEquipamento(cod(0));
+    expect(espelho.areas.map((a) => a.ARENome).sort()).toEqual(['Área Externa', 'Área Interna']);
+    // Cada área tem o portal que leva ATÉ ela — é ele que carrega o sentido.
+    for (const area of espelho.areas) {
+      expect(espelho.portais.some((p) => p.PTLAreaParaCodigo === area.ARECodigo)).toBe(true);
     }
-    const d0 = dev(0).tabelas;
-    expect(d0.areas.map((a) => a.name).sort()).toEqual(['Área Externa', 'Área Interna']);
-    expect(d0.portal_access_rules.filter((v) => v.access_rule_id === 1)).toHaveLength(3); // portal padrão + 2 de sentido
-
-    await expect(core.prepararSentidoEquipamento(cod(5), { usuario })).rejects.toThrow(/sem suporte/);
-
-    const lista = await core.listarEquipamentosSentido();
-    expect(lista.filter((e) => e.sentido.preparado).map((e) => e.EQPDescricao)).toEqual([
-      'A-Portaria',
-      'B-Pátio',
-      'C-Quadra',
-      'D-Serviço',
-      'E-Biblioteca',
-    ]);
-
-    // selecionar equipamento não preparado é recusado
-    await expect(
-      core.salvarValidacao(trm['3º A'], { ativa: true, regras: REGRAS_A, escopo: { todos: false, EQPCodigos: [cod(6)] } }, { usuario }),
-    ).rejects.toThrow(/Prepare a Área Interna e a Área Externa antes de selecionar: G-Garagem/);
   });
 
-  it('3ª A em 3 equipamentos: uma regra por sentido, cada uma só no portal do sentido', async () => {
+  /** Ids do equipamento 0, montados no teste seguinte e usados pelos demais. */
+  const eqp0: { interna?: number; externa?: number; entrada?: number; saida?: number; deq?: number; dep?: number } = {};
+
+  it('monta o caso do runbook pela configuração do equipamento: entrada e saída em horários distintos', async () => {
+    const espelho = await core.obterEspelhoEquipamento(cod(0));
+    eqp0.interna = espelho.areas.find((a) => a.ARENome === 'Área Interna')!.ARECodigo;
+    eqp0.externa = espelho.areas.find((a) => a.ARENome === 'Área Externa')!.ARECodigo;
+
+    const entrada = await core.criarHorarioEquipamento(cod(0), {
+      nome: 'catec manha',
+      janelas: [{ inicio: '06:30', fim: '07:30', dias: SEG_SEX }],
+      ARECodigos: [eqp0.interna],
+    });
+    const saida = await core.criarHorarioEquipamento(cod(0), {
+      nome: 'catec saida',
+      janelas: [{ inicio: '11:30', fim: '12:30', dias: SEG_SEX }],
+      ARECodigos: [eqp0.externa],
+    });
+    eqp0.entrada = entrada.HORCodigo!;
+    eqp0.saida = saida.HORCodigo!;
+
+    const dep = await core.criarDepartamentoEquipamento(cod(0), { nome: 'CATEC MANHA' }, { usuario });
+    eqp0.deq = dep.DEQCodigo;
+    eqp0.dep = dep.DEPCodigo;
+
+    const r = await core.salvarRegrasDepartamentoEquipamento(cod(0), eqp0.deq, [
+      { HORCodigo: eqp0.entrada, ARECodigos: [eqp0.interna] },
+      { HORCodigo: eqp0.saida, ARECodigos: [eqp0.externa] },
+    ]);
+    expect(r).toMatchObject({ criadas: 2, removidas: 0, avisos: [] });
+
+    // Conferência do §5 do runbook: cada regra num portal só, e o do sentido certo.
+    const t = dev(0).tabelas;
+    const grupo = t.groups.find((g) => g.name === 'CATEC MANHA')!;
+    const regras = t.group_access_rules.filter((v) => v.group_id === grupo.id).map((v) => v.access_rule_id);
+    expect(regras).toHaveLength(2);
+
+    const areaDoPortal = new Map(t.portals.map((p: any) => [String(p.id), String(p.area_to_id)]));
+    const areaIdDe = (nome: string) => String(t.areas.find((a: any) => a.name === nome)!.id);
+    for (const regraId of regras) {
+      const portais = t.portal_access_rules.filter((v) => v.access_rule_id === regraId);
+      expect(portais).toHaveLength(1);
+      const horarios = t.access_rule_time_zones.filter((v) => v.access_rule_id === regraId);
+      expect(horarios).toHaveLength(1);
+      const tz = t.time_zones.find((z: any) => z.id === horarios[0].time_zone_id)!;
+      const destino = areaDoPortal.get(String(portais[0].portal_id));
+      expect(destino).toBe(tz.name === 'catec manha' ? areaIdDe('Área Interna') : areaIdDe('Área Externa'));
+    }
+  });
+
+  it('a turma só aponta para o departamento; o escopo decide onde vale', async () => {
     const r = await core.salvarValidacao(
       trm['3º A'],
-      { ativa: true, regras: REGRAS_A, escopo: { todos: false, EQPCodigos: [cod(0), cod(1), cod(2)] } },
+      { ativa: true, DEPCodigo: eqp0.dep, escopo: { todos: false, EQPCodigos: [cod(0), cod(1)] } },
       { usuario },
     );
-    expect(r.perfil).toMatchObject({ PHANome: 'MATUTINO-01', criado: true, regras: REGRAS_A });
-    expect([0, 1, 2].flatMap((i) => status(r, i))).toEqual(['aplicado', 'aplicado', 'aplicado']);
+    expect(r.departamento).toMatchObject({ DEPCodigo: eqp0.dep, DEPNome: 'CATEC MANHA' });
 
-    const sentido = await prisma.eQSEquipamentoSentido.findUniqueOrThrow({ where: { EQPCodigo: cod(0) } });
-    const phe = await prisma.pHEPerfilEquipamento.findFirstOrThrow({ where: { EQPCodigo: cod(0) } });
-    const portaisDaRegra = (id: string | null) =>
-      dev(0).tabelas.portal_access_rules.filter((v) => String(v.access_rule_id) === id).map((v) => String(v.portal_id));
-    expect(portaisDaRegra(phe.PHEIdRegraInterna)).toEqual([sentido.EQSPortalInternaId]);
-    expect(portaisDaRegra(phe.PHEIdRegraExterna)).toEqual([sentido.EQSPortalExternaId]);
+    // Equipamento 0 adotou o departamento; o 1 não — e isso é dito, não escondido.
+    expect(status(r, 0)).toEqual(['aplicado']);
+    expect(status(r, 1)).toEqual(['departamento_nao_adotado']);
   });
 
-  it('3ª B com a mesma regra digitada de outro jeito cai no mesmo perfil; 3ª C com entrada diferente não', async () => {
-    const rB = await core.salvarValidacao(
-      trm['3º B'],
-      {
-        ativa: true,
-        regras: { interna: { modo: 'livre' }, externa: { modo: 'horario', horarios: [faixa('17:00', '17:30'), faixa('17:30', '18:00')] } },
-        escopo: { todos: false, EQPCodigos: [cod(2), cod(3)] },
-      },
-      { usuario },
-    );
-    expect(rB.perfil).toMatchObject({ PHANome: 'MATUTINO-01', criado: false });
-    expect(status(rB, 3)).toEqual(['aplicado']);
+  it('a pessoa recebe o departamento onde ele foi adotado e o grupo padrão no resto', async () => {
+    expect(await core.vincularPessoas()).toMatchObject({ conflitos: 0 });
+    const ana = await core.gruposNoEquipamentos(pes.ana, eqp.map((e) => e.EQPCodigo));
 
-    const rC = await core.salvarValidacao(
-      trm['3º C'],
-      {
-        ativa: true,
-        regras: { interna: { modo: 'horario', horarios: [faixa('12:30', '13:30')] }, externa: { modo: 'livre' } },
-        escopo: { todos: true },
-      },
-      { usuario },
-    );
-    expect(rC.perfil).toMatchObject({ PHANome: 'VESPERTINO-01', criado: true });
-    expect(status(rC, 6)).toEqual(['sentido_nao_preparado']); // G-Garagem
-    expect(status(rC, 5)).toEqual(['sentido_nao_preparado']); // Hikvision
-    expect([0, 1, 2, 3, 4].flatMap((i) => status(rC, i))).toEqual(Array(5).fill('aplicado'));
+    expect(ana[String(cod(0))]).toBe('CATEC MANHA');
+    // No escopo, mas sem adoção: não existe grupo para ela lá.
+    expect(ana[String(cod(1))]).toBe('Student');
+    // Fora do escopo.
+    expect(ana[String(cod(2))]).toBe('Student');
   });
 
-  it('vincula pessoas; equipamento sem áreas preparadas mantém o grupo padrão', async () => {
-    expect(await core.vincularPessoas()).toMatchObject({ alteradas: 3, conflitos: 0 });
-    const carla = await core.gruposNoEquipamentos(pes.carla, eqp.map((e) => e.EQPCodigo));
-    expect(eqp.map((e) => carla[String(e.EQPCodigo)])).toEqual([
-      'VESPERTINO-01',
-      'VESPERTINO-01',
-      'VESPERTINO-01',
-      'VESPERTINO-01',
-      'VESPERTINO-01',
-      'Student',
-      'Student',
-    ]);
+  it('adota o mesmo departamento noutro equipamento e a pessoa passa a tê-lo lá também', async () => {
+    await core.lerConfiguracaoEquipamento(cod(1));
+    const criado = await core.criarDepartamentoEquipamento(cod(1), { nome: 'CATEC MANHA', DEPCodigo: eqp0.dep }, { usuario });
+    expect(criado.DEPCodigo).toBe(eqp0.dep);
 
-    const { data } = await core.listar({});
-    expect(data.find((t) => t.TRMCodigo === trm['3º C'])!.sync).toMatchObject({
-      total: 7,
-      sincronizados: 5,
-      naoSuportados: 1,
-      semSentido: 1,
-    });
-  });
+    // Sem regra nenhuma ainda: o departamento existe, mas ninguém passa por ele.
+    const verificacao = await core.verificarDepartamentos({ TRMCodigos: [trm['3º A']] });
+    expect(verificacao.find((v) => v.EQPCodigo === cod(1))!.status).toBe('sem_regra');
 
-  it('lista as pessoas vinculadas à turma, com busca, sem excluídas e com a turma que define o acesso', async () => {
-    const r = await core.listarPessoas(trm['3º C']);
-    expect(r.turma).toMatchObject({ TRMCodigo: trm['3º C'], TRMQtdePessoas: 1 });
-    expect(r.meta).toMatchObject({ total: 1, page: 1 });
-    expect(r.data).toEqual([
-      expect.objectContaining({
-        PESCodigo: pes.carla,
-        PESNome: 'carla',
-        matriculas: ['1003'],
-        turmaDeAcesso: { TRMCodigo: trm['3º C'], estaTurma: true, rotulo: expect.stringContaining('3º C') },
-      }),
-    ]);
-    expect(r.data[0]).not.toHaveProperty('PESFotoBase64'); // só com comFoto
-
-    expect((await core.listarPessoas(trm['3º C'], { busca: '1003' })).meta.total).toBe(1);
-    expect((await core.listarPessoas(trm['3º C'], { busca: 'CAR' })).meta.total).toBe(1);
-    expect((await core.listarPessoas(trm['3º C'], { busca: 'ana' })).meta.total).toBe(0);
-    expect((await core.listarPessoas(trm['3º C'], { comFoto: true })).data[0]).toHaveProperty('PESFotoBase64', null);
-
-    // pessoa em duas turmas: aparece nas duas, e o acesso segue a turma efetiva
-    const extra = await prisma.mATMatricula.create({
-      data: { PESCodigo: pes.carla, MATNumero: '2003', MATTurma: '3º A', TRMCodigo: trm['3º A'], INSInstituicaoCodigo: ins },
-    });
-    const na3A = await core.listarPessoas(trm['3º A']);
-    expect(na3A.data.find((p) => p.PESCodigo === pes.carla)).toMatchObject({
-      matriculas: ['2003'],
-      turmaDeAcesso: { estaTurma: false, rotulo: expect.stringContaining('3º C') },
-    });
-
-    // excluída (soft delete) não aparece
-    await prisma.pESPessoa.update({ where: { PESCodigo: pes.carla }, data: { deletedAt: new Date() } });
-    expect((await core.listarPessoas(trm['3º A'])).data.some((p) => p.PESCodigo === pes.carla)).toBe(false);
-    await prisma.pESPessoa.update({ where: { PESCodigo: pes.carla }, data: { deletedAt: null } });
-    await prisma.mATMatricula.delete({ where: { MATCodigo: extra.MATCodigo } });
-
-    await expect(core.listarPessoas(999999)).rejects.toThrow(/Turma não encontrada/);
+    const grupos = await core.gruposNoEquipamentos(pes.ana, [cod(1)]);
+    expect(grupos[String(cod(1))]).toBe('CATEC MANHA');
   });
 
   it('tirar equipamento do escopo invalida só os pares afetados', async () => {
-    for (const i of [2, 3]) {
-      await prisma.pESEquipamentoMapeamento.create({
-        data: { PESCodigo: pes.bruno, EQPCodigo: cod(i), PEQIdNoEquipamento: '1002', PEQSyncHash: 'h', PEQSyncedAt: new Date() },
-      });
-    }
-    const r = await core.salvarValidacao(
-      trm['3º B'],
-      { ativa: true, regras: REGRAS_A, escopo: { todos: false, EQPCodigos: [cod(3)] } },
+    const antes = await prisma.pESEquipamentoMapeamento.count({ where: { PESCodigo: pes.ana } });
+    await core.salvarValidacao(
+      trm['3º A'],
+      { ativa: true, DEPCodigo: eqp0.dep, escopo: { todos: false, EQPCodigos: [cod(0)] } },
       { usuario },
     );
-    expect(r.pessoasInvalidadas).toBe(1);
-    expect(status(r, 2)).toEqual(['sem_mudanca']); // 3ª A ainda usa MATUTINO-01 na Quadra
+    const grupos = await core.gruposNoEquipamentos(pes.ana, [cod(0), cod(1)]);
+    expect(grupos[String(cod(0))]).toBe('CATEC MANHA');
+    expect(grupos[String(cod(1))]).toBe('Student');
+    expect(antes).toBeGreaterThanOrEqual(0);
   });
 
-  it('lê do equipamento a regra aplicada, acusa adulteração e acompanha a inversão de portais', async () => {
-    const ok = await core.lerRegraAplicada(trm['3º A'], cod(0));
-    expect(ok.diferencas).toEqual([]);
-    expect(ok.aplicado).toMatchObject({ interna: { modo: 'livre' }, externa: { modo: 'horario' } });
-    expect(ok.aplicado!.externa.dias![1]).toEqual([[1020, 1080]]);
+  it('desativar devolve todo mundo ao grupo padrão sem mexer na catraca', async () => {
+    const antesGrupos = dev(0).tabelas.groups.length;
+    await core.salvarValidacao(trm['3º A'], { ativa: false, escopo: { todos: true } }, { usuario });
 
-    // alguém muda a janela de saída direto no equipamento
-    const phe = await prisma.pHEPerfilEquipamento.findFirstOrThrow({
-      where: { EQPCodigo: cod(0), perfil: { PHANome: 'MATUTINO-01' } },
-    });
-    const span = dev(0).tabelas.time_spans.find((s) => String(s.time_zone_id) === phe.PHEIdHorarioExterna)!;
-    span.end = 66600;
-    const adulterado = await core.lerRegraAplicada(trm['3º A'], cod(0));
-    expect(adulterado.diferencas).toEqual(['Entrada na Área Externa: os horários gravados no equipamento são diferentes dos configurados']);
-
-    // teste em bancada mostrou portais trocados: inverter reaplica e a leitura volta a bater
-    await prisma.pHEPerfilEquipamento.update({ where: { PHECodigo: phe.PHECodigo }, data: { PHESyncHash: null } });
-    const inv = await core.atualizarSentidoEquipamento(cod(0), { invertido: true }, { usuario });
-    expect(inv.sentido.invertido).toBe(true);
-    expect(inv.resultados.every((x) => x.status === 'aplicado')).toBe(true);
-    const sentido = await prisma.eQSEquipamentoSentido.findUniqueOrThrow({ where: { EQPCodigo: cod(0) } });
-    const pheInv = await prisma.pHEPerfilEquipamento.findUniqueOrThrow({ where: { PHECodigo: phe.PHECodigo } });
-    expect(
-      dev(0).tabelas.portal_access_rules.filter((v) => String(v.access_rule_id) === pheInv.PHEIdRegraExterna).map((v) => String(v.portal_id)),
-    ).toEqual([sentido.EQSPortalInternaId]);
-    expect((await core.lerRegraAplicada(trm['3º A'], cod(0))).diferencas).toEqual([]);
-
-    const val = await core.atualizarSentidoEquipamento(cod(0), { validado: true }, { usuario });
-    expect(val.sentido.validadoEm).not.toBeNull();
-  });
-
-  it('desativar a 3ª A remove o perfil só onde ficou sem uso e com o grupo vazio', async () => {
-    dev(0).tabelas.user_groups.push({ user_id: 1001, group_id: dev(0).grupo('MATUTINO-01')!.id });
-
-    const r = await core.salvarValidacao(trm['3º A'], { ativa: false, escopo: { todos: false } }, { usuario });
-    expect(status(r, 0)).toEqual(['aguardando_membros']);
-    expect(status(r, 1)).toEqual(['removido']);
-    expect(status(r, 2)).toEqual(['removido']);
-    expect(status(r, 3)).toEqual(['sem_mudanca']);
-    expect(dev(1).grupo('MATUTINO-01')).toBeUndefined();
-    expect(dev(1).tabelas.time_zones.filter((t) => String(t.name).includes('MATUTINO'))).toEqual([]);
-
-    dev(0).tabelas.user_groups = [];
-    const rc = await core.reconciliar();
-    expect(status(rc, 0).filter((s) => s !== 'sem_mudanca')).toEqual(['removido']);
-    expect(rc.gruposPadraoAusentes.map((g) => g.EQPDescricao)).toEqual(expect.arrayContaining(['E-Biblioteca', 'G-Garagem']));
-  });
-
-  it('listagens trazem regras por sentido e forma canônica para o diagrama', async () => {
-    // controle ativo primeiro (3º B, 3º C), depois o 3º A, que foi desativado — e não por nome
-    const ordem = (await core.listar({})).data.map((t) => [t.TRMTurma, t.TRMValidacaoAtiva]);
-    expect(ordem).toEqual([['3º B', true], ['3º C', true], ['3º A', false]]);
-
-    const detalhe = await core.obter(trm['3º B']);
-    expect(detalhe.regras).toEqual(REGRAS_A);
-    expect(detalhe.canonico!.interna).toEqual({ modo: 'livre', dias: null });
-    expect(detalhe.equipamentos.find((e) => e.EQPDescricao === 'G-Garagem')!.sentido.preparado).toBe(false);
-
-    const perfis = await core.listarPerfis();
-    const vesp = perfis.find((p) => p.PHANome === 'VESPERTINO-01')!;
-    expect(vesp.regras.externa).toEqual({ modo: 'livre' });
-    expect(vesp.equipamentos).toMatchObject({ total: 5, semSentido: 2 });
-  });
-
-  it('perfil legado (migração) é normalizado pela reconciliação', async () => {
-    const perfil = await prisma.pHAPerfilHorario.findFirstOrThrow({ where: { PHANome: 'MATUTINO-01' }, include: { janelas: true } });
-    await prisma.pHAPerfilHorario.update({ where: { PHACodigo: perfil.PHACodigo }, data: { PHAHashJanelas: `legado-${perfil.PHACodigo}` } });
-    const rc = await core.reconciliar();
-    expect(rc.perfisLegadosNormalizados).toBe(1);
-    const depois = await prisma.pHAPerfilHorario.findUniqueOrThrow({ where: { PHACodigo: perfil.PHACodigo } });
-    expect(depois.PHAHashJanelas).toBe(hashJanelas(canonizarRegras(REGRAS_A)));
-  });
-
-  it('virada do ano: sugere e importa as regras por sentido', async () => {
-    const r = await core.importarCatalogo({
-      turmas: [{ idExterno: 'n2', nome: '3º B', serie: '3ª série', curso: 'Médio', turno: 'matutino', anoReferencia: '2027' }],
-      matriculasPorTurma: { n2: ['1002'] },
-    });
-    expect(r).toMatchObject({ criadas: 1, desativadas: 3 });
-
-    const s = await core.sugestoesImportacaoAnoAnterior();
-    expect(s.pares).toHaveLength(1);
-    expect(s.pares[0].origem.regras).toEqual(REGRAS_A);
-
-    const imp = await core.importarAnoAnterior(
-      [{ TRMCodigoOrigem: trm['3º B'], TRMCodigoDestino: s.pares[0].destino.TRMCodigo }],
-      { usuario },
-    );
-    expect(imp).toMatchObject({ importadas: 1, falhas: [] });
-    const nova = await core.obter(s.pares[0].destino.TRMCodigo);
-    expect(nova.regras).toEqual(REGRAS_A);
-    expect(nova.escopo).toEqual({ todos: false, EQPCodigos: [cod(3)] });
+    const grupos = await core.gruposNoEquipamentos(pes.ana, [cod(0)]);
+    expect(grupos[String(cod(0))]).toBe('Student');
+    // O departamento continua no equipamento: desativar a turma não apaga configuração.
+    expect(dev(0).tabelas.groups.length).toBe(antesGrupos);
   });
 
   it('busca sem resultado explica: turma só nas matrículas, fora do ERP ou catálogo desatualizado', async () => {

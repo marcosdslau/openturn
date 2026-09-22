@@ -52,7 +52,6 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
       { name: 'TRMCalendario', type: 'String' },
       { name: 'TRMDataInicio', type: 'DateTime' },
       { name: 'TRMDataFim', type: 'DateTime' },
-      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario' },
       { name: 'TRMValidacaoAtiva', type: 'Boolean' },
       { name: 'TRMTodosEquipamentos', type: 'Boolean' },
       { name: 'TRMAtiva', type: 'Boolean' },
@@ -65,7 +64,6 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
   PHAPerfilHorario: {
     alias: 'PerfilHorario',
     fields: [
-      { name: 'PHACodigo', type: 'Int', pk: true },
       { name: 'PHANome', type: 'String' },
       { name: 'PHAHashJanelas', type: 'String' },
       { name: 'PHAHashConfig', type: 'String' },
@@ -78,7 +76,6 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
     alias: 'PerfilHorarioJanela',
     fields: [
       { name: 'PHJCodigo', type: 'Int', pk: true },
-      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario' },
       { name: 'PHJSentido', type: 'Enum' },
       { name: 'PHJHoraInicio', type: 'String' },
       { name: 'PHJHoraFim', type: 'String' },
@@ -104,7 +101,6 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
     alias: 'PerfilEquipamento',
     fields: [
       { name: 'PHECodigo', type: 'Int', pk: true },
-      { name: 'PHACodigo', type: 'Int', fk: 'PHAPerfilHorario' },
       { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
       { name: 'PHEIdGrupo', type: 'String' },
       { name: 'PHEIdRegraInterna', type: 'String' },
@@ -165,24 +161,20 @@ const DESPACHO: Record<string, (core: TurmaAcessoCore, args: any[], origem: Orig
   obter: (c, a) => c.obter(a[0]),
   // Sem foto via RPC: base64 de dezenas de fotos não cabe numa chamada de rotina.
   listarPessoas: (c, a) => c.listarPessoas(a[0], { ...(a[1] ?? {}), comFoto: false }),
-  listarPerfis: (c) => c.listarPerfis(),
-  previewPerfil: (c, a) => c.previewPerfil(a[0], a[1]),
   salvarValidacao: (c, a, o) => c.salvarValidacao(a[0], a[1], o),
   salvarValidacaoEmLote: (c, a, o) => c.salvarValidacaoEmLote(a[0], a[1], o),
-  renomearPerfil: (c, a, o) => c.renomearPerfil(a[0], a[1], o),
   grupoNoEquipamento: (c, a) => c.grupoNoEquipamento(a[0], a[1]),
   gruposNoEquipamentos: (c, a) => c.gruposNoEquipamentos(a[0], a[1]),
-  sincronizar: (c, a) => c.sincronizar(a[0] ?? {}),
-  reconciliar: (c, a) => c.reconciliar(a[0] ?? {}),
   vincularPessoas: (c) => c.vincularPessoas(),
   importarCatalogo: (c, a) => c.importarCatalogo(a[0]),
   sugestoesImportacaoAnoAnterior: (c) => c.sugestoesImportacaoAnoAnterior(),
   importarAnoAnterior: (c, a, o) => c.importarAnoAnterior(a[0], o),
-  lerRegraAplicada: (c, a) => c.lerRegraAplicada(a[0], a[1]),
-  listarEquipamentosSentido: (c) => c.listarEquipamentosSentido(),
-  lerSentidoEquipamento: (c, a) => c.lerSentidoEquipamento(a[0]),
-  prepararSentidoEquipamento: (c, a, o) => c.prepararSentidoEquipamento(a[0], o),
-  atualizarSentidoEquipamento: (c, a, o) => c.atualizarSentidoEquipamento(a[0], a[1] ?? {}, o),
+  listarDepartamentos: (c) => c.listarDepartamentos(),
+  verificarDepartamentos: (c, a) => c.verificarDepartamentos(a[0] ?? {}),
+  compararHostsEquipamento: (c, a) => c.compararHostsEquipamento(a[0]),
+  candidatosDepartamentoEquipamento: (c, a) => c.candidatosDepartamentoEquipamento(a[0]),
+  obterEspelhoEquipamento: (c, a) => c.obterEspelhoEquipamento(a[0]),
+  lerConfiguracaoEquipamento: (c, a) => c.lerConfiguracaoEquipamento(a[0]),
 };
 
 export const TURMAS_METODOS_RPC = Object.keys(DESPACHO);

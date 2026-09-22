@@ -13,38 +13,14 @@ export interface EscopoEntrada {
   EQPCodigos?: number[];
 }
 
-/**
- * Sentido de giro, modelado como "entrada em uma área" (SpecControlId.md §4):
- * - interna = Entrada na Área Interna (entrar na escola)
- * - externa = Entrada na Área Externa (sair da escola)
- */
-export type Sentido = 'interna' | 'externa';
-export const SENTIDOS: readonly Sentido[] = ['interna', 'externa'];
-
-/**
- * livre     = sempre liberado (horário 24h, todos os dias e feriados)
- * horario   = liberado só nas faixas informadas
- * bloqueado = nenhuma regra de permissão nesse sentido (modelo allow-only: ninguém da turma passa)
- */
-export type ModoSentido = 'livre' | 'horario' | 'bloqueado';
-
-export interface RegraSentidoEntrada {
-  modo: ModoSentido;
-  /** Obrigatório quando modo = 'horario'; ignorado nos demais. */
-  horarios?: JanelaEntrada[];
-}
-
-export type RegrasEntrada = Record<Sentido, RegraSentidoEntrada>;
-
+/** O que a turma escolhe: se controla o acesso, por qual departamento e onde. */
 export interface ValidacaoEntrada {
   ativa: boolean;
-  /** Regra independente para cada sentido. */
-  regras?: RegrasEntrada;
   /**
-   * @deprecated Formato anterior ao controle por sentido. Equivale a
-   * `{ interna: { modo: 'horario', horarios }, externa: { modo: 'horario', horarios } }`.
+   * Departamento da instituição. Áreas, horários e regras vêm dele, configurados por equipamento —
+   * a turma não define horário nenhum.
    */
-  horarios?: JanelaEntrada[];
+  DEPCodigo?: number;
   escopo: EscopoEntrada;
 }
 
@@ -61,8 +37,12 @@ export type StatusEquipamento =
   | 'aguardando_membros'
   | 'ocupado'
   | 'nao_suportado'
-  /** Equipamento sem Área Interna/Externa preparadas — a regra por sentido não pode ser aplicada. */
-  | 'sentido_nao_preparado'
+  /** O departamento da turma não foi adotado neste equipamento: a pessoa fica no grupo padrão. */
+  | 'departamento_nao_adotado'
+  /** Adotado, mas ninguém conferiu a configuração ainda. Não impede o acesso. */
+  | 'departamento_nao_revisado'
+  /** Adotado e sem nenhuma regra: ninguém do departamento passa neste equipamento. */
+  | 'sem_regra'
   | 'inativo'
   | 'erro';
 

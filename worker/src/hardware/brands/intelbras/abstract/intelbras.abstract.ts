@@ -3,6 +3,10 @@ import {
   HardwareAccessGroup,
   HardwareAccessGroupInspection,
   HardwareAccessGroupRef,
+  HardwareAccessConfigOps,
+  HardwareAccessHost,
+  HardwareAccessHostSnapshot,
+  HardwareAccessSnapshot,
   HardwareDirectionPortals,
   HardwareDirectionReading,
   HardwareDirectionSetup,
@@ -118,42 +122,20 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
   supportsAccessGroups(): boolean {
     return false;
   }
-
-  async prepareAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionSetup> {
-    throw new Error('[Intelbras] prepareAccessDirection não implementado');
+  async readAccessConfig(_equipmentId: number): Promise<HardwareAccessSnapshot> {
+    throw new Error('[Intelbras] readAccessConfig não implementado');
   }
 
-  async readAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionReading> {
-    throw new Error('[Intelbras] readAccessDirection não implementado');
+  accessConfigOps(_equipmentId: number): HardwareAccessConfigOps {
+    throw new Error('[Intelbras] accessConfigOps não implementado');
   }
 
-  async syncAccessGroup(
-    _equipmentId: number,
-    _group: HardwareAccessGroup,
-    _ref: HardwareAccessGroupRef | undefined,
-    _portals: HardwareDirectionPortals,
-  ): Promise<HardwareAccessGroupRef> {
-    throw new Error('[Intelbras] syncAccessGroup não implementado');
+  accessHosts(_device: EQPEquipamento): HardwareAccessHost[] {
+    return [];
   }
 
-  async inspectAccessGroup(
-    _equipmentId: number,
-    _ref: HardwareAccessGroupRef,
-    _nome: string,
-  ): Promise<HardwareAccessGroupInspection> {
-    throw new Error('[Intelbras] inspectAccessGroup não implementado');
-  }
-
-  async removeAccessGroup(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<void> {
-    throw new Error('[Intelbras] removeAccessGroup não implementado');
-  }
-
-  async countAccessGroupMembers(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<number> {
-    throw new Error('[Intelbras] countAccessGroupMembers não implementado');
-  }
-
-  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
-    throw new Error('[Intelbras] listAccessGroups não implementado');
+  async readAccessConfigAllHosts(_device: EQPEquipamento): Promise<HardwareAccessHostSnapshot[]> {
+    throw new Error('[Intelbras] readAccessConfigAllHosts não implementado');
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

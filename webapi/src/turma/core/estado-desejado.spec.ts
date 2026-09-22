@@ -2,24 +2,28 @@ import {
   diferencaSimetrica,
   elegerTurma,
   grupoNoEquipamento,
-  hashDesejado,
   noEscopo,
-  perfilDeveExistir,
   resolverEscopo,
   resolverTurmaDaMatricula,
+  type TurmaEfetiva,
   type TurmaEstado,
 } from './estado-desejado';
 
 const turma = (over: Partial<TurmaEstado> = {}): TurmaEstado => ({
   TRMCodigo: 1,
-  PHACodigo: 10,
+  DEPCodigo: 7,
   TRMValidacaoAtiva: true,
   TRMAtiva: true,
   TRMTodosEquipamentos: false,
   escopo: [],
   ...over,
 });
-const eqp = (EQPCodigo: number, EQPAtivo = true, sentidoPreparado = true) => ({ EQPCodigo, EQPAtivo, sentidoPreparado });
+
+/** Turma no modelo novo: aponta para um departamento adotado em alguns equipamentos. */
+const comDepartamento = (adotado: Array<[number, string]>, over: Partial<TurmaEstado> = {}): TurmaEfetiva => ({
+  ...turma({ escopo: [1, 2, 3], ...over }),
+  departamentoPorEquipamento: new Map(adotado),
+});
 
 describe('escopo e estado desejado (§7)', () => {
   it('"todos" vale para qualquer equipamento, inclusive futuros', () => {
@@ -32,54 +36,37 @@ describe('escopo e estado desejado (§7)', () => {
     expect(resolverEscopo(turma({ escopo: [2, 9] }), [1, 2, 3])).toEqual([2]);
   });
 
-  it('perfil compartilhado × escopos diferentes (tabela de §7.3)', () => {
-    const turmaA = turma({ TRMCodigo: 1, escopo: [1, 2, 3] });
-    const turmaB = turma({ TRMCodigo: 2, escopo: [3, 4] });
-    const existe = (e: number) => perfilDeveExistir(10, eqp(e), [turmaA, turmaB]);
-    expect([1, 2, 3, 4, 5, 6].map(existe)).toEqual([true, true, true, true, false, false]);
-
-    // 3ª B tira o EQP 3: o perfil continua lá por causa da 3ª A
-    const semTres = turma({ TRMCodigo: 2, escopo: [4] });
-    expect(perfilDeveExistir(10, eqp(3), [turmaA, semTres])).toBe(true);
-  });
-
-  it('perfil não deve existir em equipamento inativo, sem áreas preparadas, turma inativa, desativada ou sem perfil', () => {
-    expect(perfilDeveExistir(10, eqp(1, false), [turma({ TRMTodosEquipamentos: true })])).toBe(false);
-    expect(perfilDeveExistir(10, eqp(1, true, false), [turma({ TRMTodosEquipamentos: true })])).toBe(false);
-    expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, TRMAtiva: false })])).toBe(false);
-    expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, TRMValidacaoAtiva: false })])).toBe(false);
-    expect(perfilDeveExistir(10, eqp(1), [turma({ TRMTodosEquipamentos: true, PHACodigo: 11 })])).toBe(false);
-  });
-
-  it('hashDesejado é o hash do perfil ou null', () => {
-    const perfil = { PHACodigo: 10, PHAHashConfig: 'abc' };
-    expect(hashDesejado(perfil, eqp(1), [turma({ escopo: [1] })])).toBe('abc');
-    expect(hashDesejado(perfil, eqp(2), [turma({ escopo: [1] })])).toBeNull();
-  });
-
   it('diferencaSimetrica devolve quem entrou e quem saiu', () => {
     expect(diferencaSimetrica([1, 2, 3], [2, 3, 4])).toEqual([1, 4]);
     expect(diferencaSimetrica([1, 2], [2, 1])).toEqual([]);
   });
 });
 
-describe('grupoNoEquipamento (§7.2)', () => {
+describe('grupoNoEquipamento — caminho novo (departamento adotado)', () => {
   const pessoa = { PESGrupo: 'Student' };
-  const efetiva = { ...turma({ escopo: [1, 2, 3] }), perfilNome: 'MATUTINO-01' };
 
-  it('perfil nos equipamentos do escopo, grupo padrão nos demais', () => {
-    expect(grupoNoEquipamento(pessoa, efetiva, 1, true)).toBe('MATUTINO-01');
-    expect(grupoNoEquipamento(pessoa, efetiva, 4, true)).toBe('Student');
+  it('usa o nome do departamento ADOTADO naquele equipamento', () => {
+    const t = comDepartamento([
+      [1, 'CATEC MANHA'],
+      [2, 'Catec manhã'],
+    ]);
+    // Cada catraca pode ter o grupo com nome próprio — o vínculo é por id, não por nome.
+    expect(grupoNoEquipamento(pessoa, t, 1)).toBe('CATEC MANHA');
+    expect(grupoNoEquipamento(pessoa, t, 2)).toBe('Catec manhã');
   });
 
-  it('equipamento no escopo mas sem áreas preparadas: grupo padrão (senão a pessoa ficaria pendente para sempre)', () => {
-    expect(grupoNoEquipamento(pessoa, efetiva, 1, false)).toBe('Student');
+  it('equipamento no escopo mas sem adoção: grupo padrão, porque não existe grupo para a pessoa lá', () => {
+    expect(grupoNoEquipamento(pessoa, comDepartamento([[1, 'CATEC']]), 3)).toBe('Student');
   });
 
-  it('sem turma, ou turma não vigente, volta ao grupo padrão', () => {
-    expect(grupoNoEquipamento(pessoa, null, 1, true)).toBe('Student');
-    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMValidacaoAtiva: false }, 1, true)).toBe('Student');
-    expect(grupoNoEquipamento(pessoa, { ...efetiva, TRMAtiva: false }, 1, true)).toBe('Student');
+  it('fora do escopo volta ao grupo padrão mesmo com adoção', () => {
+    const t = comDepartamento([[9, 'CATEC']], { escopo: [1] });
+    expect(grupoNoEquipamento(pessoa, t, 9)).toBe('Student');
+  });
+
+  it('turma sem departamento não é vigente: grupo padrão', () => {
+    const t: TurmaEfetiva = { ...comDepartamento([[1, 'CATEC']]), DEPCodigo: null };
+    expect(grupoNoEquipamento(pessoa, t, 1)).toBe('Student');
   });
 });
 

@@ -63,7 +63,12 @@ export interface TurmaItem {
     TRMPrioridade: number;
     TRMQtdePessoas: number;
     TRMAlteradoEm: string | null;
-    perfil: { PHACodigo: number; PHANome: string; qtdeTurmas: number; modos: Record<Sentido, ModoSentido> } | null;
+    departamento: {
+        DEPCodigo: number;
+        DEPNome: string;
+        /** Em quantos equipamentos o departamento foi adotado. */
+        adotadoEm: number;
+    } | null;
     escopo: Escopo & { total: number };
     sync: SyncResumo | null;
 }

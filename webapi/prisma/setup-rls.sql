@@ -99,3 +99,40 @@ CREATE POLICY tenant_isolation_phe ON "PHEPerfilEquipamento"
 ALTER TABLE "EQSEquipamentoSentido" ENABLE ROW LEVEL SECURITY;
 CREATE POLICY tenant_isolation_eqs ON "EQSEquipamentoSentido"
   USING ("INSInstituicaoCodigo" = current_tenant());
+
+-- Espelho da configuração de acesso por equipamento (docs/controle-por-turma/PLANO-IMPLEMENTACAO.md)
+ALTER TABLE "AREArea" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_are ON "AREArea"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "PTLPortal" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_ptl ON "PTLPortal"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "HORHorario" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_hor ON "HORHorario"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "HORJanela" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_hrj ON "HORJanela"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "HRAHorarioArea" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_hra ON "HRAHorarioArea"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "DEPDepartamento" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_dep ON "DEPDepartamento"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "DEQDepartamentoEquipamento" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_deq ON "DEQDepartamentoEquipamento"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "DRGDepartamentoRegra" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_drg ON "DRGDepartamentoRegra"
+  USING ("INSInstituicaoCodigo" = current_tenant());
+
+ALTER TABLE "DRADepartamentoRegraArea" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation_dra ON "DRADepartamentoRegraArea"
+  USING ("INSInstituicaoCodigo" = current_tenant());

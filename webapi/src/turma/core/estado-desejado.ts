@@ -1,7 +1,8 @@
 /** Recorte da turma necessário para decidir escopo e estado desejado (§7 da spec). */
 export interface TurmaEstado {
   TRMCodigo: number;
-  PHACodigo: number | null;
+  /** Departamento da instituição. É o único vínculo de configuração da turma no modelo novo. */
+  DEPCodigo: number | null;
   TRMValidacaoAtiva: boolean;
   TRMAtiva: boolean;
   TRMTodosEquipamentos: boolean;
@@ -9,20 +10,10 @@ export interface TurmaEstado {
   escopo: number[];
 }
 
-export interface EquipamentoEstado {
-  EQPCodigo: number;
-  EQPAtivo: boolean;
-  /**
-   * Área Interna/Externa e portais preparados no equipamento (EQSEquipamentoSentido).
-   * Sem isso a regra por sentido não pode ser aplicada: o equipamento fica fora do escopo efetivo.
-   */
-  sentidoPreparado: boolean;
-}
-
 /** Linha de TRMTurma (com `escopo` incluído) → TurmaEstado. */
 export function paraTurmaEstado(t: {
   TRMCodigo: number;
-  PHACodigo: number | null;
+  DEPCodigo?: number | null;
   TRMValidacaoAtiva: boolean;
   TRMAtiva: boolean;
   TRMTodosEquipamentos: boolean;
@@ -30,7 +21,7 @@ export function paraTurmaEstado(t: {
 }): TurmaEstado {
   return {
     TRMCodigo: t.TRMCodigo,
-    PHACodigo: t.PHACodigo,
+    DEPCodigo: t.DEPCodigo ?? null,
     TRMValidacaoAtiva: t.TRMValidacaoAtiva,
     TRMAtiva: t.TRMAtiva,
     TRMTodosEquipamentos: t.TRMTodosEquipamentos,
@@ -43,22 +34,10 @@ export function noEscopo(turma: Pick<TurmaEstado, 'TRMTodosEquipamentos' | 'esco
 }
 
 /** Turma cuja regra deve valer nos equipamentos do seu escopo. */
-export function turmaVigente(turma: Pick<TurmaEstado, 'TRMValidacaoAtiva' | 'TRMAtiva' | 'PHACodigo'>): boolean {
-  return turma.TRMValidacaoAtiva && turma.TRMAtiva && turma.PHACodigo != null;
-}
-
-export function perfilDeveExistir(phaCodigo: number, eqp: EquipamentoEstado, turmas: TurmaEstado[]): boolean {
-  if (!eqp.EQPAtivo || !eqp.sentidoPreparado) return false;
-  return turmas.some((t) => t.PHACodigo === phaCodigo && turmaVigente(t) && noEscopo(t, eqp.EQPCodigo));
-}
-
-/** null = "não deve haver nada deste perfil neste equipamento". */
-export function hashDesejado(
-  perfil: { PHACodigo: number; PHAHashConfig: string },
-  eqp: EquipamentoEstado,
-  turmas: TurmaEstado[],
-): string | null {
-  return perfilDeveExistir(perfil.PHACodigo, eqp, turmas) ? perfil.PHAHashConfig : null;
+export function turmaVigente(
+  turma: Pick<TurmaEstado, 'TRMValidacaoAtiva' | 'TRMAtiva' | 'DEPCodigo'>,
+): boolean {
+  return turma.TRMValidacaoAtiva && turma.TRMAtiva && turma.DEPCodigo != null;
 }
 
 /** EQPCodigos efetivos do escopo, restritos aos equipamentos ativos informados. */
@@ -78,27 +57,28 @@ export function diferencaSimetrica(antes: number[], depois: number[]): number[] 
   return [...new Set([...antes, ...depois])].filter((x) => a.has(x) !== b.has(x)).sort((x, y) => x - y);
 }
 
+/** Turma efetiva da pessoa, com o que ela precisa para resolver o departamento por equipamento. */
+export interface TurmaEfetiva extends TurmaEstado {
+  /** EQPCodigo → nome do departamento adotado naquele equipamento (`DEQNome`). */
+  departamentoPorEquipamento: Map<number, string>;
+}
+
 /**
- * Departamento da pessoa num equipamento (§7.2): perfil da turma efetiva quando o
- * equipamento está no escopo, tem as áreas preparadas e a turma está vigente;
- * senão o grupo padrão (PESGrupo).
+ * Departamento da pessoa num equipamento; `null`/`PESGrupo` = grupo padrão.
+ *
+ * O nome vem do departamento adotado naquele equipamento. Note que **não** depende de
+ * `DEQRevisadoEm`: revisão é sobre a configuração ter sido conferida por alguém, não sobre quem
+ * entra no grupo. Tirar as pessoas de um departamento não revisado mudaria o acesso delas
+ * justamente no momento em que ninguém ainda olhou.
  */
 export function grupoNoEquipamento(
   pessoa: { PESGrupo: string | null },
-  turmaEfetiva: (TurmaEstado & { perfilNome: string | null }) | null,
+  turmaEfetiva: TurmaEfetiva | null,
   eqpCodigo: number,
-  sentidoPreparado: boolean,
 ): string | null {
-  if (
-    sentidoPreparado &&
-    turmaEfetiva &&
-    turmaVigente(turmaEfetiva) &&
-    turmaEfetiva.perfilNome &&
-    noEscopo(turmaEfetiva, eqpCodigo)
-  ) {
-    return turmaEfetiva.perfilNome;
-  }
-  return pessoa.PESGrupo ?? null;
+  const padrao = pessoa.PESGrupo ?? null;
+  if (!turmaEfetiva || !turmaVigente(turmaEfetiva) || !noEscopo(turmaEfetiva, eqpCodigo)) return padrao;
+  return turmaEfetiva.departamentoPorEquipamento.get(eqpCodigo) ?? padrao;
 }
 
 export interface CandidataEleicao {

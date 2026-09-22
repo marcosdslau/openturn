@@ -5,6 +5,10 @@ import {
   HardwareAccessGroup,
   HardwareAccessGroupInspection,
   HardwareAccessGroupRef,
+  HardwareAccessConfigOps,
+  HardwareAccessHost,
+  HardwareAccessHostSnapshot,
+  HardwareAccessSnapshot,
   HardwareDirectionPortals,
   HardwareDirectionReading,
   HardwareDirectionSetup,
@@ -150,42 +154,20 @@ export abstract class AbstractTopdataProvider implements IHardwareProvider {
   supportsAccessGroups(): boolean {
     return false;
   }
-
-  async prepareAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionSetup> {
-    throw new Error('[Topdata] prepareAccessDirection não implementado');
+  async readAccessConfig(_equipmentId: number): Promise<HardwareAccessSnapshot> {
+    throw new Error('[Topdata] readAccessConfig não implementado');
   }
 
-  async readAccessDirection(_device: EQPEquipamento): Promise<HardwareDirectionReading> {
-    throw new Error('[Topdata] readAccessDirection não implementado');
+  accessConfigOps(_equipmentId: number): HardwareAccessConfigOps {
+    throw new Error('[Topdata] accessConfigOps não implementado');
   }
 
-  async syncAccessGroup(
-    _equipmentId: number,
-    _group: HardwareAccessGroup,
-    _ref: HardwareAccessGroupRef | undefined,
-    _portals: HardwareDirectionPortals,
-  ): Promise<HardwareAccessGroupRef> {
-    throw new Error('[Topdata] syncAccessGroup não implementado');
+  accessHosts(_device: EQPEquipamento): HardwareAccessHost[] {
+    return [];
   }
 
-  async inspectAccessGroup(
-    _equipmentId: number,
-    _ref: HardwareAccessGroupRef,
-    _nome: string,
-  ): Promise<HardwareAccessGroupInspection> {
-    throw new Error('[Topdata] inspectAccessGroup não implementado');
-  }
-
-  async removeAccessGroup(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<void> {
-    throw new Error('[Topdata] removeAccessGroup não implementado');
-  }
-
-  async countAccessGroupMembers(_equipmentId: number, _ref: HardwareAccessGroupRef): Promise<number> {
-    throw new Error('[Topdata] countAccessGroupMembers não implementado');
-  }
-
-  async listAccessGroups(_equipmentId: number): Promise<Array<{ id: string; nome: string }>> {
-    throw new Error('[Topdata] listAccessGroups não implementado');
+  async readAccessConfigAllHosts(_device: EQPEquipamento): Promise<HardwareAccessHostSnapshot[]> {
+    throw new Error('[Topdata] readAccessConfigAllHosts não implementado');
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

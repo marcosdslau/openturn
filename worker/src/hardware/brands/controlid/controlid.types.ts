@@ -62,6 +62,63 @@ export interface ControlIDConfig {
   deviceId_exit?: string;
 }
 
+/** De onde saiu o host com que o provider fala. `EQPEnderecoIp` é o ÚLTIMO fallback, não o primeiro. */
+export type OrigemHostControlId =
+  | 'override'
+  | 'EQPConfig.host'
+  | 'EQPConfig.ip_entry'
+  | 'EQPConfig.ip_exit'
+  | 'EQPEnderecoIp';
+
+export interface HostControlId {
+  host: string;
+  origem: OrigemHostControlId;
+}
+
+/**
+ * Precedência do host, única no projeto: a factory usa para instanciar o provider e o diagnóstico
+ * usa para dizer na tela com quem está falando. Duplicar isso já significou a tela rotular de
+ * "Principal" um host diferente do que o provider de fato usava.
+ */
+export function resolverHostControlId(
+  cfg: Partial<ControlIDConfig> | null | undefined,
+  EQPEnderecoIp: string | null | undefined,
+  overrideHost?: string,
+): HostControlId | null {
+  const c = cfg ?? {};
+  const candidatos: HostControlId[] = [
+    { host: overrideHost ?? '', origem: 'override' },
+    { host: c.host ?? '', origem: 'EQPConfig.host' },
+    { host: c.ip_entry ?? '', origem: 'EQPConfig.ip_entry' },
+    { host: c.ip_exit ?? '', origem: 'EQPConfig.ip_exit' },
+    { host: EQPEnderecoIp ?? '', origem: 'EQPEnderecoIp' },
+  ];
+  return candidatos.find((x) => x.host.trim()) ?? null;
+}
+
+/** Todos os hosts conhecidos do equipamento, sem repetir, na ordem da precedência. */
+export function hostsControlId(
+  cfg: Partial<ControlIDConfig> | null | undefined,
+  EQPEnderecoIp: string | null | undefined,
+): HostControlId[] {
+  const c = cfg ?? {};
+  const brutos: HostControlId[] = [
+    { host: c.host ?? '', origem: 'EQPConfig.host' },
+    { host: c.ip_entry ?? '', origem: 'EQPConfig.ip_entry' },
+    { host: c.ip_exit ?? '', origem: 'EQPConfig.ip_exit' },
+    { host: EQPEnderecoIp ?? '', origem: 'EQPEnderecoIp' },
+  ];
+  const vistos = new Set<string>();
+  const saida: HostControlId[] = [];
+  for (const h of brutos) {
+    const chave = h.host.trim().toLowerCase();
+    if (!chave || vistos.has(chave)) continue;
+    vistos.add(chave);
+    saida.push({ host: h.host.trim(), origem: h.origem });
+  }
+  return saida;
+}
+
 export function normalizeControlIdModel(
   raw: string | null | undefined,
 ): ControlIDModel {

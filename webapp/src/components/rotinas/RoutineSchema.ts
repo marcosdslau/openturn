@@ -162,7 +162,6 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
             { name: "TRMCalendario", type: "String", description: "Calendário acadêmico" },
             { name: "TRMDataInicio", type: "DateTime", description: "Início da turma (classStartDate)" },
             { name: "TRMDataFim", type: "DateTime", description: "Fim da turma (classEndDate)" },
-            { name: "PHACodigo", type: "Int", fk: "PHAPerfilHorario", description: "Perfil de horário atribuído" },
             { name: "TRMValidacaoAtiva", type: "Boolean", description: "Controle de acesso por turma ativo?" },
             { name: "TRMTodosEquipamentos", type: "Boolean", description: "Vale em todos os equipamentos (inclusive futuros)?" },
             { name: "TRMAtiva", type: "Boolean", description: "Veio na última leitura do ERP?" },
@@ -180,7 +179,6 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         readOnly: true,
         description: "Perfil de horário = departamento no equipamento. Turmas com a mesma regra de entrada E de saída compartilham o mesmo perfil.",
         fields: [
-            { name: "PHACodigo", type: "Int", pk: true, description: "ID Perfil" },
             { name: "PHANome", type: "String", description: "Nome do departamento/horário no equipamento (≤ 15 bytes)" },
             { name: "PHAModoInterna", type: "String", description: "Entrada na Área Interna (Externa → Interna): LIVRE | HORARIO | BLOQUEADO" },
             { name: "PHAModoExterna", type: "String", description: "Entrada na Área Externa (Interna → Externa): LIVRE | HORARIO | BLOQUEADO" },
@@ -197,7 +195,6 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         description: "Faixas de horário do perfil por sentido (só existem para o sentido em modo HORARIO)",
         fields: [
             { name: "PHJCodigo", type: "Int", pk: true, description: "ID Faixa" },
-            { name: "PHACodigo", type: "Int", fk: "PHAPerfilHorario", description: "ID Perfil" },
             { name: "PHJSentido", type: "String", description: "INTERNA (entrada na Área Interna) | EXTERNA (entrada na Área Externa)" },
             { name: "PHJHoraInicio", type: "String", description: "Início HH:mm (horário do equipamento)" },
             { name: "PHJHoraFim", type: "String", description: "Fim HH:mm (menor que o início = cruza a meia-noite)" },
@@ -231,7 +228,6 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         description: "Estado de sincronização de um perfil em um equipamento",
         fields: [
             { name: "PHECodigo", type: "Int", pk: true, description: "ID" },
-            { name: "PHACodigo", type: "Int", fk: "PHAPerfilHorario", description: "ID Perfil" },
             { name: "EQPCodigo", type: "Int", fk: "EQPEquipamento", description: "ID Equipamento" },
             { name: "PHEIdGrupo", type: "String", description: "group_id no equipamento" },
             { name: "PHEIdRegraInterna", type: "String", description: "access_rule_id da entrada na Área Interna (null = bloqueado)" },
