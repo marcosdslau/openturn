@@ -1,11 +1,26 @@
-import { HardwareUser } from './hardware.types';
+import { EQPEquipamento } from '@prisma/client';
+import {
+  GrupoAplicado,
+  HardwareAccessGroup,
+  HardwareAccessGroupInspection,
+  HardwareAccessGroupRef,
+  HardwareAccessConfigOps,
+  HardwareAccessHost,
+  HardwareAccessHostSnapshot,
+  HardwareAccessSnapshot,
+  HardwareDirectionPortals,
+  HardwareDirectionReading,
+  HardwareDirectionSetup,
+  HardwareUser,
+} from './hardware.types';
 import { IHardwareEquipmentConfiguration } from './hardware-equipment-config.interface';
 
 export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
+  /** `grupo` informa se o departamento foi de fato aplicado (ver GrupoAplicado). */
   syncPerson(
     equipmentId: number,
     person: HardwareUser,
-  ): Promise<{ idNoEquipamento: string }>;
+  ): Promise<{ idNoEquipamento: string; grupo?: GrupoAplicado }>;
 
   createPerson(
     equipmentId: number,
@@ -62,6 +77,11 @@ export interface IHardwareProvider extends IHardwareEquipmentConfiguration {
   enroll(type: 'face' | 'biometry', userId: number): Promise<void>;
 
   customCommand(cmd: string, params?: any): Promise<any>;
+
+  // ── Grupos de acesso (controle de acesso por turma) ──
+
+  /** false = a marca/modelo não implementa grupos de acesso; os demais métodos lançam. */
+  supportsAccessGroups(): boolean;
 
   testConnection(): Promise<{
     ok: boolean;

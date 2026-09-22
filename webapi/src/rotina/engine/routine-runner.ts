@@ -36,6 +36,9 @@ process.on('message', async (message: any) => {
       // Setup Hardware Proxy
       context.hardware = createHardwareProxy();
 
+      // Controle de acesso por turma — mesmas operações da tela (working/Controle-turma/README.md §10)
+      context.turmas = createTurmasProxy();
+
       // Cria logger de arquivo (.txt)
       const logger = new FileLogger(context.instituicaoCodigo, context.logsDir);
 
@@ -141,6 +144,22 @@ function createHardwareProxy() {
         return (equipmentId: number, ...args: any[]) => {
           return sendRpc('hardware.exec', { equipmentId, method: prop, args });
         };
+      },
+    },
+  );
+}
+
+/**
+ * Proxy de `context.turmas`: cada método vira RPC `turmas.exec`. A lista de métodos
+ * permitidos e a origem (rotina) são decididas no processo pai.
+ */
+function createTurmasProxy() {
+  return new Proxy(
+    {},
+    {
+      get: (_target, prop: string) => {
+        if (prop === 'then') return undefined; // não é thenable
+        return (...args: any[]) => sendRpc('turmas.exec', { method: prop, args });
       },
     },
   );

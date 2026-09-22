@@ -85,6 +85,11 @@ export const getMainNavItems = (
             name: "Matrículas",
             path: `${basePath}/matriculas`,
         },
+        {
+            icon: <CalenderIcon />,
+            name: "Turmas",
+            path: `${basePath}/turmas`,
+        },
     ];
 
     if (!hideEquipUsuarios) {

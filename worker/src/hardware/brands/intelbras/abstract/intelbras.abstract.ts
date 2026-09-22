@@ -1,5 +1,15 @@
 import { PrismaClient, EQPEquipamento } from '@prisma/client';
 import {
+  HardwareAccessGroup,
+  HardwareAccessGroupInspection,
+  HardwareAccessGroupRef,
+  HardwareAccessConfigOps,
+  HardwareAccessHost,
+  HardwareAccessHostSnapshot,
+  HardwareAccessSnapshot,
+  HardwareDirectionPortals,
+  HardwareDirectionReading,
+  HardwareDirectionSetup,
   HardwareEquipmentConfigType,
   HardwareUser,
 } from '../../../interfaces/hardware.types';
@@ -106,6 +116,26 @@ export abstract class AbstractIntelbrasProvider implements IHardwareProvider {
 
   async enroll(type: 'face' | 'biometry', userId: number): Promise<void> {
     this.logger.log(`[Intelbras] Enrolling ${type} for user ${userId}`);
+  }
+
+  // Grupos de acesso (controle por turma): ainda não implementado para Intelbras.
+  supportsAccessGroups(): boolean {
+    return false;
+  }
+  async readAccessConfig(_equipmentId: number): Promise<HardwareAccessSnapshot> {
+    throw new Error('[Intelbras] readAccessConfig não implementado');
+  }
+
+  accessConfigOps(_equipmentId: number): HardwareAccessConfigOps {
+    throw new Error('[Intelbras] accessConfigOps não implementado');
+  }
+
+  accessHosts(_device: EQPEquipamento): HardwareAccessHost[] {
+    return [];
+  }
+
+  async readAccessConfigAllHosts(_device: EQPEquipamento): Promise<HardwareAccessHostSnapshot[]> {
+    throw new Error('[Intelbras] readAccessConfigAllHosts não implementado');
   }
 
   async customCommand(cmd: string, params?: any): Promise<any> {

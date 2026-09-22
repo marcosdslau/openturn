@@ -60,79 +60,90 @@ model CLICliente {
 }
 
 model INSInstituicao {
-  INSCodigo           Int                   @id @default(autoincrement())
-  CLICodigo           Int
-  cliente             CLICliente            @relation(fields: [CLICodigo], references: [CLICodigo])
-  INSNome             String
-  INSCodigoExterno    String?
-  INSAtivo            Boolean               @default(true)
-  INSLogsAutoExcluir  Boolean               @default(true)
-  INSLogsDiasRetencao Int                   @default(90)
-  INSMaxExecucoesSimultaneas Int            @default(8)
-  INSWorkerAtivo      Boolean               @default(true) // false = worker não consome fila desta instituição
+  INSCodigo                         Int                          @id @default(autoincrement())
+  CLICodigo                         Int
+  cliente                           CLICliente                   @relation(fields: [CLICodigo], references: [CLICodigo])
+  INSNome                           String
+  INSCodigoExterno                  String?
+  INSAtivo                          Boolean                      @default(true)
+  INSLogsAutoExcluir                Boolean                      @default(true)
+  INSLogsDiasRetencao               Int                          @default(90)
+  INSMaxExecucoesSimultaneas        Int                          @default(8)
+  INSWorkerAtivo                    Boolean                      @default(true) // false = worker não consome fila desta instituição
   /// Offset UTC em horas (ex.: -3). Usado ao persistir ControlID notifyTime a partir de body.time bruto.
-  INSFusoHorario      Int                   @default(-3)
+  INSFusoHorario                    Int                          @default(-3)
   /// Tolerância em minutos (entrada) — janela em relação ao horário de referência.
-  INSToleranciaEntradaMinutos Int         @default(15)
+  INSToleranciaEntradaMinutos       Int                          @default(15)
   /// Tolerância em minutos (saída) — janela em relação ao horário de referência.
-  INSToleranciaSaidaMinutos   Int         @default(15)
+  INSToleranciaSaidaMinutos         Int                          @default(15)
   /// Limiar facial padrão (0–1000) para reconhecimento quando não houver valor na pessoa.
-  INSTLimiarFacialDefault     Int         @default(680)
-  INSConfigHardware Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
-  INSControlidMonitorRotinaAtiva    Boolean @default(false)
+  INSTLimiarFacialDefault           Int                          @default(680)
+  INSConfigHardware                 Json? // Global hardware config (e.g. ControlID Monitor IP/Port)
+  INSControlidMonitorRotinaAtiva    Boolean                      @default(false)
   INSControlidMonitorRotinaCodigo   Int?
-  controlidMonitorRotina            ROTRotina?            @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
+  controlidMonitorRotina            ROTRotina?                   @relation("InstituicaoControlidMonitorRotina", fields: [INSControlidMonitorRotinaCodigo], references: [ROTCodigo], onDelete: SetNull)
   /// Rotina WEBHOOK opcional: "Sincronizar todos" nos equipamentos enfileira uma execução por pessoa ativa em vez do sync físico.
   INSRotinaPessoasCodigo            Int?
-  rotinaPessoasWebhook              ROTRotina?            @relation("InstituicaoRotinaPessoasWebhook", fields: [INSRotinaPessoasCodigo], references: [ROTCodigo], onDelete: SetNull)
+  rotinaPessoasWebhook              ROTRotina?                   @relation("InstituicaoRotinaPessoasWebhook", fields: [INSRotinaPessoasCodigo], references: [ROTCodigo], onDelete: SetNull)
   /// Expressão cron (node-cron, 6 campos: sec min hour dom month dow) para agendamento da sincronização de registros diários.
-  INSTempoSync                      String  @default("0 0 9,15,22 * * *")
+  INSTempoSync                      String                       @default("0 0 9,15,22 * * *")
   /// Indica se a sincronização automática de registros diários está ativa para esta instituição.
-  INSSyncRegistrosDiarios           Boolean @default(false)
+  INSSyncRegistrosDiarios           Boolean                      @default(false)
   /// Modo de agregação de passagens em registros diários (RPD).
-  INSAglutinacaoRegistros           TipoAglutinacaoRegistro @default(entrada_saida)
+  INSAglutinacaoRegistros           TipoAglutinacaoRegistro      @default(entrada_saida)
   /// Se true, a rotina preenche entrada/saída ausentes quando o período já encerrou.
-  INSAglutinacaoAutoCompletePeriodo Boolean                 @default(false)
+  INSAglutinacaoAutoCompletePeriodo Boolean                      @default(false)
   /// Indica se a sincronização agendada de frequências ao ERP educacional está ativa.
-  INSSyncFreqEducacional            Boolean @default(false)
+  INSSyncFreqEducacional            Boolean                      @default(false)
   /// Expressão cron (5 campos: min hora dom mês dow) para sincronização de frequências ao ERP.
-  INSTempoFreqEducacional           String  @default("58 23 * * *")
-  INSLancFreqAusenciaRegistro       Boolean @default(false)
+  INSTempoFreqEducacional           String                       @default("58 23 * * *")
+  INSLancFreqAusenciaRegistro       Boolean                      @default(false)
   /// Indica se a instituição está em período de implantação: quando true, a
   /// rotina FREQ_ERP_SYNC envia apenas para as turmas listadas em
   /// CIMCursosImplantacao (lista vazia = não envia para ninguém).
-  INSImplantacao                    Boolean  @default(false)
+  INSImplantacao                    Boolean                      @default(false)
   /// Data de "Go-Live". Quando INSImplantacao=false, a rotina FREQ_ERP_SYNC só
   /// envia RPDs com RPDData >= esta data — evita reenviar retroativamente o
   /// backlog acumulado durante a implantação assim que ela é desativada.
-  INSDataGoLive                      DateTime @default(now()) @db.Date
-  createdAt                         DateTime              @default(now())
-  pessoas             PESPessoa[]
-  matriculas          MATMatricula[]
-  equipamentos        EQPEquipamento[]
-  erpConfig           ERPConfiguracao[]
-  acessos             USRAcesso[]
-  passagens           REGRegistroPassagem[]
-  registrosDiarios    RPDRegistrosDiarios[]
-  cmdcomandoFilas     CMDComandoFila[]
-  rotrotinas          ROTRotina[]
-  rotexecucaoLogs     ROTExecucaoLog[]
-  connector           CONConnector?
-  sessoesRemotas      RMTSessaoRemota[]
-  permissoesIa        AIPEPermissaoIa[]
-  conversasIa         AICConversaIa[]
-  mensagensIa         AIMSMensagemIa[]
-  creditosIa          AILCreditoLedger[]
-  ctlControlidDaos    CTLControlidDao[]
-  ctlControlidCatraEvents CTLControlidCatraEvent[]
-  periodosRegistro        PERPeriodosConfig[]
-  notificacoes        NOTNotificacao[]
-  fotoOtps            PESFotoOtp[]
-  cursosImplantacao   CIMCursosImplantacao[]
+  INSDataGoLive                     DateTime                     @default(now()) @db.Date
+  createdAt                         DateTime                     @default(now())
+  pessoas                           PESPessoa[]
+  matriculas                        MATMatricula[]
+  equipamentos                      EQPEquipamento[]
+  erpConfig                         ERPConfiguracao[]
+  acessos                           USRAcesso[]
+  passagens                         REGRegistroPassagem[]
+  registrosDiarios                  RPDRegistrosDiarios[]
+  cmdcomandoFilas                   CMDComandoFila[]
+  rotrotinas                        ROTRotina[]
+  rotexecucaoLogs                   ROTExecucaoLog[]
+  connector                         CONConnector?
+  sessoesRemotas                    RMTSessaoRemota[]
+  permissoesIa                      AIPEPermissaoIa[]
+  conversasIa                       AICConversaIa[]
+  mensagensIa                       AIMSMensagemIa[]
+  creditosIa                        AILCreditoLedger[]
+  ctlControlidDaos                  CTLControlidDao[]
+  ctlControlidCatraEvents           CTLControlidCatraEvent[]
+  periodosRegistro                  PERPeriodosConfig[]
+  notificacoes                      NOTNotificacao[]
+  fotoOtps                          PESFotoOtp[]
+  cursosImplantacao                 CIMCursosImplantacao[]
+  turmas                            TRMTurma[]
+  turmasEquipamentos                TEQTurmaEquipamento[]
+  areas                             AREArea[]
+  portais                           PTLPortal[]
+  horarios                          HORHorario[]
+  horariosJanelas                   HORJanela[]
+  horariosAreas                     HRAHorarioArea[]
+  departamentos                     DEPDepartamento[]
+  departamentosEquipamento          DEQDepartamentoEquipamento[]
+  departamentosRegras               DRGDepartamentoRegra[]
+  departamentosRegrasAreas          DRADepartamentoRegraArea[]
 }
 
 model PESPessoa {
-  PESCodigo            Int                   @id @default(autoincrement())
+  PESCodigo            Int                        @id @default(autoincrement())
   PESIdExterno         String?
   PESNome              String
   PESNomeSocial        String?
@@ -146,19 +157,27 @@ model PESPessoa {
   PESGrupo             String?
   PESCartaoTag         String?
   PESTemplates         Json?
-  PESAtivo             Boolean               @default(true)
-  PESLimiarFacial      Int                   @default(680)
-  PESGemeo             Boolean               @default(false)
+  PESAtivo             Boolean                    @default(true)
+  PESLimiarFacial      Int                        @default(680)
+  PESGemeo             Boolean                    @default(false)
   INSInstituicaoCodigo Int
-  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  instituicao          INSInstituicao             @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
   deletedAt            DateTime?
   matriculas           MATMatricula[]
   passagens            REGRegistroPassagem[]
   registrosDiarios     RPDRegistrosDiarios[]
   mapeamentos          PESEquipamentoMapeamento[]
   fotoOtps             PESFotoOtp[]
+  /// Turma efetiva (desempate aplicado) para controle de acesso. Preenchido pela rotina de vínculo.
+  PESTRMCodigo         Int?
+  turmaEfetiva         TRMTurma?                  @relation(fields: [PESTRMCodigo], references: [TRMCodigo], onDelete: SetNull)
+  /// Nome do perfil de horário da turma efetiva. Vale só nos equipamentos do escopo da turma.
+  /// Existe para mover updatedAt quando o perfil muda — é o sinal que a rotina de enfileiramento usa.
+  PESGrupoHorario      String?
+
+  @@index([PESTRMCodigo])
 }
 
 model NOTNotificacao {
@@ -190,6 +209,11 @@ model MATMatricula {
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
+  /// Turma no catálogo, vinculada pela rotina de catálogo via idEnrollment (= MATNumero).
+  TRMCodigo            Int?
+  turmaRef             TRMTurma?      @relation(fields: [TRMCodigo], references: [TRMCodigo], onDelete: SetNull)
+
+  @@index([TRMCodigo])
 }
 
 /// Turmas pioneiras liberadas para envio ao ERP educacional durante o
@@ -207,26 +231,321 @@ model CIMCursosImplantacao {
   @@index([INSInstituicaoCodigo])
 }
 
+// === CONTROLE DE ACESSO POR TURMA (working/Controle-turma/README.md) ===
+
+/// Sentido de giro modelado como entrada em uma área (SpecControlId.md §4).
+/// Regra de um sentido: sempre liberado, só em faixas de horário, ou sem permissão.
+/// Catálogo de turmas lido do ERP. Identidade = idClass (TRMIdExterno).
+model TRMTurma {
+  TRMCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+
+  /// idClass do ERP. Nome pode mudar, id não.
+  TRMIdExterno     String
+  /// idCurriculumOffer de origem (rastreabilidade).
+  TRMIdOferta      String?
+  TRMTurma         String
+  TRMCurso         String?
+  TRMSerie         String?
+  TRMCurriculo     String?
+  /// shiftName como veio do ERP (matutino, vespertino, noturno...).
+  TRMTurno         String?
+  TRMAnoReferencia String?
+  TRMCalendario    String?
+  TRMDataInicio    DateTime?
+  TRMDataFim       DateTime?
+
+  /// Departamento que a turma usa. É o único vínculo de configuração da turma: as áreas, os
+  /// horários e as regras vêm do departamento, por equipamento (DEQDepartamentoEquipamento).
+  /// Mantido ao desativar, para a tela reabrir com a última escolha.
+  DEPCodigo    Int?
+  departamento DEPDepartamento? @relation(fields: [DEPCodigo], references: [DEPCodigo], onDelete: SetNull)
+
+  TRMValidacaoAtiva    Boolean @default(false)
+  /// true = todos os equipamentos ativos, inclusive futuros. false = só os de TEQTurmaEquipamento.
+  TRMTodosEquipamentos Boolean @default(true)
+  /// false = turma não veio na última leitura do ERP. A rotina nunca apaga.
+  TRMAtiva             Boolean @default(true)
+  /// Desempate quando a pessoa tem mais de uma turma com validação ativa (maior vence).
+  TRMPrioridade        Int     @default(0)
+  TRMQtdePessoas       Int     @default(0)
+
+  /// Auditoria — a configuração pode ser alterada pela tela ou por rotina.
+  USRCodigoAlteracao Int?
+  usuarioAlteracao   USRUsuario? @relation("TrmAlteracao", fields: [USRCodigoAlteracao], references: [USRCodigo], onDelete: SetNull)
+  ROTCodigoAlteracao Int?
+  TRMAlteradoEm      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  escopo     TEQTurmaEquipamento[]
+  matriculas MATMatricula[]
+  pessoas    PESPessoa[]
+
+  @@unique([INSInstituicaoCodigo, TRMIdExterno])
+  @@index([INSInstituicaoCodigo, TRMValidacaoAtiva])
+  @@index([DEPCodigo])
+}
+
+/// Perfil de horário = departamento no equipamento. Turmas com horário equivalente compartilham o perfil.
+/// Faixas do perfil, como digitadas por quem o criou. Identidade e payload saem da forma canônica.
+/// Escopo da turma: linha existe = equipamento selecionado (usado quando TRMTodosEquipamentos = false).
+model TEQTurmaEquipamento {
+  TEQCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  TRMCodigo            Int
+  turma                TRMTurma       @relation(fields: [TRMCodigo], references: [TRMCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+  createdAt            DateTime       @default(now())
+
+  @@unique([TRMCodigo, EQPCodigo])
+  @@index([EQPCodigo])
+}
+
+/// Estado de sync de um perfil em um equipamento (hash confirmado no hardware).
+/// Áreas e portais de sentido preparados em um equipamento (SpecControlId.md §3 e §6.1–6.2).
+/// Sem esta configuração o equipamento não recebe regras de turma.
+// ─── Espelho da configuração de acesso do equipamento ───────────────────────
+// docs/controle-por-turma/PLANO-IMPLEMENTACAO.md §3. O equipamento é a fonte da verdade: estas
+// tabelas guardam o retrato do que está gravado nele, sempre com o id do objeto no device.
+
+model AREArea {
+  ARECodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// id de `areas` no equipamento.
+  AREIdDevice String
+  ARENome     String
+  /// Última vez que a linha foi confirmada contra o equipamento.
+  ARELidoEm   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  portaisDe   PTLPortal[]                @relation("PortalAreaDe")
+  portaisPara PTLPortal[]                @relation("PortalAreaPara")
+  horarios    HRAHorarioArea[]
+  regras      DRADepartamentoRegraArea[]
+
+  @@unique([EQPCodigo, AREIdDevice])
+}
+
+model PTLPortal {
+  PTLCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// id de `portals` no equipamento.
+  PTLIdDevice       String
+  PTLNome           String
+  /// Portal é aresta dirigida: quem passa sai de `De` e entra em `Para`. Liberar a ENTRADA numa
+  /// área é ligar a regra ao portal cuja `Para` é ela. Null enquanto a área referida não foi lida.
+  PTLAreaDeCodigo   Int?
+  areaDe            AREArea?  @relation("PortalAreaDe", fields: [PTLAreaDeCodigo], references: [ARECodigo], onDelete: SetNull)
+  PTLAreaParaCodigo Int?
+  areaPara          AREArea?  @relation("PortalAreaPara", fields: [PTLAreaParaCodigo], references: [ARECodigo], onDelete: SetNull)
+  PTLLidoEm         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([EQPCodigo, PTLIdDevice])
+  @@index([PTLAreaParaCodigo])
+}
+
+model HORHorario {
+  HORCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// id de `time_zones` no equipamento.
+  HORIdDevice String
+  /// Nome no equipamento. ≤ 15 bytes UTF-8 (o firmware trunca).
+  HORNome     String
+  HORLidoEm   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  janelas HORJanela[]
+  areas   HRAHorarioArea[]
+  regras  DRGDepartamentoRegra[]
+
+  @@unique([EQPCodigo, HORIdDevice])
+}
+
+model HORJanela {
+  HRJCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  HORCodigo            Int
+  horario              HORHorario     @relation(fields: [HORCodigo], references: [HORCodigo], onDelete: Cascade)
+
+  /// Segundos desde 00:00 no horário local do equipamento, como o firmware guarda — inclusive o
+  /// 86399 que ele usa como "fim do dia". Fiel de propósito: o espelho serve para detectar drift,
+  /// e arredondar para minuto criaria falsos "iguais". fim < inicio = cruza a meia-noite.
+  HRJInicioSeg Int
+  HRJFimSeg    Int
+  HRJDom       Boolean @default(false)
+  HRJSeg       Boolean @default(false)
+  HRJTer       Boolean @default(false)
+  HRJQua       Boolean @default(false)
+  HRJQui       Boolean @default(false)
+  HRJSex       Boolean @default(false)
+  HRJSab       Boolean @default(false)
+  /// Feriados ControlID 1/2/3 — espelhados do device, fora do escopo da edição por enquanto.
+  HRJFeriado1  Boolean @default(false)
+  HRJFeriado2  Boolean @default(false)
+  HRJFeriado3  Boolean @default(false)
+  HRJOrdem     Int     @default(1)
+
+  @@index([HORCodigo])
+}
+
+/// Conjunto PADRÃO de áreas de um horário: "este horário libera a ENTRADA nestas áreas".
+/// É o que a aba Áreas edita; a regra do departamento nasce com uma cópia e pode remover itens.
+model HRAHorarioArea {
+  HRACodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  HORCodigo            Int
+  horario              HORHorario     @relation(fields: [HORCodigo], references: [HORCodigo], onDelete: Cascade)
+  ARECodigo            Int
+  area                 AREArea        @relation(fields: [ARECodigo], references: [ARECodigo], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([HORCodigo, ARECodigo])
+  @@index([ARECodigo])
+}
+
+/// Departamento no nível da instituição. Existe para a turma ter UMA referência que atravesse as
+/// N catracas; o vínculo com cada `groups` concreto é DEQDepartamentoEquipamento.
+model DEPDepartamento {
+  DEPCodigo            Int            @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+
+  DEPNome      String
+  DEPDescricao String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  equipamentos DEQDepartamentoEquipamento[]
+  turmas       TRMTurma[]
+
+  @@unique([INSInstituicaoCodigo, DEPNome])
+}
+
+/// Adoção: casamento entre o departamento da instituição e um `groups` de um equipamento.
+model DEQDepartamentoEquipamento {
+  DEQCodigo            Int             @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao  @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  DEPCodigo            Int
+  departamento         DEPDepartamento @relation(fields: [DEPCodigo], references: [DEPCodigo], onDelete: Cascade)
+  EQPCodigo            Int
+  equipamento          EQPEquipamento  @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+
+  /// id de `groups` no equipamento. É a CHAVE da adoção: renomear pela interface web do
+  /// equipamento atualiza DEQNome na próxima leitura, sem quebrar o vínculo com a turma.
+  DEQIdDevice      String
+  DEQNome          String
+  /// Null = adotado ou migrado, ainda não conferido por uma pessoa. Enquanto for null o sistema
+  /// não propaga alteração de regra para este equipamento (a associação de pessoas continua).
+  DEQRevisadoEm    DateTime?
+  USRCodigoRevisao Int?
+  usuarioRevisao   USRUsuario? @relation("DeqRevisao", fields: [USRCodigoRevisao], references: [USRCodigo], onDelete: SetNull)
+  /// Hash do que a última verificação encontrou no equipamento, para detectar drift.
+  DEQSyncHash      String?
+  DEQVerificadoEm  DateTime?
+  DEQUltimoErro    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  regras DRGDepartamentoRegra[]
+
+  @@unique([EQPCodigo, DEQIdDevice])
+  @@unique([DEPCodigo, EQPCodigo])
+}
+
+/// Uma regra do departamento = uma `access_rule` no equipamento: um horário + as áreas em que ele
+/// vale. Áreas ficam em DRADepartamentoRegraArea porque podem ser um subconjunto das do horário.
+model DRGDepartamentoRegra {
+  DRGCodigo               Int                        @id @default(autoincrement())
+  INSInstituicaoCodigo    Int
+  instituicao             INSInstituicao             @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  DEQCodigo               Int
+  departamentoEquipamento DEQDepartamentoEquipamento @relation(fields: [DEQCodigo], references: [DEQCodigo], onDelete: Cascade)
+  HORCodigo               Int
+  horario                 HORHorario                 @relation(fields: [HORCodigo], references: [HORCodigo], onDelete: Cascade)
+
+  /// id de `access_rules` no equipamento (type 1 = permissão). Null = ainda não gravada.
+  DRGIdRegraDevice String?
+  DRGNome          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  areas DRADepartamentoRegraArea[]
+
+  @@unique([DEQCodigo, HORCodigo])
+  @@index([HORCodigo])
+}
+
+model DRADepartamentoRegraArea {
+  DRACodigo            Int                  @id @default(autoincrement())
+  INSInstituicaoCodigo Int
+  instituicao          INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  DRGCodigo            Int
+  regra                DRGDepartamentoRegra @relation(fields: [DRGCodigo], references: [DRGCodigo], onDelete: Cascade)
+  ARECodigo            Int
+  area                 AREArea              @relation(fields: [ARECodigo], references: [ARECodigo], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([DRGCodigo, ARECodigo])
+  @@index([ARECodigo])
+}
+
 model EQPEquipamento {
-  EQPCodigo            Int                   @id @default(autoincrement())
+  EQPCodigo            Int                          @id @default(autoincrement())
   EQPDescricao         String?
   EQPMarca             String?
   EQPModelo            String?
   EQPEnderecoIp        String?
   /// ID do dispositivo no Monitor ControlID (nuvem); coluna dedicada (espelha ou substitui deviceId em EQPConfig quando único)
-  deviceId             String?               @map("EQPDeviceId")
+  deviceId             String?                      @map("EQPDeviceId")
   EQPConfig            Json?
   EQPUltimoSincronismo DateTime?
-  EQPDataUltimaBusca   BigInt                @default(1750381200)
-  EQPUsaAddon          Boolean               @default(false)
-  EQPAtivo             Boolean               @default(true)
+  EQPDataUltimaBusca   BigInt                       @default(1750381200)
+  EQPUsaAddon          Boolean                      @default(false)
+  EQPAtivo             Boolean                      @default(true)
   INSInstituicaoCodigo Int
-  instituicao          INSInstituicao        @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  createdAt            DateTime              @default(now())
+  instituicao          INSInstituicao               @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  createdAt            DateTime                     @default(now())
   passagens            REGRegistroPassagem[]
   cmdcomandoFilas      CMDComandoFila[]
   sessoesRemotas       RMTSessaoRemota[]
   mapeamentos          PESEquipamentoMapeamento[]
+  turmasEscopo         TEQTurmaEquipamento[]
+  areas                AREArea[]
+  portais              PTLPortal[]
+  horarios             HORHorario[]
+  departamentos        DEQDepartamentoEquipamento[]
 }
 
 model ERPConfiguracao {
@@ -265,18 +584,20 @@ model USRUsuario {
   USRCep    String?
   USRTaxId  String?
 
-  createdAt           DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
-  acessos             USRAcesso[]
-  rotrotinas          ROTRotina[]
-  rothistoricoVersaos ROTHistoricoVersao[]
-  sessoesRemotas      RMTSessaoRemota[]
-  permissoesIa        AIPEPermissaoIa[]
-  conversasIa         AICConversaIa[]
-  creditosIa          AILCreditoLedger[]
-  senhaResetTokens    USRSenhaResetToken[]
-  rpdCriados          RPDRegistrosDiarios[] @relation("RpdCriacao")
-  rpdAlterados        RPDRegistrosDiarios[] @relation("RpdAlteracao")
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  acessos                USRAcesso[]
+  rotrotinas             ROTRotina[]
+  rothistoricoVersaos    ROTHistoricoVersao[]
+  sessoesRemotas         RMTSessaoRemota[]
+  permissoesIa           AIPEPermissaoIa[]
+  conversasIa            AICConversaIa[]
+  creditosIa             AILCreditoLedger[]
+  senhaResetTokens       USRSenhaResetToken[]
+  rpdCriados             RPDRegistrosDiarios[]        @relation("RpdCriacao")
+  rpdAlterados           RPDRegistrosDiarios[]        @relation("RpdAlteracao")
+  turmasAlteradas        TRMTurma[]                   @relation("TrmAlteracao")
+  departamentosRevisados DEQDepartamentoEquipamento[] @relation("DeqRevisao")
 }
 
 model USRSenhaResetToken {
@@ -291,18 +612,18 @@ model USRSenhaResetToken {
 }
 
 model PESEquipamentoMapeamento {
-  PEQCodigo            Int            @id @default(autoincrement())
-  PESCodigo            Int
-  pessoa               PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo], onDelete: Cascade)
-  EQPCodigo            Int
-  equipamento          EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
-  PEQIdNoEquipamento   String         // ID no hardware (ex: "100")
+  PEQCodigo          Int            @id @default(autoincrement())
+  PESCodigo          Int
+  pessoa             PESPessoa      @relation(fields: [PESCodigo], references: [PESCodigo], onDelete: Cascade)
+  EQPCodigo          Int
+  equipamento        EQPEquipamento @relation(fields: [EQPCodigo], references: [EQPCodigo], onDelete: Cascade)
+  PEQIdNoEquipamento String // ID no hardware (ex: "100")
   /// Hash do payload confirmado no hardware (nome, foto, grupo, tag, limiar...). Null = nunca confirmado.
-  PEQSyncHash          String?
+  PEQSyncHash        String?
   /// Último sync confirmado (ou revalidado por hash igual) neste equipamento.
-  PEQSyncedAt          DateTime?
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
+  PEQSyncedAt        DateTime?
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
 
   @@unique([PESCodigo, EQPCodigo])
   @@unique([EQPCodigo, PEQIdNoEquipamento])
@@ -417,32 +738,32 @@ model CMDComandoFila {
 }
 
 model CTLControlidDao {
-  CTDCodigo                    Int            @id @default(autoincrement())
-  INSInstituicaoCodigo         Int
-  instituicao                  INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
-  deviceId                     String         @map("device_id")
+  CTDCodigo                  Int            @id @default(autoincrement())
+  INSInstituicaoCodigo       Int
+  instituicao                INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo], onDelete: Cascade)
+  deviceId                   String         @map("device_id")
   /// Valor bruto de body.time do webhook (chave estável com instituição + deviceId).
-  originTime                   BigInt         @map("origin_time")
+  originTime                 BigInt         @map("origin_time")
   /// Instantâneo ajustado pelo INSFusoHorario da instituição no momento do ingest.
-  notifyTime                   BigInt         @map("time")
-  ctlObject                    String         @map("object")
-  changeType                   String         @map("type")
-  valuesId                     String?        @map("values_id")
-  valuesTime                   String?        @map("values_time")
-  valuesEvent                  String?        @map("values_event")
-  valuesDeviceId               String?        @map("values_device_id")
-  valuesIdentifierId           String?        @map("values_identifier_id")
-  valuesUserId                 String?        @map("values_user_id")
-  valuesPortalId               String?        @map("values_portal_id")
-  valuesIdentificationRuleId   String?        @map("values_identification_rule_id")
-  valuesCardValue              String?        @map("values_card_value")
-  valuesQrcodeValue            String?        @map("values_qrcode_value")
-  valuesPinValue               String?        @map("values_pin_value")
-  valuesConfidence             String?        @map("values_confidence")
-  valuesMask                   String?        @map("values_mask")
-  valuesLogTypeId              String?        @map("values_log_type_id")
-  processed                    Boolean        @default(false) @map("processed")
-  createdAt                    DateTime       @default(now())
+  notifyTime                 BigInt         @map("time")
+  ctlObject                  String         @map("object")
+  changeType                 String         @map("type")
+  valuesId                   String?        @map("values_id")
+  valuesTime                 String?        @map("values_time")
+  valuesEvent                String?        @map("values_event")
+  valuesDeviceId             String?        @map("values_device_id")
+  valuesIdentifierId         String?        @map("values_identifier_id")
+  valuesUserId               String?        @map("values_user_id")
+  valuesPortalId             String?        @map("values_portal_id")
+  valuesIdentificationRuleId String?        @map("values_identification_rule_id")
+  valuesCardValue            String?        @map("values_card_value")
+  valuesQrcodeValue          String?        @map("values_qrcode_value")
+  valuesPinValue             String?        @map("values_pin_value")
+  valuesConfidence           String?        @map("values_confidence")
+  valuesMask                 String?        @map("values_mask")
+  valuesLogTypeId            String?        @map("values_log_type_id")
+  processed                  Boolean        @default(false) @map("processed")
+  createdAt                  DateTime       @default(now())
 
   @@index([INSInstituicaoCodigo, processed])
   @@index([INSInstituicaoCodigo, deviceId, originTime])
@@ -500,34 +821,34 @@ enum StatusExecucao {
 }
 
 model ROTRotina {
-  ROTCodigo             Int                  @id @default(autoincrement())
-  ROTNome               String
-  ROTDescricao          String?
-  ROTTipo               TipoRotina
-  ROTCronExpressao      String?
-  ROTWebhookPath        String?
-  ROTWebhookMetodo      HttpMetodo?
-  ROTWebhookAguardar    Boolean              @default(false)
-  ROTWebhookSeguro      Boolean              @default(true)
-  ROTWebhookTokenSource WebhookTokenSource?  @default(HEADER)
-  ROTWebhookTokenKey    String?              @default("x-webhook-token")
-  ROTWebhookToken       String?
-  ROTCodigoJS           String
-  ROTAtivo              Boolean              @default(true)
-  ROTPermiteParalelismo Boolean              @default(true)
-  ROTTimeoutSeconds     Int                  @default(30)
-  ROTUltimaExecucao     DateTime?
-  INSInstituicaoCodigo Int
-  instituicao           INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  instituicoesControlidMonitor INSInstituicao[] @relation("InstituicaoControlidMonitorRotina")
-  instituicoesRotinaPessoasWebhook INSInstituicao[] @relation("InstituicaoRotinaPessoasWebhook")
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  createdBy             Int
-  criador               USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
-  execucoes             ROTExecucaoLog[]
-  versoes               ROTHistoricoVersao[]
-  conversasIa           AICConversaIa[]
+  ROTCodigo                        Int                  @id @default(autoincrement())
+  ROTNome                          String
+  ROTDescricao                     String?
+  ROTTipo                          TipoRotina
+  ROTCronExpressao                 String?
+  ROTWebhookPath                   String?
+  ROTWebhookMetodo                 HttpMetodo?
+  ROTWebhookAguardar               Boolean              @default(false)
+  ROTWebhookSeguro                 Boolean              @default(true)
+  ROTWebhookTokenSource            WebhookTokenSource?  @default(HEADER)
+  ROTWebhookTokenKey               String?              @default("x-webhook-token")
+  ROTWebhookToken                  String?
+  ROTCodigoJS                      String
+  ROTAtivo                         Boolean              @default(true)
+  ROTPermiteParalelismo            Boolean              @default(true)
+  ROTTimeoutSeconds                Int                  @default(30)
+  ROTUltimaExecucao                DateTime?
+  INSInstituicaoCodigo             Int
+  instituicao                      INSInstituicao       @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
+  instituicoesControlidMonitor     INSInstituicao[]     @relation("InstituicaoControlidMonitorRotina")
+  instituicoesRotinaPessoasWebhook INSInstituicao[]     @relation("InstituicaoRotinaPessoasWebhook")
+  createdAt                        DateTime             @default(now())
+  updatedAt                        DateTime             @updatedAt
+  createdBy                        Int
+  criador                          USRUsuario           @relation(fields: [createdBy], references: [USRCodigo])
+  execucoes                        ROTExecucaoLog[]
+  versoes                          ROTHistoricoVersao[]
+  conversasIa                      AICConversaIa[]
 
   // @@unique constraint removed (handled in service layer)
 }
@@ -608,25 +929,25 @@ model RMTSessaoRemota {
 
 // Global - Provedores habilitados na plataforma
 model AIPProvedorIa {
-  AIPCodigo   Int      @id @default(autoincrement())
-  AIPNome     String   // ex: "OpenAI", "Anthropic"
-  AIPAtivo    Boolean  @default(true)
-  modelos     AIMModeloIa[]
+  AIPCodigo Int           @id @default(autoincrement())
+  AIPNome   String // ex: "OpenAI", "Anthropic"
+  AIPAtivo  Boolean       @default(true)
+  modelos   AIMModeloIa[]
 }
 
 // Global - Tabela de preços por modelo
 model AIMModeloIa {
-  AIMCodigo            Int      @id @default(autoincrement())
-  AIPCodigo            Int
-  provedor             AIPProvedorIa @relation(fields: [AIPCodigo], references: [AIPCodigo])
-  AIMNome              String   // ex: "gpt-4-turbo", "gpt-3.5-turbo"
-  AIMProviderModelId   String   // ID do modelo na API de destino via provedor
-  AIMCustoInput1k      Float    // Custo a cada 1000 tokens de entrada (em USD)
-  AIMCustoOutput1k     Float    // Custo a cada 1000 tokens de saída (em USD)
-  AIMMaxTokens         Int      // Limite de contexto do modelo (ex: 128000)
-  AIMAtivo             Boolean  @default(true)
-  conversas            AICConversaIa[]
-  creditosLedger       AILCreditoLedger[]
+  AIMCodigo          Int                @id @default(autoincrement())
+  AIPCodigo          Int
+  provedor           AIPProvedorIa      @relation(fields: [AIPCodigo], references: [AIPCodigo])
+  AIMNome            String // ex: "gpt-4-turbo", "gpt-3.5-turbo"
+  AIMProviderModelId String // ID do modelo na API de destino via provedor
+  AIMCustoInput1k    Float // Custo a cada 1000 tokens de entrada (em USD)
+  AIMCustoOutput1k   Float // Custo a cada 1000 tokens de saída (em USD)
+  AIMMaxTokens       Int // Limite de contexto do modelo (ex: 128000)
+  AIMAtivo           Boolean            @default(true)
+  conversas          AICConversaIa[]
+  creditosLedger     AILCreditoLedger[]
 }
 
 // Tenant - Regras de Permissões e Cotas por Instituição/Usuário
@@ -636,11 +957,11 @@ model AIPEPermissaoIa {
   usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  
-  AIPEHabilitado       Boolean        @default(false)
-  AIPEModelosPermitidos String?       // Array de IDs permitidos em JSON (referência AIMCodigo)
-  AIPELimiteTokensDia  Int            @default(100000) // Cota diária do plano atual
-  createdAt            DateTime       @default(now())
+
+  AIPEHabilitado        Boolean  @default(false)
+  AIPEModelosPermitidos String? // Array de IDs permitidos em JSON (referência AIMCodigo)
+  AIPELimiteTokensDia   Int      @default(100000) // Cota diária do plano atual
+  createdAt             DateTime @default(now())
 
   @@unique([USRCodigo, INSInstituicaoCodigo])
 }
@@ -653,31 +974,31 @@ model AICConversaIa {
   usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  ROTCodigo            Int?           
+  ROTCodigo            Int?
   rotina               ROTRotina?     @relation(fields: [ROTCodigo], references: [ROTCodigo], onDelete: Cascade)
   AIMCodigo            Int
   modelo               AIMModeloIa    @relation(fields: [AIMCodigo], references: [AIMCodigo])
-  
-  createdAt            DateTime       @default(now())
-  updatedAt            DateTime       @updatedAt
-  deletedAt            DateTime?      
-  mensagens            AIMSMensagemIa[]
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  deletedAt DateTime?
+  mensagens AIMSMensagemIa[]
 }
 
 // Tenant - Mensagens Individuais e Consumo
 model AIMSMensagemIa {
-  AIMSCodigo           Int            @id @default(autoincrement())
-  AICCodigo            Int
-  conversa             AICConversaIa  @relation(fields: [AICCodigo], references: [AICCodigo], onDelete: Cascade)
-  
-  AIMSRole             String         // "user", "assistant", "system"
-  AIMSContent          String         // Texto da conversa JSON array
-  AIMSIsContextFile    Boolean        @default(false) // Se for apenas config anexado contextual
-  
-  AIMSInputTokens      Int            @default(0)
-  AIMSOutputTokens     Int            @default(0)
-  AIMSCostUsd          Float          @default(0.0)
-  
+  AIMSCodigo Int           @id @default(autoincrement())
+  AICCodigo  Int
+  conversa   AICConversaIa @relation(fields: [AICCodigo], references: [AICCodigo], onDelete: Cascade)
+
+  AIMSRole          String // "user", "assistant", "system"
+  AIMSContent       String // Texto da conversa JSON array
+  AIMSIsContextFile Boolean @default(false) // Se for apenas config anexado contextual
+
+  AIMSInputTokens  Int   @default(0)
+  AIMSOutputTokens Int   @default(0)
+  AIMSCostUsd      Float @default(0.0)
+
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
   createdAt            DateTime       @default(now())
@@ -704,13 +1025,13 @@ model AILCreditoLedger {
   usuario              USRUsuario     @relation(fields: [USRCodigo], references: [USRCodigo], onDelete: Cascade)
   INSInstituicaoCodigo Int
   instituicao          INSInstituicao @relation(fields: [INSInstituicaoCodigo], references: [INSCodigo])
-  
-  AILTipoLog           String         // "DEBIT_CONSUMO", "CREDIT_COMPRA"
-  AILTokensInput       Int            @default(0)
-  AILTokensOutput      Int            @default(0)
-  AIMCodigo            Int?
-  modelo               AIMModeloIa?   @relation(fields: [AIMCodigo], references: [AIMCodigo])
-  
-  AILValorUsd          Float          // Positivo se Custo (Débito da cota). Negativo se crédito.
-  createdAt            DateTime       @default(now())
+
+  AILTipoLog      String // "DEBIT_CONSUMO", "CREDIT_COMPRA"
+  AILTokensInput  Int          @default(0)
+  AILTokensOutput Int          @default(0)
+  AIMCodigo       Int?
+  modelo          AIMModeloIa? @relation(fields: [AIMCodigo], references: [AIMCodigo])
+
+  AILValorUsd Float // Positivo se Custo (Débito da cota). Negativo se crédito.
+  createdAt   DateTime @default(now())
 }

@@ -41,6 +41,9 @@ export function redisRunningLockKey(exeId: string) { return `${p()}:rotina:runni
 export function redisInflightPattern()                  { return `${p()}:rotina:inflight:z:*`; }
 export function redisInflightRegex()                    { return new RegExp(`^${p()}:rotina:inflight:z:(\\d+)$`); }
 
+/** Lock por equipamento das operações de grupos de acesso por turma — mesma chave da webapi. */
+export function redisTurmaSyncLockKey(instCodigo: number, eqpCodigo: number) { return `${p()}:turma:sync:lock:${instCodigo}:${eqpCodigo}`; }
+
 // ── Redis Pub/Sub channels ──
 
 export function channelCancel()                         { return `${p()}:rotina:cancel`; }

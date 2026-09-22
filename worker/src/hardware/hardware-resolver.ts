@@ -2,6 +2,7 @@ import type { PrismaClient, PESPessoa } from '@prisma/client';
 import type { IHardwareProvider } from './interfaces/hardware-provider.interface';
 import type { HardwareUser } from './interfaces/hardware.types';
 import type { HardwareFactory } from './factory/hardware.factory';
+import { resolverGruposDaPessoa } from '../turma/core';
 
 const ALLOWED_PROVIDER_METHODS = new Set<keyof IHardwareProvider>([
   'syncPerson',
@@ -79,6 +80,8 @@ export class HardwareResolver {
       });
 
     const idNoEquipamento = HardwareResolver.deviceUserIdFromPessoa(person);
+    // Departamento por equipamento: perfil da turma quando o EQP está no escopo, senão PESGrupo.
+    const grupo = (await resolverGruposDaPessoa(this.prisma, person, [equipmentId])).get(equipmentId);
 
     return {
       pescodigo: person.PESCodigo,
@@ -88,7 +91,7 @@ export class HardwareResolver {
       name: person.PESNome,
       cpf: person.PESDocumento || undefined,
       faceExtension: person.PESFotoExtensao || 'jpg',
-      grupo: person.PESGrupo ?? undefined,
+      grupo: grupo ?? undefined,
       tags: person.PESCartaoTag ? [person.PESCartaoTag] : [],
       faces: person.PESFotoBase64 ? [person.PESFotoBase64] : [],
       fingers,

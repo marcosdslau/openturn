@@ -66,6 +66,17 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
         type: 'DateTime',
         description: 'Data Exclusão (Soft Delete)',
       },
+      {
+        name: 'PESTRMCodigo',
+        type: 'Int',
+        fk: 'TRMTurma',
+        description: 'Turma efetiva para controle de acesso (preenchida por context.turmas.vincularPessoas)',
+      },
+      {
+        name: 'PESGrupoHorario',
+        type: 'String',
+        description: 'Nome do perfil de horário da turma efetiva (vale só nos equipamentos do escopo da turma)',
+      },
     ],
   },
   {
@@ -90,6 +101,12 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
       { name: 'MATTurma', type: 'String', description: 'Turma' },
       { name: 'MATAtivo', type: 'Boolean', description: 'Ativa?' },
       { name: 'createdAt', type: 'DateTime', description: 'Data Criação' },
+      {
+        name: 'TRMCodigo',
+        type: 'Int',
+        fk: 'TRMTurma',
+        description: 'Turma do catálogo (vinculada por idEnrollment = MATNumero)',
+      },
     ],
   },
   {
@@ -236,6 +253,35 @@ export const ROUTINE_SCHEMA: SchemaTable[] = [
       },
     ],
   },
+  {
+    name: 'TRMTurma',
+    alias: 'Turma',
+    description: 'Catálogo de turmas lido do ERP (somente leitura via context.db; alterar via context.turmas)',
+    fields: [
+      { name: 'TRMCodigo', type: 'Int', pk: true, description: 'ID Turma' },
+      { name: 'TRMIdExterno', type: 'String', description: 'idClass no ERP' },
+      { name: 'TRMTurma', type: 'String', description: 'Nome da turma' },
+      { name: 'TRMCurso', type: 'String', description: 'Curso' },
+      { name: 'TRMSerie', type: 'String', description: 'Série/Módulo' },
+      { name: 'TRMTurno', type: 'String', description: 'Turno (shiftName)' },
+      { name: 'TRMAnoReferencia', type: 'String', description: 'Ano de referência' },
+      { name: 'TRMValidacaoAtiva', type: 'Boolean', description: 'Controle de acesso por turma ativo?' },
+      { name: 'TRMTodosEquipamentos', type: 'Boolean', description: 'Vale em todos os equipamentos (inclusive futuros)?' },
+      { name: 'TRMAtiva', type: 'Boolean', description: 'Veio na última leitura do ERP?' },
+      { name: 'TRMPrioridade', type: 'Int', description: 'Desempate quando a pessoa está em mais de uma turma' },
+      { name: 'TRMQtdePessoas', type: 'Int', description: 'Pessoas com matrícula ativa' },
+    ],
+  },
+  {
+    name: 'TEQTurmaEquipamento',
+    alias: 'TurmaEquipamento',
+    description: 'Equipamentos selecionados para a turma (quando TRMTodosEquipamentos = false)',
+    fields: [
+      { name: 'TEQCodigo', type: 'Int', pk: true, description: 'ID' },
+      { name: 'TRMCodigo', type: 'Int', fk: 'TRMTurma', description: 'ID Turma' },
+      { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento', description: 'ID Equipamento' },
+    ],
+  },
 ];
 
 // ─── System Prompt ──────────────────────────────────────────────────────────
@@ -255,6 +301,7 @@ Auxiliar desenvolvedores a escrever, corrigir, explicar e sugerir código JavaSc
 ## Objetos Disponíveis via \`context\`
 - \`context.db\` — Prisma Client isolado por tenant (RLS). Aceita: \`.findMany()\`, \`.findFirst()\`, \`.create()\`, \`.update()\`, \`.delete()\`, \`.groupBy()\`
 - \`context.hardware\` — API unificada de controle de equipamentos (catracas, leitores). Métodos: \`syncPerson\`, \`createPerson\`, \`modifyPerson\`, \`deletePerson\`, \`setTag\`, \`removeTag\`, \`setFace\`, \`removeFace\`, \`setFingers\`, \`removeFingers\`, \`setGroups\`, \`removeGroups\`, \`executeAction\`, \`enroll\`, \`customCommand\`
+- \`context.turmas\` — Controle de acesso por turma. A turma NÃO define horário: ela aponta para um DEPARTAMENTO, e áreas, horários e regras são configurados por equipamento (tela Equipamentos → Configuração). Uma regra = um horário + as áreas cuja ENTRADA ele libera; o portal é quem carrega o sentido. Métodos: \`listar\`, \`obter\`, \`listarPessoas\`, \`salvarValidacao(TRMCodigo, { ativa, DEPCodigo, escopo: { todos, EQPCodigos } })\`, \`salvarValidacaoEmLote\`, \`verificarDepartamentos({ TRMCodigos?, DEPCodigos? })\` (situação do departamento em cada equipamento do escopo: \`aplicado\` | \`departamento_nao_adotado\` | \`departamento_nao_revisado\` | \`sem_regra\` | \`nao_suportado\` | \`inativo\` | \`erro\`), \`gruposNoEquipamentos(PESCodigo, EQPCodigos)\`, \`vincularPessoas\`, \`importarCatalogo({ turmas, matriculasPorTurma })\`, \`sugestoesImportacaoAnoAnterior\`, \`importarAnoAnterior\`, \`obterEspelhoEquipamento(EQPCodigo)\`, \`lerConfiguracaoEquipamento(EQPCodigo)\`, \`candidatosDepartamentoEquipamento(EQPCodigo)\`, \`compararHostsEquipamento(EQPCodigo)\`. Passar \`regras\` em salvarValidacao é recusado. Tabelas de turma/departamento/áreas são somente leitura em \`context.db\`.
 - \`context.adapters\` — Adaptadores legados (equipamentos ativos e suas infos)
 - \`context.request\` — Objeto da requisição HTTP (somente em rotinas tipo Webhook). Acesse: \`.body\`, \`.query\`, \`.headers\`, \`.method\`, \`.path\`, \`.params\`
 

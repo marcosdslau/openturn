@@ -74,6 +74,31 @@ const HARDWARE_REFERENCE: {
     },
 ];
 
+/** Referência de context.turmas — núcleo compartilhado do controle de acesso por turma (webapi/src/turma/core). */
+const TURMAS_REFERENCE: { method: string; params: string; notes?: string }[] = [
+    { method: 'listar', params: '{ ano?, curso?, serie?, turno?, perfil?, equipamento?, validacaoAtiva?, ativa?, busca?, page?, limit? }', notes: 'Retorna { data, meta }. ativa: true (padrão) | false | "todas".' },
+    { method: 'obter', params: 'TRMCodigo', notes: 'regras, canonico (minutos por dia), perfil, escopo e status por equipamento (inclui sentido.preparado).' },
+    { method: 'opcoesFiltro', params: '', notes: 'anos, cursos, séries, turnos, perfis e equipamentos.' },
+    { method: 'listarPessoas', params: 'TRMCodigo, { busca?, page?, limit? }', notes: 'Pessoas com matrícula ativa vinculada à turma (sem foto): matriculas e turmaDeAcesso.' },
+    { method: 'previewPerfil', params: 'regras, TRMCodigo?', notes: 'Erros de regra + canonico + perfil existente ou nome sugerido.' },
+    { method: 'salvarValidacao', params: 'TRMCodigo, { ativa, regras, escopo }', notes: 'regras: { interna, externa } com { modo: "livre" | "horario" | "bloqueado", horarios? }. interna = entrada na Área Interna (Externa → Interna); externa = entrada na Área Externa (Interna → Externa). horarios: [{ inicio, fim, dias: [dom..sab] }]. escopo: { todos } ou { todos: false, EQPCodigos } (só equipamentos com áreas preparadas). Sincroniza na hora.' },
+    { method: 'salvarValidacaoEmLote', params: 'TRMCodigos[], { ativa, regras, escopo }' },
+    { method: 'listarPerfis', params: '' },
+    { method: 'renomearPerfil', params: 'PHACodigo, nome', notes: 'Máx. 15 bytes. Reenvia as pessoas do perfil.' },
+    { method: 'gruposNoEquipamentos', params: 'PESCodigo, EQPCodigos[]', notes: 'Departamento por equipamento (chaves = EQPCodigo em string).' },
+    { method: 'sincronizar', params: '{ TRMCodigo? | PHACodigo?, EQPCodigos?, forcar? }' },
+    { method: 'reconciliar', params: '{ EQPCodigos? }', notes: 'Rotina C.' },
+    { method: 'vincularPessoas', params: '', notes: 'Rotina B.' },
+    { method: 'importarCatalogo', params: '{ turmas, matriculasPorTurma }', notes: 'Rotina A. Catálogo completo: turmas ausentes são desativadas.' },
+    { method: 'sugestoesImportacaoAnoAnterior', params: '' },
+    { method: 'importarAnoAnterior', params: '[{ TRMCodigoOrigem, TRMCodigoDestino }]' },
+    { method: 'lerRegraAplicada', params: 'TRMCodigo, EQPCodigo', notes: 'Lê do equipamento departamento, regras por portal e horários: { esperado, aplicado, diferencas, membros }.' },
+    { method: 'listarEquipamentosSentido', params: '', notes: 'Áreas/portais, inversão, validação em bancada e catraca por equipamento.' },
+    { method: 'lerSentidoEquipamento', params: 'EQPCodigo', notes: 'Diagnóstico sem alterar nada: sec_box, áreas, portais e alertas.' },
+    { method: 'prepararSentidoEquipamento', params: 'EQPCodigo', notes: 'Cria/reaproveita Área Interna, Área Externa e os 2 portais; replica regras gerais; aplica os perfis. Idempotente.' },
+    { method: 'atualizarSentidoEquipamento', params: 'EQPCodigo, { invertido?, validado? }', notes: 'Resultado do teste em bancada. Inverter reaplica as regras no equipamento.' },
+];
+
 const HARDWARE_INSERT_EXAMPLES: { label: string; detail: string; code: string }[] = [
     {
         label: 'Testar conexão com o equipamento',
@@ -191,6 +216,14 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                                     </span>
                                 </li>
                                 <li className="flex items-start gap-2">
+                                    <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.turmas</code>
+                                    <span className="text-gray-600 dark:text-gray-400">
+                                        Controle de acesso por turma (horários, perfis, equipamentos). Mesmas regras da tela
+                                        Turmas; as tabelas de turma são somente leitura em{' '}
+                                        <code className="font-mono text-[10px]">context.db</code>.
+                                    </span>
+                                </li>
+                                <li className="flex items-start gap-2">
                                     <code className="text-blue-600 dark:text-blue-400 font-mono text-xs bg-blue-50 dark:bg-blue-900/20 px-1 py-0.5 rounded">context.adapters</code>
                                     <span className="text-gray-600 dark:text-gray-400">Adaptadores Legados</span>
                                 </li>
@@ -287,6 +320,33 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                             </div>
                         </div>
 
+                        <div className="rounded-lg border border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/20 p-3 space-y-2">
+                            <h4 className="text-xs font-semibold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider">
+                                context.turmas — controle de acesso por turma
+                            </h4>
+                            <p className="text-[11px] text-indigo-950/80 dark:text-indigo-100/80 leading-relaxed">
+                                Não recebe <code className="font-mono text-[10px]">eqpId</code> como 1º argumento. Alterações
+                                feitas por rotina ficam registradas na turma (<code className="font-mono text-[10px]">ROTCodigoAlteracao</code>).
+                                Exemplos prontos: busque <strong>Turmas</strong> nos snippets abaixo.
+                            </p>
+                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                {TURMAS_REFERENCE.map((row) => (
+                                    <div
+                                        key={row.method}
+                                        className="text-[11px] border-b border-indigo-200/50 dark:border-indigo-900/30 pb-2 last:border-0 last:pb-0"
+                                    >
+                                        <div className="font-mono text-indigo-900 dark:text-indigo-100">
+                                            {row.method}
+                                            <span className="text-gray-600 dark:text-gray-400 font-sans">({row.params})</span>
+                                        </div>
+                                        {row.notes && (
+                                            <p className="text-[10px] text-gray-600 dark:text-gray-400 mt-0.5 italic">{row.notes}</p>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
                         <div>
                             <div className="flex justify-between items-center mb-3">
                                 <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Snippets Comuns</h4>
@@ -347,11 +407,27 @@ export function RoutineHelper({ onInsertSnippet }: RoutineHelperProps) {
                         </button>
 
                         <div className="space-y-6">
-                            {ROUTINE_SCHEMA.map(table => (
+                            {ROUTINE_SCHEMA.map((table, idx) => (
                                 <div key={table.name} className="space-y-2">
-                                    <div className="flex items-baseline justify-between border-b border-gray-100 dark:border-gray-800 pb-1">
-                                        <h4 className="font-bold text-sm text-gray-800 dark:text-gray-200">{table.alias}</h4>
-                                        <span className="text-[10px] font-mono text-gray-400">context.db.{table.alias.toLowerCase()}</span>
+                                    {table.group && table.group !== ROUTINE_SCHEMA[idx - 1]?.group && (
+                                        <div className="pt-2">
+                                            <h4 className="text-xs font-semibold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">{table.group}</h4>
+                                            <p className="text-[10px] text-gray-500 mt-0.5">
+                                                Somente leitura em <code className="font-mono">context.db</code> — altere por{' '}
+                                                <code className="font-mono">context.turmas</code>.
+                                            </p>
+                                        </div>
+                                    )}
+                                    <div className="flex items-baseline justify-between gap-2 border-b border-gray-100 dark:border-gray-800 pb-1">
+                                        <h4 className="font-bold text-sm text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
+                                            {table.alias}
+                                            {table.readOnly && (
+                                                <span className="text-[9px] font-medium bg-indigo-100 text-indigo-800 dark:bg-indigo-900/40 dark:text-indigo-200 px-1 rounded">
+                                                    somente leitura
+                                                </span>
+                                            )}
+                                        </h4>
+                                        <span className="text-[10px] font-mono text-gray-400">context.db.{table.name}</span>
                                     </div>
                                     <p className="text-xs text-gray-500 italic mb-2">{table.description}</p>
 

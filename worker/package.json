@@ -5,10 +5,11 @@
   "private": true,
   "scripts": {
     "postinstall": "prisma generate",
-    "build": "npm run prisma:sync && tsc",
+    "build": "npm run prisma:sync && npm run shared:sync && tsc",
     "start": "node dist/main.js",
     "start:dev": "ts-node src/main.ts",
     "prisma:sync": "node -e \"require('fs').copyFileSync('../webapi/prisma/schema.prisma','prisma/schema.prisma')\" && npx prisma generate",
+    "shared:sync": "node scripts/sync-shared.cjs",
     "test:aggregation": "ts-node src/registro-diario-aggregation.selftest.ts",
     "test:serial-wait-lock": "ts-node src/serial-wait-lock.selftest.ts",
     "service:install": "node scripts/windows-service.cjs install",

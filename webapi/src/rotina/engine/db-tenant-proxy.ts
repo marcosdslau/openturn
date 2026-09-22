@@ -174,6 +174,28 @@ export class DbTenantProxy {
   /**
    * Cria o objeto context.db com proxies para os modelos permitidos
    */
+  /**
+   * Modelo que saiu do schema mas continua na lista de expostos. Devolver um stub em vez de
+   * `new Proxy(undefined)` (que lança) é deliberado: um nome defasado não pode derrubar TODAS as
+   * rotinas no setup do contexto — só deve quebrar, com mensagem clara, quem realmente o usar.
+   */
+  private modeloAusente(key: string) {
+    return new Proxy(
+      {},
+      {
+        get: (_alvo, prop: string) => {
+          if (prop === 'then') return undefined; // não pode parecer thenable a um await
+          return () => {
+            throw new Error(
+              `context.db.${key}.${String(prop)}: este modelo não existe mais no schema. ` +
+                'Atualize a rotina (ou a lista de modelos expostos pela engine).',
+            );
+          };
+        },
+      },
+    );
+  }
+
   createDbContext(allowedModels: string[]) {
     const dbContext: any = {};
 
@@ -182,6 +204,13 @@ export class DbTenantProxy {
       // Isso garante que o script use o nome REAL do modelo definido no schema.prisma
       // O modelName de entrada já é a propriedade do prisma (ex: pESPessoa)
       const key = modelName.charAt(0).toUpperCase() + modelName.slice(1);
+      if (this.prisma[modelName] == null) {
+        console.warn(
+          `[rotinas] context.db.${key} indisponível: modelo ausente no Prisma Client.`,
+        );
+        dbContext[key] = this.modeloAusente(key);
+        continue;
+      }
       dbContext[key] = this.createModelProxy(modelName);
 
       // Opcional: Manter retrocompatibilidade com camelCase se necessário,
