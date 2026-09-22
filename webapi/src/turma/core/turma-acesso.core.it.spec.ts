@@ -4,7 +4,12 @@
  * Só roda com TURMA_IT_DATABASE_URL apontando para um banco DESCARTÁVEL com as migrations
  * aplicadas — o teste TRUNCA as tabelas. Sem a variável, é pulado.
  *
- *   TURMA_IT_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/turma_teste npx jest turma-acesso.core.it --runInBand
+ * Banco descartável no Postgres do docker-compose (NUNCA o openturn_db, que tem dado de trabalho):
+ *
+ *   docker exec openturn-db psql -U openturn_user -d postgres -c 'CREATE DATABASE turma_teste;'
+ *   export TURMA_IT_DATABASE_URL='postgresql://openturn_user:openturn_password@127.0.0.1:5432/turma_teste?schema=public'
+ *   DATABASE_URL=$TURMA_IT_DATABASE_URL DATABASE_URL_DIRECT=$TURMA_IT_DATABASE_URL npx prisma migrate deploy
+ *   npx jest turma-acesso.core.it --runInBand
  */
 import { EQPEquipamento, PrismaClient } from '@prisma/client';
 import { createControlIdAccessConfig } from '../../hardware/brands/controlid/access-group/controlid-access-config';
@@ -319,10 +324,17 @@ descrever('TurmaAcessoCore — integração (controle por sentido)', () => {
 
     const dc = await core.listar({ busca: 'dc100' });
     expect(dc.meta.total).toBe(0);
-    expect(dc.semResultado).toMatchObject({ matriculas: 1, matriculasSemCatalogo: 1, turmasForaDoErp: 0, turmasNoCatalogo: 4 });
+    expect(dc.semResultado).toMatchObject({ matriculas: 1, matriculasSemCatalogo: 1, turmasForaDoErp: 0, turmasNoCatalogo: 3 });
     expect(dc.semResultado!.catalogoAtualizadoEm).toBeInstanceOf(Date);
 
-    // 3º A saiu do ERP na virada do ano: a busca padrão (só ativas) aponta isso
+    // 3º A saiu do ERP na virada do ano: o catálogo que chega sem ela desativa, não apaga.
+    const semTerceiroA = {
+      turmas: catalogo2026.turmas.filter((t) => t.idExterno !== 'c1'),
+      matriculasPorTurma: { c2: ['1002'], c3: ['1003'] },
+    };
+    expect(await core.importarCatalogo(semTerceiroA)).toMatchObject({ desativadas: 1 });
+
+    // a busca padrão (só ativas) não acha, e o semResultado diz por quê
     const foraDoErp = await core.listar({ busca: '3º A' });
     expect(foraDoErp.meta.total).toBe(0);
     expect(foraDoErp.semResultado).toMatchObject({ turmasForaDoErp: 1 });

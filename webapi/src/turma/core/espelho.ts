@@ -169,10 +169,15 @@ export async function aplicarSnapshot(
       // ── horários e janelas ─────────────────────────────────────────────
       const horariosAntes = await tx.hORHorario.findMany({
         where: { INSInstituicaoCodigo: ins, EQPCodigo: eqpCodigo },
-        select: { HORCodigo: true, HORIdDevice: true, _count: { select: { areas: true } } },
+        select: { HORCodigo: true, HORIdDevice: true },
       });
       const horarioPorDevice = new Map(horariosAntes.map((h) => [h.HORIdDevice, h.HORCodigo]));
-      const semVinculo = new Set(horariosAntes.filter((h) => h._count.areas === 0).map((h) => h.HORIdDevice));
+      /**
+       * Só horário visto pela PRIMEIRA vez entra aqui. "Sem vínculo" não serve como critério:
+       * o operador que tirou a última área pela tela decidiu que o horário não libera área
+       * nenhuma, e uma releitura do equipamento não pode desfazer isso em silêncio.
+       */
+      const horariosNovos = new Set<string>();
 
       for (const horario of snapshot.horarios) {
         const jaExistia = horarioPorDevice.has(horario.id);
@@ -192,7 +197,7 @@ export async function aplicarSnapshot(
         if (jaExistia) resumo.horarios.atualizados++;
         else {
           resumo.horarios.criados++;
-          semVinculo.add(horario.id);
+          horariosNovos.add(horario.id);
         }
 
         // Janelas são espelho puro: reescrever é mais simples e mais correto que diferenciar.
@@ -221,12 +226,12 @@ export async function aplicarSnapshot(
 
       // ── vínculo horário ↔ área, semeado a partir das regras existentes ──
       // "Este horário libera a ENTRADA nestas áreas": a área de destino (area_to) dos portais das
-      // regras de permissão que já usam o horário. Só para horário sem vínculo — o que o operador
-      // configurou depois nunca é sobrescrito por uma leitura.
+      // regras de permissão que já usam o horário. Só na primeira vez que o horário aparece — o que
+      // o operador configurou (ou apagou) depois nunca é refeito por uma leitura.
       const areaDoPortal = new Map(snapshot.portais.map((p) => [p.id, p.areaToId]));
       const permissoes = snapshot.regras.filter((r) => Number(r.tipo) === 1);
       const aSemear: Prisma.HRAHorarioAreaCreateManyInput[] = [];
-      for (const idDevice of semVinculo) {
+      for (const idDevice of horariosNovos) {
         const areas = new Set<number>();
         for (const regra of permissoes) {
           if (!regra.horarioIds.includes(idDevice)) continue;

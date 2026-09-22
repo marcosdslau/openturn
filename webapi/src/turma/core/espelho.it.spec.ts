@@ -4,7 +4,12 @@
  * Só roda com TURMA_IT_DATABASE_URL apontando para um banco DESCARTÁVEL com as migrations
  * aplicadas — o teste TRUNCA as tabelas. Sem a variável, é pulado.
  *
- *   TURMA_IT_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/turma_teste npx jest espelho.it --runInBand
+ * Banco descartável no Postgres do docker-compose (NUNCA o openturn_db, que tem dado de trabalho):
+ *
+ *   docker exec openturn-db psql -U openturn_user -d postgres -c 'CREATE DATABASE turma_teste;'
+ *   export TURMA_IT_DATABASE_URL='postgresql://openturn_user:openturn_password@127.0.0.1:5432/turma_teste?schema=public'
+ *   DATABASE_URL=$TURMA_IT_DATABASE_URL DATABASE_URL_DIRECT=$TURMA_IT_DATABASE_URL npx prisma migrate deploy
+ *   npx jest espelho.it --runInBand
  */
 import { PrismaClient } from '@prisma/client';
 import { aplicarSnapshot } from './espelho';
