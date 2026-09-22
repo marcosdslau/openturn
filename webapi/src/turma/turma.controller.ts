@@ -68,8 +68,6 @@ export class TurmaController {
     );
   }
 
-  @Post('reconciliar')
-  @RequirePermission('turma', 'sync')
   /** Pessoas vinculadas à turma, com miniatura da foto (lista dados pessoais: exige leitura de pessoa). */
   @Get(':trmCodigo/pessoas')
   @RequirePermission('pessoa', 'read')
