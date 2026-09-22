@@ -4,11 +4,9 @@ import { TurmaAcessoErro, type Origem } from './tipos';
 /** Modelos Prisma expostos em `context.db` (usar em allowedModels das duas engines). */
 export const TURMA_MODELOS_ROTINA = [
   'tRMTurma',
-  'pHAPerfilHorario',
-  'pHAJanela',
   'tEQTurmaEquipamento',
-  'pHEPerfilEquipamento',
-  'eQSEquipamentoSentido',
+  'dEPDepartamento',
+  'dEQDepartamentoEquipamento',
 ];
 
 /**
@@ -17,11 +15,9 @@ export const TURMA_MODELOS_ROTINA = [
  */
 const MODELOS_SOMENTE_LEITURA = new Set([
   'TRMTurma',
-  'PHAPerfilHorario',
-  'PHAJanela',
   'TEQTurmaEquipamento',
-  'PHEPerfilEquipamento',
-  'EQSEquipamentoSentido',
+  'DEPDepartamento',
+  'DEQDepartamentoEquipamento',
 ]);
 const METODOS_LEITURA = new Set(['findMany', 'findFirst', 'findFirstOrThrow', 'findUnique', 'findUniqueOrThrow', 'count', 'aggregate', 'groupBy']);
 
@@ -39,6 +35,7 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
     alias: 'Turma',
     fields: [
       { name: 'TRMCodigo', type: 'Int', pk: true },
+      { name: 'DEPCodigo', type: 'Int', fk: 'DEPDepartamento' },
       { name: 'TRMIdExterno', type: 'String' },
       { name: 'TRMIdOferta', type: 'String' },
       { name: 'TRMTurma', type: 'String' },
@@ -59,34 +56,6 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
       { name: 'updatedAt', type: 'DateTime' },
     ],
   },
-  PHAPerfilHorario: {
-    alias: 'PerfilHorario',
-    fields: [
-      { name: 'PHANome', type: 'String' },
-      { name: 'PHAHashJanelas', type: 'String' },
-      { name: 'PHAHashConfig', type: 'String' },
-      { name: 'PHAModoInterna', type: 'Enum' },
-      { name: 'PHAModoExterna', type: 'Enum' },
-      { name: 'updatedAt', type: 'DateTime' },
-    ],
-  },
-  PHAJanela: {
-    alias: 'PerfilHorarioJanela',
-    fields: [
-      { name: 'PHJCodigo', type: 'Int', pk: true },
-      { name: 'PHJSentido', type: 'Enum' },
-      { name: 'PHJHoraInicio', type: 'String' },
-      { name: 'PHJHoraFim', type: 'String' },
-      { name: 'PHJDom', type: 'Boolean' },
-      { name: 'PHJSeg', type: 'Boolean' },
-      { name: 'PHJTer', type: 'Boolean' },
-      { name: 'PHJQua', type: 'Boolean' },
-      { name: 'PHJQui', type: 'Boolean' },
-      { name: 'PHJSex', type: 'Boolean' },
-      { name: 'PHJSab', type: 'Boolean' },
-      { name: 'PHJOrdem', type: 'Int' },
-    ],
-  },
   TEQTurmaEquipamento: {
     alias: 'TurmaEquipamento',
     fields: [
@@ -95,35 +64,27 @@ export const TURMA_SCHEMA_ROTINA: Record<string, { alias: string; fields: Campo[
       { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
     ],
   },
-  PHEPerfilEquipamento: {
-    alias: 'PerfilEquipamento',
+  DEPDepartamento: {
+    alias: 'Departamento',
     fields: [
-      { name: 'PHECodigo', type: 'Int', pk: true },
-      { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
-      { name: 'PHEIdGrupo', type: 'String' },
-      { name: 'PHEIdRegraInterna', type: 'String' },
-      { name: 'PHEIdHorarioInterna', type: 'String' },
-      { name: 'PHEIdRegraExterna', type: 'String' },
-      { name: 'PHEIdHorarioExterna', type: 'String' },
-      { name: 'PHESyncHash', type: 'String' },
-      { name: 'PHESyncedAt', type: 'DateTime' },
-      { name: 'PHEUltimoErro', type: 'String' },
+      { name: 'DEPCodigo', type: 'Int', pk: true },
+      { name: 'DEPNome', type: 'String' },
+      { name: 'DEPDescricao', type: 'String' },
+      { name: 'updatedAt', type: 'DateTime' },
     ],
   },
-  EQSEquipamentoSentido: {
-    alias: 'EquipamentoSentido',
+  DEQDepartamentoEquipamento: {
+    alias: 'DepartamentoEquipamento',
     fields: [
-      { name: 'EQSCodigo', type: 'Int', pk: true },
+      { name: 'DEQCodigo', type: 'Int', pk: true },
+      { name: 'DEPCodigo', type: 'Int', fk: 'DEPDepartamento' },
       { name: 'EQPCodigo', type: 'Int', fk: 'EQPEquipamento' },
-      { name: 'EQSAreaInternaId', type: 'String' },
-      { name: 'EQSAreaExternaId', type: 'String' },
-      { name: 'EQSPortalInternaId', type: 'String' },
-      { name: 'EQSPortalExternaId', type: 'String' },
-      { name: 'EQSInvertido', type: 'Boolean' },
-      { name: 'EQSCatraConfig', type: 'Json' },
-      { name: 'EQSPreparadoEm', type: 'DateTime' },
-      { name: 'EQSValidadoEm', type: 'DateTime' },
-      { name: 'EQSUltimoErro', type: 'String' },
+      // id de `groups` no equipamento: é ele que vai no setGroups da rotina de gravação.
+      { name: 'DEQIdDevice', type: 'String' },
+      { name: 'DEQNome', type: 'String' },
+      { name: 'DEQRevisadoEm', type: 'DateTime' },
+      { name: 'DEQVerificadoEm', type: 'DateTime' },
+      { name: 'DEQUltimoErro', type: 'String' },
     ],
   },
 };
