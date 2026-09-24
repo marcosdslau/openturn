@@ -6,6 +6,7 @@ import InputField from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
 import { ChevronDownIcon } from "@/icons";
 import SearchableMultiSelect from "@/components/form/SearchableMultiSelect";
+import type { ExportFormat } from "@/components/export/export-types";
 
 export type RegistrosFiltrosAplicados = {
     nome: string;
@@ -29,8 +30,7 @@ export const REGISTROS_FILTROS_VAZIOS: RegistrosFiltrosAplicados = {
     dataFim: "",
 };
 
-export function buildRegistrosQuery(page: number, limit: number, f: RegistrosFiltrosAplicados): string {
-    const p = new URLSearchParams({ page: String(page), limit: String(limit) });
+function appendFiltros(p: URLSearchParams, f: RegistrosFiltrosAplicados): void {
     if (f.nome.trim()) p.set("nome", f.nome.trim());
     if (f.documento.trim()) p.set("documento", f.documento.trim());
     if (f.grupo.trim()) p.set("grupo", f.grupo.trim());
@@ -39,7 +39,94 @@ export function buildRegistrosQuery(page: number, limit: number, f: RegistrosFil
     for (const t of f.MATTurma) p.append("MATTurma", t);
     if (f.dataInicio) p.set("dataInicio", f.dataInicio);
     if (f.dataFim) p.set("dataFim", f.dataFim);
+}
+
+export function buildRegistrosQuery(page: number, limit: number, f: RegistrosFiltrosAplicados): string {
+    const p = new URLSearchParams({ page: String(page), limit: String(limit) });
+    appendFiltros(p, f);
     return p.toString();
+}
+
+/** Query string para GET /registro-diario/export (mesmos filtros da lista, sem paginação). */
+export function buildRegistrosExportQuery(format: ExportFormat, f: RegistrosFiltrosAplicados): string {
+    const p = new URLSearchParams({ format });
+    appendFiltros(p, f);
+    return p.toString();
+}
+
+type RegistrosFiltrosCamposProps = {
+    draft: RegistrosFiltrosAplicados;
+    setDraft: React.Dispatch<React.SetStateAction<RegistrosFiltrosAplicados>>;
+    cursosDisponiveis: string[];
+    seriesDisponiveis: string[];
+    turmasDisponiveis: string[];
+};
+
+/** Campos de filtro; usados no card de filtros e no modal de exportação. */
+export function RegistrosFiltrosCampos({
+    draft,
+    setDraft,
+    cursosDisponiveis,
+    seriesDisponiveis,
+    turmasDisponiveis,
+}: RegistrosFiltrosCamposProps) {
+    const set = (key: "nome" | "documento" | "grupo" | "dataInicio" | "dataFim", val: string) =>
+        setDraft((prev) => ({ ...prev, [key]: val }));
+
+    const cursoOptions = cursosDisponiveis.map((c) => ({ value: c, label: c }));
+    const serieOptions = seriesDisponiveis.map((s) => ({ value: s, label: s }));
+    const turmaOptions = turmasDisponiveis.map((t) => ({ value: t, label: t }));
+
+    return (
+        <>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <div>
+                    <Label>Nome</Label>
+                    <InputField placeholder="Buscar por nome..." value={draft.nome} onChange={(e) => set("nome", e.target.value)} />
+                </div>
+                <div>
+                    <Label>Documento (CPF)</Label>
+                    <InputField placeholder="000.000.000-00" value={draft.documento} onChange={(e) => set("documento", e.target.value)} />
+                </div>
+                <div>
+                    <Label>Grupo</Label>
+                    <InputField placeholder="Ex: Aluno" value={draft.grupo} onChange={(e) => set("grupo", e.target.value)} />
+                </div>
+                <div>
+                    <Label>Data Início</Label>
+                    <InputField type="date" value={draft.dataInicio} onChange={(e) => set("dataInicio", e.target.value)} />
+                </div>
+                <div>
+                    <Label>Data Fim</Label>
+                    <InputField type="date" value={draft.dataFim} onChange={(e) => set("dataFim", e.target.value)} />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <SearchableMultiSelect
+                    label="Curso"
+                    placeholder="Selecione um ou mais cursos"
+                    options={cursoOptions}
+                    value={draft.MATCurso}
+                    onChange={(MATCurso) => setDraft((d) => ({ ...d, MATCurso }))}
+                />
+                <SearchableMultiSelect
+                    label="Módulo / Série"
+                    placeholder="Selecione um ou mais módulos/séries"
+                    options={serieOptions}
+                    value={draft.MATSerie}
+                    onChange={(MATSerie) => setDraft((d) => ({ ...d, MATSerie }))}
+                />
+                <SearchableMultiSelect
+                    label="Turma"
+                    placeholder="Selecione uma ou mais turmas"
+                    options={turmaOptions}
+                    value={draft.MATTurma}
+                    onChange={(MATTurma) => setDraft((d) => ({ ...d, MATTurma }))}
+                />
+            </div>
+        </>
+    );
 }
 
 interface Props {
@@ -87,15 +174,8 @@ export default function RegistrosFiltros({
         aplicados.dataFim,
     ].filter(Boolean).length;
 
-    const set = (key: "nome" | "documento" | "grupo" | "dataInicio" | "dataFim", val: string) =>
-        setDraft((prev) => ({ ...prev, [key]: val }));
-
     const aplicar = () => { onAplicar(draft); setAberto(false); };
     const limpar = () => { setDraft(REGISTROS_FILTROS_VAZIOS); onLimpar(); setAberto(false); };
-
-    const cursoOptions = cursosDisponiveis.map((c) => ({ value: c, label: c }));
-    const serieOptions = seriesDisponiveis.map((s) => ({ value: s, label: s }));
-    const turmaOptions = turmasDisponiveis.map((t) => ({ value: t, label: t }));
 
     return (
         <div className="rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
@@ -117,52 +197,13 @@ export default function RegistrosFiltros({
 
             {aberto && (
                 <div className="border-t border-gray-200 dark:border-gray-700 p-4 space-y-4">
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        <div>
-                            <Label>Nome</Label>
-                            <InputField placeholder="Buscar por nome..." value={draft.nome} onChange={(e) => set("nome", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Documento (CPF)</Label>
-                            <InputField placeholder="000.000.000-00" value={draft.documento} onChange={(e) => set("documento", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Grupo</Label>
-                            <InputField placeholder="Ex: Aluno" value={draft.grupo} onChange={(e) => set("grupo", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Data Início</Label>
-                            <InputField type="date" value={draft.dataInicio} onChange={(e) => set("dataInicio", e.target.value)} />
-                        </div>
-                        <div>
-                            <Label>Data Fim</Label>
-                            <InputField type="date" value={draft.dataFim} onChange={(e) => set("dataFim", e.target.value)} />
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-                        <SearchableMultiSelect
-                            label="Curso"
-                            placeholder="Selecione um ou mais cursos"
-                            options={cursoOptions}
-                            value={draft.MATCurso}
-                            onChange={(MATCurso) => setDraft((d) => ({ ...d, MATCurso }))}
-                        />
-                        <SearchableMultiSelect
-                            label="Módulo / Série"
-                            placeholder="Selecione um ou mais módulos/séries"
-                            options={serieOptions}
-                            value={draft.MATSerie}
-                            onChange={(MATSerie) => setDraft((d) => ({ ...d, MATSerie }))}
-                        />
-                        <SearchableMultiSelect
-                            label="Turma"
-                            placeholder="Selecione uma ou mais turmas"
-                            options={turmaOptions}
-                            value={draft.MATTurma}
-                            onChange={(MATTurma) => setDraft((d) => ({ ...d, MATTurma }))}
-                        />
-                    </div>
+                    <RegistrosFiltrosCampos
+                        draft={draft}
+                        setDraft={setDraft}
+                        cursosDisponiveis={cursosDisponiveis}
+                        seriesDisponiveis={seriesDisponiveis}
+                        turmasDisponiveis={turmasDisponiveis}
+                    />
 
                     <div className="flex gap-3 pt-2">
                         <Button size="sm" onClick={aplicar}>Aplicar Filtros</Button>

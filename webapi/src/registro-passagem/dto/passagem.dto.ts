@@ -146,3 +146,15 @@ export class UpdatePassagemDto {
   @IsDateString()
   REGDataHora?: string;
 }
+
+export enum PassagemExportFormat {
+  csv = 'csv',
+  xlsx = 'xlsx',
+  pdf = 'pdf',
+}
+
+/** Mesmos filtros da listagem; `page`/`limit` são ignorados na exportação. */
+export class ExportPassagemQueryDto extends QueryPassagemDto {
+  @IsEnum(PassagemExportFormat)
+  format: PassagemExportFormat;
+}

@@ -11,6 +11,7 @@ import {
   UseGuards,
   NotFoundException,
   Req,
+  StreamableFile,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/permissions.guard';
@@ -18,7 +19,11 @@ import { RequirePermission } from '../auth/permissions.decorator';
 import { RegistroDiarioService } from './registro-diario.service';
 import { RegistroDiarioManutencaoService } from './registro-diario-manutencao.service';
 import { GenneraAttendanceService } from './gennera-attendance.service';
-import { QueryRegistroDiarioDto, IniciarLancamentoGenneraDto } from './dto/registro-diario.dto';
+import {
+  QueryRegistroDiarioDto,
+  IniciarLancamentoGenneraDto,
+  ExportRegistroDiarioQueryDto,
+} from './dto/registro-diario.dto';
 import {
   ReprocessarPeriodoDto,
   QueryManutencaoRegistroDiarioDto,
@@ -50,6 +55,20 @@ export class RegistroDiarioController {
     @Query() query: QueryRegistroDiarioDto,
   ) {
     return this.registroDiarioService.findAll(instituicaoCodigo, query);
+  }
+
+  @Get('export')
+  @RequirePermission('registroDiario', 'read')
+  async exportRegistros(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Query() query: ExportRegistroDiarioQueryDto,
+  ) {
+    const { buffer, filename, contentType } =
+      await this.registroDiarioService.exportRegistros(instituicaoCodigo, query);
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   // ---------------------------------------------------------------------------
