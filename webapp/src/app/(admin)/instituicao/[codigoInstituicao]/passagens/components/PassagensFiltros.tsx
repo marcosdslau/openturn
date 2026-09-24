@@ -6,6 +6,7 @@ import InputField from "@/components/form/input/InputField";
 import Button from "@/components/ui/button/Button";
 import { ChevronDownIcon } from "@/icons";
 import SearchableMultiSelect from "@/components/form/SearchableMultiSelect";
+import type { ExportFormat } from "@/components/export/export-types";
 
 export type PassagemFiltrosAplicados = {
     nome: string;
@@ -82,16 +83,7 @@ interface PassagensFiltrosProps {
     onLimpar: () => void;
 }
 
-export function buildPassagemListQuery(
-    page: number,
-    limit: number,
-    f: PassagemFiltrosAplicados
-): string {
-    const p = new URLSearchParams({
-        page: String(page),
-        limit: String(limit),
-    });
-
+function appendFiltros(p: URLSearchParams, f: PassagemFiltrosAplicados): void {
     const nome = f.nome.trim();
     const documento = f.documento.trim();
     const email = f.email.trim();
@@ -111,11 +103,236 @@ export function buildPassagemListQuery(
     if (f.acao) p.set("REGAcao", f.acao);
     if (f.dataInicio) p.set("dataInicio", f.dataInicio);
     if (f.dataFim) p.set("dataFim", f.dataFim);
+}
 
+export function buildPassagemListQuery(
+    page: number,
+    limit: number,
+    f: PassagemFiltrosAplicados
+): string {
+    const p = new URLSearchParams({
+        page: String(page),
+        limit: String(limit),
+    });
+    appendFiltros(p, f);
+    return p.toString();
+}
+
+/** Query string para GET /passagem/export (mesmos filtros da lista, sem paginação). */
+export function buildPassagemExportQuery(
+    format: ExportFormat,
+    f: PassagemFiltrosAplicados
+): string {
+    const p = new URLSearchParams({ format });
+    appendFiltros(p, f);
     return p.toString();
 }
 
 export { EMPTY as PASSAGEM_FILTROS_VAZIOS };
+
+type PassagensFiltrosCamposProps = {
+    draft: PassagemFiltrosAplicados;
+    setDraft: React.Dispatch<React.SetStateAction<PassagemFiltrosAplicados>>;
+    gruposDisponiveis: string[];
+    cursosDisponiveis: string[];
+    seriesDisponiveis: string[];
+    turmasDisponiveis: string[];
+    /** Prefixo dos ids dos campos (evita ids duplicados quando usado em mais de um lugar). */
+    idPrefix?: string;
+};
+
+/** Campos de filtro avançado; usados no card de filtros e no modal de exportação. */
+export function PassagensFiltrosCampos({
+    draft,
+    setDraft,
+    gruposDisponiveis,
+    cursosDisponiveis,
+    seriesDisponiveis,
+    turmasDisponiveis,
+    idPrefix = "filtro-pass",
+}: PassagensFiltrosCamposProps) {
+    const opcoesGrupo = useMemo(() => {
+        const set = new Set(gruposDisponiveis);
+        const atual = draft.grupo.trim();
+        if (atual) set.add(atual);
+        return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
+    }, [gruposDisponiveis, draft.grupo]);
+
+    const cursoOptions = cursosDisponiveis.map((c) => ({ value: c, label: c }));
+    const serieOptions = seriesDisponiveis.map((s) => ({ value: s, label: s }));
+    const turmaOptions = turmasDisponiveis.map((t) => ({ value: t, label: t }));
+
+    return (
+        <>
+            <div>
+                <Label htmlFor={`${idPrefix}-documento`}>Documento</Label>
+                <InputField
+                    id={`${idPrefix}-documento`}
+                    name="documento"
+                    placeholder="CPF, RG..."
+                    value={draft.documento}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            documento: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-email`}>E-mail</Label>
+                <InputField
+                    id={`${idPrefix}-email`}
+                    name="email"
+                    type="email"
+                    placeholder="Contém no e-mail..."
+                    value={draft.email}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            email: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-grupo`}>Grupo</Label>
+                <div className="relative">
+                    <select
+                        id={`${idPrefix}-grupo`}
+                        name="grupo"
+                        value={draft.grupo}
+                        onChange={(e) =>
+                            setDraft((d) => ({
+                                ...d,
+                                grupo: e.target.value,
+                            }))
+                        }
+                        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+                    >
+                        <option value="">Todos os grupos</option>
+                        {opcoesGrupo.map((g) => (
+                            <option key={g} value={g}>
+                                {g}
+                            </option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-cartao`}>Cartão / tag</Label>
+                <InputField
+                    id={`${idPrefix}-cartao`}
+                    name="cartaoTag"
+                    placeholder="Identificador do cartão ou tag..."
+                    value={draft.cartaoTag}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            cartaoTag: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-numero`}>Número da matrícula</Label>
+                <InputField
+                    id={`${idPrefix}-numero`}
+                    name="numeroMatricula"
+                    placeholder="Contém no número..."
+                    value={draft.numeroMatricula}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            numeroMatricula: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+            <SearchableMultiSelect
+                className="col-span-1 sm:col-span-2 lg:col-span-3"
+                label="Curso"
+                placeholder="Selecione um ou mais cursos"
+                options={cursoOptions}
+                value={draft.cursos}
+                onChange={(cursos) =>
+                    setDraft((d) => ({ ...d, cursos }))
+                }
+            />
+            <SearchableMultiSelect
+                className="col-span-1 sm:col-span-2 lg:col-span-3"
+                label="Módulo / série"
+                placeholder="Selecione um ou mais módulos ou séries"
+                options={serieOptions}
+                value={draft.series}
+                onChange={(series) =>
+                    setDraft((d) => ({ ...d, series }))
+                }
+            />
+            <SearchableMultiSelect
+                className="col-span-1 sm:col-span-2 lg:col-span-3"
+                label="Turma"
+                placeholder="Selecione uma ou mais turmas"
+                options={turmaOptions}
+                value={draft.turmas}
+                onChange={(turmas) =>
+                    setDraft((d) => ({ ...d, turmas }))
+                }
+            />
+            <div>
+                <Label htmlFor={`${idPrefix}-acao`}>Ação</Label>
+                <div className="relative">
+                    <select
+                        id={`${idPrefix}-acao`}
+                        name="acao"
+                        value={draft.acao}
+                        onChange={(e) =>
+                            setDraft((d) => ({
+                                ...d,
+                                acao: e.target.value as Draft["acao"],
+                            }))
+                        }
+                        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
+                    >
+                        <option value="">Todas as ações</option>
+                        <option value="ENTRADA">Entrada</option>
+                        <option value="SAIDA">Saída</option>
+                    </select>
+                </div>
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-inicio`}>Data início</Label>
+                <InputField
+                    id={`${idPrefix}-inicio`}
+                    name="dataInicio"
+                    type="date"
+                    value={draft.dataInicio}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            dataInicio: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+            <div>
+                <Label htmlFor={`${idPrefix}-fim`}>Data fim</Label>
+                <InputField
+                    id={`${idPrefix}-fim`}
+                    name="dataFim"
+                    type="date"
+                    value={draft.dataFim}
+                    onChange={(e) =>
+                        setDraft((d) => ({
+                            ...d,
+                            dataFim: e.target.value,
+                        }))
+                    }
+                />
+            </div>
+        </>
+    );
+}
 
 export default function PassagensFiltros({
     aplicados,
@@ -138,17 +355,6 @@ export default function PassagensFiltros({
             setAvancadoAberto(true);
         }
     }, [aplicados]);
-
-    const opcoesGrupo = useMemo(() => {
-        const set = new Set(gruposDisponiveis);
-        const atual = draft.grupo.trim();
-        if (atual) set.add(atual);
-        return Array.from(set).sort((a, b) => a.localeCompare(b, "pt-BR"));
-    }, [gruposDisponiveis, draft.grupo]);
-
-    const cursoOptions = cursosDisponiveis.map((c) => ({ value: c, label: c }));
-    const serieOptions = seriesDisponiveis.map((s) => ({ value: s, label: s }));
-    const turmaOptions = turmasDisponiveis.map((t) => ({ value: t, label: t }));
 
     const aplicar = () => {
         onAplicar({
@@ -226,172 +432,14 @@ export default function PassagensFiltros({
                             aria-labelledby="passagens-filtros-cabecalho"
                             className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
                         >
-                            <div>
-                                <Label htmlFor="filtro-pass-documento">Documento</Label>
-                                <InputField
-                                    id="filtro-pass-documento"
-                                    name="documento"
-                                    placeholder="CPF, RG..."
-                                    value={draft.documento}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            documento: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-email">E-mail</Label>
-                                <InputField
-                                    id="filtro-pass-email"
-                                    name="email"
-                                    type="email"
-                                    placeholder="Contém no e-mail..."
-                                    value={draft.email}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            email: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-grupo">Grupo</Label>
-                                <div className="relative">
-                                    <select
-                                        id="filtro-pass-grupo"
-                                        name="grupo"
-                                        value={draft.grupo}
-                                        onChange={(e) =>
-                                            setDraft((d) => ({
-                                                ...d,
-                                                grupo: e.target.value,
-                                            }))
-                                        }
-                                        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
-                                    >
-                                        <option value="">Todos os grupos</option>
-                                        {opcoesGrupo.map((g) => (
-                                            <option key={g} value={g}>
-                                                {g}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-cartao">Cartão / tag</Label>
-                                <InputField
-                                    id="filtro-pass-cartao"
-                                    name="cartaoTag"
-                                    placeholder="Identificador do cartão ou tag..."
-                                    value={draft.cartaoTag}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            cartaoTag: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-numero">Número da matrícula</Label>
-                                <InputField
-                                    id="filtro-pass-numero"
-                                    name="numeroMatricula"
-                                    placeholder="Contém no número..."
-                                    value={draft.numeroMatricula}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            numeroMatricula: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                            <SearchableMultiSelect
-                                className="col-span-1 sm:col-span-2 lg:col-span-3"
-                                label="Curso"
-                                placeholder="Selecione um ou mais cursos"
-                                options={cursoOptions}
-                                value={draft.cursos}
-                                onChange={(cursos) =>
-                                    setDraft((d) => ({ ...d, cursos }))
-                                }
+                            <PassagensFiltrosCampos
+                                draft={draft}
+                                setDraft={setDraft}
+                                gruposDisponiveis={gruposDisponiveis}
+                                cursosDisponiveis={cursosDisponiveis}
+                                seriesDisponiveis={seriesDisponiveis}
+                                turmasDisponiveis={turmasDisponiveis}
                             />
-                            <SearchableMultiSelect
-                                className="col-span-1 sm:col-span-2 lg:col-span-3"
-                                label="Módulo / série"
-                                placeholder="Selecione um ou mais módulos ou séries"
-                                options={serieOptions}
-                                value={draft.series}
-                                onChange={(series) =>
-                                    setDraft((d) => ({ ...d, series }))
-                                }
-                            />
-                            <SearchableMultiSelect
-                                className="col-span-1 sm:col-span-2 lg:col-span-3"
-                                label="Turma"
-                                placeholder="Selecione uma ou mais turmas"
-                                options={turmaOptions}
-                                value={draft.turmas}
-                                onChange={(turmas) =>
-                                    setDraft((d) => ({ ...d, turmas }))
-                                }
-                            />
-                            <div>
-                                <Label htmlFor="filtro-pass-acao">Ação</Label>
-                                <div className="relative">
-                                    <select
-                                        id="filtro-pass-acao"
-                                        name="acao"
-                                        value={draft.acao}
-                                        onChange={(e) =>
-                                            setDraft((d) => ({
-                                                ...d,
-                                                acao: e.target.value as Draft["acao"],
-                                            }))
-                                        }
-                                        className="h-11 w-full appearance-none rounded-lg border border-gray-300 bg-transparent px-4 py-2.5 pr-10 text-sm shadow-theme-xs text-gray-800 focus:border-brand-300 focus:outline-none focus:ring-3 focus:ring-brand-500/10 dark:border-gray-700 dark:bg-gray-900 dark:text-white/90 dark:focus:border-brand-800"
-                                    >
-                                        <option value="">Todas as ações</option>
-                                        <option value="ENTRADA">Entrada</option>
-                                        <option value="SAIDA">Saída</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-inicio">Data início</Label>
-                                <InputField
-                                    id="filtro-pass-inicio"
-                                    name="dataInicio"
-                                    type="date"
-                                    value={draft.dataInicio}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            dataInicio: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="filtro-pass-fim">Data fim</Label>
-                                <InputField
-                                    id="filtro-pass-fim"
-                                    name="dataFim"
-                                    type="date"
-                                    value={draft.dataFim}
-                                    onChange={(e) =>
-                                        setDraft((d) => ({
-                                            ...d,
-                                            dataFim: e.target.value,
-                                        }))
-                                    }
-                                />
-                            </div>
                         </div>
                     )}
 

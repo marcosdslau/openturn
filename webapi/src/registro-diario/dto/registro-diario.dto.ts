@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, IsDateString, IsString, IsArray, IsBoolean, Min, Max, Matches } from 'class-validator';
+import { IsOptional, IsInt, IsDateString, IsString, IsArray, IsBoolean, IsEnum, Min, Max, Matches } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 
 /** Normaliza query param de string simples para array (ex: ?turma=A → ['A']) */
@@ -119,4 +119,16 @@ export class IniciarLancamentoGenneraDto {
   @IsString()
   @Matches(/^\d{2}:\d{2}$/, { message: 'horaSaidaIntervalo deve estar no formato HH:mm' })
   horaSaidaIntervalo?: string;
+}
+
+export enum RegistroDiarioExportFormat {
+  csv = 'csv',
+  xlsx = 'xlsx',
+  pdf = 'pdf',
+}
+
+/** Mesmos filtros da listagem; `page`/`limit` são ignorados na exportação. */
+export class ExportRegistroDiarioQueryDto extends QueryRegistroDiarioDto {
+  @IsEnum(RegistroDiarioExportFormat)
+  format: RegistroDiarioExportFormat;
 }

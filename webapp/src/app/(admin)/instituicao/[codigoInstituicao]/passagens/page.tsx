@@ -4,11 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { useTenant } from "@/context/TenantContext";
 import { apiGet } from "@/lib/api";
 import PaginationWithIcon from "@/components/ui/pagination/PaginationWitIcon";
+import { usePermissions } from "@/hooks/usePermissions";
+import ExportarMenu from "@/components/export/ExportarMenu";
+import type { ExportFormat } from "@/components/export/export-types";
 import PassagensFiltros, {
     PASSAGEM_FILTROS_VAZIOS,
     buildPassagemListQuery,
     type PassagemFiltrosAplicados,
 } from "./components/PassagensFiltros";
+import ExportarPassagensModal from "./components/ExportarPassagensModal";
 
 interface Passagem {
     REGCodigo: number;
@@ -46,6 +50,7 @@ interface Meta {
 
 export default function PassagensPage() {
     const { codigoInstituicao } = useTenant();
+    const { can } = usePermissions();
     const [passagens, setPassagens] = useState<Passagem[]>([]);
     const [meta, setMeta] = useState<Meta>({ total: 0, page: 1, limit: 20, totalPages: 0 });
     const [loading, setLoading] = useState(true);
@@ -61,6 +66,7 @@ export default function PassagensPage() {
         series: string[];
         turmas: string[];
     }>({ cursos: [], series: [], turmas: [] });
+    const [formatoExportacao, setFormatoExportacao] = useState<ExportFormat | null>(null);
 
     const load = useCallback(async () => {
         if (!codigoInstituicao) return;
@@ -118,7 +124,10 @@ export default function PassagensPage() {
 
     return (
         <div className="space-y-6">
-            <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Passagens</h2>
+            <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-gray-800 dark:text-white/90">Passagens</h2>
+                {can("passagem", "read") && <ExportarMenu onSelect={setFormatoExportacao} />}
+            </div>
 
             <PassagensFiltros
                 aplicados={filtrosAplicados}
@@ -229,6 +238,19 @@ export default function PassagensPage() {
                     Total: {meta.total} registros
                 </p>
             </div>
+
+            {codigoInstituicao && formatoExportacao && (
+                <ExportarPassagensModal
+                    formato={formatoExportacao}
+                    onClose={() => setFormatoExportacao(null)}
+                    codigoInstituicao={codigoInstituicao}
+                    filtrosIniciais={filtrosAplicados}
+                    gruposDisponiveis={gruposDisponiveis}
+                    cursosDisponiveis={opcoesFiltro.cursos}
+                    seriesDisponiveis={opcoesFiltro.series}
+                    turmasDisponiveis={opcoesFiltro.turmas}
+                />
+            )}
         </div>
     );
 }

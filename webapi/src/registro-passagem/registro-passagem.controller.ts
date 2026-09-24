@@ -9,10 +9,12 @@ import {
   UseGuards,
   Param,
   ParseIntPipe,
+  StreamableFile,
 } from '@nestjs/common';
 import { RegistroPassagemService } from './registro-passagem.service';
 import {
   CreatePassagemDto,
+  ExportPassagemQueryDto,
   QueryPassagemDto,
   UpdatePassagemDto,
 } from './dto/passagem.dto';
@@ -41,6 +43,20 @@ export class RegistroPassagemController {
     @Query() query: QueryPassagemDto,
   ) {
     return this.service.findAll(instituicaoCodigo, query);
+  }
+
+  @Get('export')
+  @RequirePermission('passagem', 'read')
+  async exportPassagens(
+    @Param('instituicaoCodigo', ParseIntPipe) instituicaoCodigo: number,
+    @Query() query: ExportPassagemQueryDto,
+  ) {
+    const { buffer, filename, contentType } =
+      await this.service.exportPassagens(instituicaoCodigo, query);
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${filename}"`,
+    });
   }
 
   @Patch(':id')

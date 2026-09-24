@@ -15,6 +15,9 @@ import RegistrosManutencaoModal from "./components/RegistrosManutencaoModal";
 import RegistroDiarioEditModal from "./components/RegistroDiarioEditModal";
 import ConfirmDeleteRegistroModal from "./components/ConfirmDeleteRegistroModal";
 import { canExecuteRegistroDiario, canWriteRegistroDiario } from "@/lib/registro-diario-access";
+import ExportarMenu from "@/components/export/ExportarMenu";
+import type { ExportFormat } from "@/components/export/export-types";
+import ExportarRegistrosModal from "./components/ExportarRegistrosModal";
 
 interface RegistroDiario {
     RPDCodigo: number;
@@ -103,6 +106,7 @@ export default function RegistrosPage() {
     const [showReprocessar, setShowReprocessar] = useState(false);
     const [showManutencao, setShowManutencao] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [formatoExportacao, setFormatoExportacao] = useState<ExportFormat | null>(null);
 
     const [passagensModal, setPassagensModal] = useState<{
         PESCodigo: number;
@@ -236,6 +240,8 @@ export default function RegistrosPage() {
                             Administrar Frequências
                         </Button>
                     )}
+
+                    {can("registroDiario", "read") && <ExportarMenu onSelect={setFormatoExportacao} />}
                 </div>
             </div>
 
@@ -449,6 +455,18 @@ export default function RegistrosPage() {
             </div>
 
             {/* Modais */}
+            {codigoInstituicao && formatoExportacao && (
+                <ExportarRegistrosModal
+                    formato={formatoExportacao}
+                    onClose={() => setFormatoExportacao(null)}
+                    codigoInstituicao={codigoInstituicao}
+                    filtrosIniciais={filtros}
+                    cursosDisponiveis={opcoesFiltro.cursos}
+                    seriesDisponiveis={opcoesFiltro.series}
+                    turmasDisponiveis={opcoesFiltro.turmas}
+                />
+            )}
+
             {showAdmin && (
                 <AdminLancamentoModal onClose={() => { setShowAdmin(false); load(); }} />
             )}

@@ -1,13 +1,38 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  PayloadTooLargeException,
+} from '@nestjs/common';
 import { PrismaService } from '../common/prisma/prisma.service';
 import {
   CreatePassagemDto,
+  ExportPassagemQueryDto,
+  PassagemExportFormat,
   QueryPassagemDto,
   UpdatePassagemDto,
 } from './dto/passagem.dto';
 import { PaginatedResult } from '../common/dto/pagination.dto';
 import { Prisma } from '@prisma/client';
 import { resizeBase64Image } from '../common/utils/image.utils';
+import { format as formatDate } from 'date-fns';
+import {
+  PASSAGEM_PDF_FOTO_PX,
+  buildPassagemCsvBuffer,
+  buildPassagemPdfBuffer,
+  buildPassagemXlsxBuffer,
+  type PassagemExportContext,
+  type PassagemExportRow,
+} from './registro-passagem-export.builder';
+import {
+  REPORT_CONTENT_TYPES,
+  formatIsoDateOnly,
+  loadFotosJpeg,
+} from '../common/export/relatorio-export.utils';
+
+const MAX_EXPORT_ROWS = 50_000;
+/** PDF embute foto por linha; limite menor para manter tempo/tamanho aceitáveis. */
+const MAX_EXPORT_ROWS_PDF = 5_000;
 
 @Injectable()
 export class RegistroPassagemService {
@@ -98,13 +123,12 @@ export class RegistroPassagemService {
     });
   }
 
-  async findAll(
+  /** Filtros compartilhados entre a listagem paginada e a exportação. */
+  private buildWhere(
     instituicaoCodigo: number,
     query: QueryPassagemDto,
-  ): Promise<PaginatedResult<any>> {
+  ): Prisma.REGRegistroPassagemWhereInput {
     const {
-      page,
-      limit,
       PESCodigo,
       EQPCodigo,
       dataInicio,
@@ -120,7 +144,6 @@ export class RegistroPassagemService {
       serie,
       turma,
     } = query;
-    const skip = (page - 1) * limit;
 
     const where: Prisma.REGRegistroPassagemWhereInput = {
       INSInstituicaoCodigo: instituicaoCodigo,
@@ -197,6 +220,16 @@ export class RegistroPassagemService {
     if (hasPessoaFilter) {
       where.pessoa = { is: pessoaWhere };
     }
+    return where;
+  }
+
+  async findAll(
+    instituicaoCodigo: number,
+    query: QueryPassagemDto,
+  ): Promise<PaginatedResult<any>> {
+    const { page, limit } = query;
+    const skip = (page - 1) * limit;
+    const where = this.buildWhere(instituicaoCodigo, query);
 
     const [data, total] = await Promise.all([
       this.prisma.rls.rEGRegistroPassagem.findMany({
@@ -253,5 +286,116 @@ export class RegistroPassagemService {
       data: serialized,
       meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
     };
+  }
+
+  async exportPassagens(
+    instituicaoCodigo: number,
+    query: ExportPassagemQueryDto,
+  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
+    const where = this.buildWhere(instituicaoCodigo, query);
+    const isPdf = query.format === PassagemExportFormat.pdf;
+    const max = isPdf ? MAX_EXPORT_ROWS_PDF : MAX_EXPORT_ROWS;
+
+    const total = await this.prisma.rls.rEGRegistroPassagem.count({ where });
+    if (total > max) {
+      throw new PayloadTooLargeException(
+        `Exportação ${isPdf ? 'em PDF ' : ''}limitada a ${max} passagens (${total} encontradas). Aplique filtros (ex.: período) para reduzir o resultado.`,
+      );
+    }
+
+    const [instituicao, data] = await Promise.all([
+      this.prisma.iNSInstituicao.findUnique({
+        where: { INSCodigo: instituicaoCodigo },
+        select: { INSNome: true, INSFusoHorario: true },
+      }),
+      this.prisma.rls.rEGRegistroPassagem.findMany({
+        where,
+        select: {
+          REGDataHora: true,
+          REGAcao: true,
+          pessoa: {
+            select: {
+              PESCodigo: true,
+              PESNome: true,
+              PESDocumento: true,
+              PESGrupo: true,
+            },
+          },
+          equipamento: {
+            select: { EQPDescricao: true, EQPEnderecoIp: true },
+          },
+        },
+        orderBy: { REGDataHora: 'desc' },
+      }),
+    ]);
+    if (!instituicao) {
+      throw new NotFoundException('Instituição não encontrada');
+    }
+
+    const rows = data as PassagemExportRow[];
+    const geradoEm = new Date();
+    const ctx: PassagemExportContext = {
+      instituicaoNome: instituicao.INSNome,
+      fusoHorario: instituicao.INSFusoHorario ?? -3,
+      geradoEm,
+      filtrosDescricao: this.describeFiltros(query),
+    };
+
+    let buffer: Buffer;
+    switch (query.format) {
+      case PassagemExportFormat.csv:
+        buffer = buildPassagemCsvBuffer(rows, ctx);
+        break;
+      case PassagemExportFormat.xlsx:
+        buffer = await buildPassagemXlsxBuffer(rows, ctx);
+        break;
+      case PassagemExportFormat.pdf: {
+        const fotos = await loadFotosJpeg(
+          rows.map((r) => r.pessoa?.PESCodigo).filter((id): id is number => !!id),
+          PASSAGEM_PDF_FOTO_PX,
+          (ids) =>
+            this.prisma.rls.pESPessoa.findMany({
+              where: {
+                INSInstituicaoCodigo: instituicaoCodigo,
+                PESCodigo: { in: ids },
+                PESFotoBase64: { not: null },
+              },
+              select: { PESCodigo: true, PESFotoBase64: true },
+            }),
+        );
+        buffer = await buildPassagemPdfBuffer(rows, fotos, ctx);
+        break;
+      }
+    }
+
+    const stamp = formatDate(geradoEm, 'yyyyMMdd-HHmm');
+    return {
+      buffer,
+      filename: `passagens-${stamp}.${query.format}`,
+      contentType: REPORT_CONTENT_TYPES[query.format],
+    };
+  }
+
+  private describeFiltros(q: QueryPassagemDto): string[] {
+    const fmtData = formatIsoDateOnly;
+    const out: string[] = [];
+    if (q.dataInicio && q.dataFim) {
+      out.push(`Período: ${fmtData(q.dataInicio)} a ${fmtData(q.dataFim)}`);
+    } else if (q.dataInicio) {
+      out.push(`A partir de: ${fmtData(q.dataInicio)}`);
+    } else if (q.dataFim) {
+      out.push(`Até: ${fmtData(q.dataFim)}`);
+    }
+    if (q.REGAcao) out.push(`Ação: ${q.REGAcao === 'ENTRADA' ? 'Entrada' : 'Saída'}`);
+    if (q.nome) out.push(`Nome: ${q.nome}`);
+    if (q.documento) out.push(`Documento: ${q.documento}`);
+    if (q.email) out.push(`E-mail: ${q.email}`);
+    if (q.grupo) out.push(`Grupo: ${q.grupo}`);
+    if (q.cartaoTag) out.push(`Cartão/tag: ${q.cartaoTag}`);
+    if (q.numero) out.push(`Matrícula: ${q.numero}`);
+    if (q.curso?.length) out.push(`Curso: ${q.curso.join(', ')}`);
+    if (q.serie?.length) out.push(`Série: ${q.serie.join(', ')}`);
+    if (q.turma?.length) out.push(`Turma: ${q.turma.join(', ')}`);
+    return out;
   }
 }
